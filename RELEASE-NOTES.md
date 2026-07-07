@@ -1,5 +1,21 @@
 # Superpowers Optimized Release Notes
 
+## v6.7.0 (2026-07-07)
+
+Batched Autonomous Mode: resumable, context-bounded plan execution.
+
+### New Features
+
+**Batched Autonomous Mode (subagent-driven-development)** — Execute up to N plan tasks per session, each via a fresh subagent with full review gates, ending the batch when context pressure reaches 60% (measured live via the new `--pressure` CLI on the skill-activator hook, with a conservative 3-task fallback cap when measurement fails). Execution inside a batch is strictly sequential and fully autonomous: blockers and plan ambiguities end the batch early with a journaled question instead of a guess, superseding the interactive escalation paths. At batch end the orchestrator writes a handoff into `state.md` (100-line cap, no cumulative re-summarizing) and prints exact resume instructions; after `/clear`, "resume the plan" reconciles position from plan.md checkboxes + git (authoritative) against the state.md narrative, refuses to run past unanswered blocking questions, and starts the next batch. Plan-complete batches skip resume instructions and route to the final whole-branch review. Spec: `docs/specs/2026-07-06-sdd-batched-autonomous-mode-design.md`.
+
+**`--pressure` CLI on skill-activator** — `node hooks/skill-activator.js --pressure [cwd]` reports the current session's context pressure as JSON by reading the most recently modified session JSONL, reusing the v6.6.1 pressure-gate estimation. Prints `{"error":"unmeasurable"}` when no usable session data exists.
+
+### Changes
+
+**subagent-driven-development triggers** — `hooks/skill-rules.json` now routes "implement the next N tasks", "execute the plan in batches", and "resume the plan/implementation" to subagent-driven-development. Trigger vocabulary was deliberately kept narrow after false-positive analysis: generic terms ("handoff", "next tasks") were excluded, and the resume pattern ignores conversational tails ("resume the plan discussion").
+
+**Test coverage** — Unit tests for session autodiscovery, the `--pressure` CLI, and trigger matching (incl. false-positive regressions) in `test-skill-activator.js`; new integration test `tests/claude-code/test-batched-autonomous-mode.sh`; skill-triggering prompt for batched execution.
+
 ## v6.6.1 (2026-05-08)
 
 Context pressure gate, Tailwind v4 reference, plan-level security flag, stub scan, and cleaner docs paths.
