@@ -145,10 +145,15 @@ the user. Announce: `I'm using subagent-driven-development (batched autonomous m
 2. Execute tasks with the normal per-task flow (implementer → spec review →
    quality review → update plan.md checkbox → commit). Per-task checkboxes and
    commits are the crash-safe position record — never defer them to batch end.
+   This mode executes tasks sequentially — the Parallel Waves default does NOT
+   apply inside a batch, because the boundary must be evaluated after every task.
 3. After each task, end the batch when ANY of the following holds:
    - **Context pressure ≥ 60% (primary boundary).** Run
-     `node "${CLAUDE_PLUGIN_ROOT}/hooks/skill-activator.js" --pressure "$(pwd)"`
+     `node "<plugin-root>/hooks/skill-activator.js" --pressure "$(pwd)"`
      and stop when the JSON output has `"overThreshold": true`.
+     `<plugin-root>` is this skill's plugin installation root — derive it from
+     the skill's base directory (two levels up from this SKILL.md's folder), or
+     use `$CLAUDE_PLUGIN_ROOT` when that variable is set.
      **Fallback:** if the command errors or prints `{"error":"unmeasurable"}`,
      cap this batch at 3 tasks total. Never let a failed measurement extend a batch.
    - **The user's explicit task count X is reached.** X is a cap, not a target —
@@ -178,6 +183,11 @@ Then stop with a message stating what was completed, any open issues
 > Batch complete (N tasks). Context at P%. To continue: run `/clear`, then paste:
 > "Resume the plan at <plan-path> (batched autonomous mode)"
 
+If the batch ended because the plan is complete, skip the resume instructions:
+write the handoff with `## Open Issues` only (for any carry-over), then proceed
+to the final whole-branch review and `finishing-a-development-branch` as in the
+Core Flow.
+
 ### Autonomy Policy (inside a batch)
 
 Never ask the user mid-batch. This overrides the interactive handling of
@@ -188,7 +198,11 @@ implementer statuses for the duration of a batch:
 - **BLOCKED, plan ambiguity, or verification failing 2+ times:** end the batch
   early. Journal the blocker and the specific question under `## Open Issues`
   (marked blocking). Never best-guess a plan ambiguity — a wrong guess poisons
-  every downstream task with nobody watching.
+  every downstream task with nobody watching. Inside a batch this supersedes
+  the ENTIRE escalation list under Handling Implementer Status: the autonomous
+  remedies (provide more context, stronger model, split the task) may still be
+  attempted first, but escalating to the user (item 4) and skip-and-advance
+  (item 5) are replaced by end-batch-and-journal.
 
 Review gates are NOT relaxed: full spec-compliance and code-quality review per
 task, and pre-implementation security review for `security`-flagged tasks.
