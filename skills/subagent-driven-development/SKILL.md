@@ -3,8 +3,12 @@ name: subagent-driven-development
 description: >
   Executes plans using parallel subagents with per-task implementation
   and staged review gates. Invoke for parallel plan execution in the
-  current session. Routed by writing-plans handoff or using-superpowers
-  for large plans with independent tasks.
+  current session. Also provides Batched Autonomous Mode: implement up
+  to N tasks per session with a context-pressure batch boundary, write
+  a handoff into state.md, and resume after /clear. Triggers on:
+  "implement the next N tasks", "execute the plan in batches",
+  "resume the plan". Routed by writing-plans handoff or
+  using-superpowers for large plans with independent tasks.
 ---
 
 # Subagent-Driven Development
@@ -126,6 +130,82 @@ After tests complete:
 ```
 
 Exception: persistent dev servers the user explicitly keeps running — document them in `state.md`.
+
+## Batched Autonomous Mode
+
+Use this mode when the user asks to execute a plan in batches ("implement the
+next N tasks", "execute the plan in batches") or to resume a batched run
+("resume the plan"). Inside a batch, execution is fully autonomous — never ask
+the user. Announce: `I'm using subagent-driven-development (batched autonomous mode).`
+
+### Batch Loop
+
+1. If `state.md` at the project root records a plan in progress, run the
+   Resume Procedure below before executing anything.
+2. Execute tasks with the normal per-task flow (implementer → spec review →
+   quality review → update plan.md checkbox → commit). Per-task checkboxes and
+   commits are the crash-safe position record — never defer them to batch end.
+3. After each task, end the batch when ANY of the following holds:
+   - **Context pressure ≥ 60% (primary boundary).** Run
+     `node "${CLAUDE_PLUGIN_ROOT}/hooks/skill-activator.js" --pressure "$(pwd)"`
+     and stop when the JSON output has `"overThreshold": true`.
+     **Fallback:** if the command errors or prints `{"error":"unmeasurable"}`,
+     cap this batch at 3 tasks total. Never let a failed measurement extend a batch.
+   - **The user's explicit task count X is reached.** X is a cap, not a target —
+     pressure can end the batch earlier.
+   - **The plan is complete.**
+   - **A blocker occurred** (see Autonomy Policy below).
+
+### Batch End — Handoff
+
+Write the handoff into `state.md` at the project root (full rewrite of the
+plan-execution sections, hard cap 100 lines):
+
+- `## Current Goal` — one line
+- `## Plan` — path to the plan file + "Next task: N — <title>"
+- `## Batch Summary` — one line per task completed THIS batch
+- `## Decisions & Deviations` — choices made autonomously, with a one-line why
+- `## Discovered Constraints` — forward-relevant facts (paths, gotchas, versions)
+- `## Open Issues` — blockers and questions for the user; mark blocking ones
+- `## Resume Instructions` — the exact prompt to paste after /clear
+
+Do NOT re-summarize earlier batches: completed work lives in plan.md checkboxes
+and git history. Carry forward only facts a future batch needs.
+
+Then stop with a message stating what was completed, any open issues
+(blocking questions first), and verbatim resume instructions:
+
+> Batch complete (N tasks). Context at P%. To continue: run `/clear`, then paste:
+> "Resume the plan at <plan-path> (batched autonomous mode)"
+
+### Autonomy Policy (inside a batch)
+
+Never ask the user mid-batch. This overrides the interactive handling of
+implementer statuses for the duration of a batch:
+
+- **NEEDS_CONTEXT:** answer from the plan, the spec, and the repository. If the
+  answer cannot be derived, treat as BLOCKED.
+- **BLOCKED, plan ambiguity, or verification failing 2+ times:** end the batch
+  early. Journal the blocker and the specific question under `## Open Issues`
+  (marked blocking). Never best-guess a plan ambiguity — a wrong guess poisons
+  every downstream task with nobody watching.
+
+Review gates are NOT relaxed: full spec-compliance and code-quality review per
+task, and pre-implementation security review for `security`-flagged tasks.
+
+### Resume Procedure (fresh session after /clear)
+
+1. Read `state.md`; read the plan at the recorded path; read recent `git log`.
+2. Reconcile position: plan.md checkboxes + git are authoritative; state.md is
+   narrative and may be one batch stale. Before dispatching the first unchecked
+   task, check `git log` for evidence it was already implemented (a crash
+   between commit and checkbox update leaves it done but unchecked); if so,
+   mark its checkbox complete and advance.
+3. If `## Open Issues` contains a blocking question and the resume prompt does
+   not answer it, present the question to the user and STOP — never execute
+   past an unanswered blocker. Record the eventual answer under
+   `## Decisions & Deviations`.
+4. Start the next batch at the first genuinely unchecked task.
 
 ## Handling Implementer Status
 
