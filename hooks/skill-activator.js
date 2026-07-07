@@ -460,6 +460,51 @@ function getContextPressure(cwd, sessionId) {
 }
 
 /**
+ * Find the most recently modified session JSONL for this project.
+ * Used when the caller does not know its own session id (e.g. --pressure CLI).
+ * Returns the full path, or null if the project dir is absent or has no sessions.
+ */
+function findLatestSessionJsonl(cwd) {
+  const projectDir = cwdToProjectDir(cwd);
+  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
+  const projectPath = path.join(homeDir, '.claude', 'projects', projectDir);
+
+  let files;
+  try {
+    files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+  } catch {
+    return null;
+  }
+
+  let latest = null;
+  let latestMtime = -1;
+  for (const f of files) {
+    const full = path.join(projectPath, f);
+    let st;
+    try {
+      st = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    if (st.mtimeMs > latestMtime) {
+      latestMtime = st.mtimeMs;
+      latest = full;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Context pressure from the most recently modified session JSONL.
+ * Same return shape as getContextPressure; null when unmeasurable.
+ */
+function getContextPressureAuto(cwd) {
+  const jsonlPath = findLatestSessionJsonl(cwd);
+  if (!jsonlPath) return null;
+  return getContextPressure(cwd, path.basename(jsonlPath, '.jsonl'));
+}
+
+/**
  * Build the hard block message injected when context pressure ≥60%.
  * Returned as additionalContext — Claude sees this instead of skill hints.
  */
@@ -568,6 +613,8 @@ if (require.main === module) {
     isExecutionTrigger,
     cwdToProjectDir,
     getContextPressure,
+    findLatestSessionJsonl,
+    getContextPressureAuto,
     buildContextPressureBlock,
     RULES,
     CONFIDENCE_THRESHOLD,

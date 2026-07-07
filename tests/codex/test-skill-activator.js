@@ -783,6 +783,89 @@ test('Non-execution prompt + high pressure → no pressure block', () => {
   assert.ok(!ctx.includes('context-pressure-gate'), 'Non-execution prompt should never get pressure block');
 });
 
+// ── Context pressure — session autodiscovery ─────────────────────────────────
+
+const {
+  findLatestSessionJsonl,
+  getContextPressureAuto,
+} = require('../../hooks/skill-activator');
+
+console.log('\nContext pressure — findLatestSessionJsonl / getContextPressureAuto');
+
+function withTempHome(fn) {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-auto-'));
+  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
+  process.env.USERPROFILE = tmpHome;
+  process.env.HOME = tmpHome;
+  try {
+    return fn(tmpHome);
+  } finally {
+    process.env.USERPROFILE = orig.up;
+    process.env.HOME = orig.home;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+}
+
+test('findLatestSessionJsonl returns null when project dir does not exist', () => {
+  withTempHome((tmpHome) => {
+    const result = findLatestSessionJsonl(path.join(tmpHome, 'no-such-project'));
+    assert.strictEqual(result, null);
+  });
+});
+
+test('findLatestSessionJsonl picks the most recently modified jsonl', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    const turns = [{ input_tokens: 5, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 10 }];
+    const oldPath = makeJsonlSession('session-old', projDir, tmpHome, turns);
+    const newPath = makeJsonlSession('session-new', projDir, tmpHome, turns);
+    // Force distinct mtimes — same-millisecond writes are common
+    const now = Date.now() / 1000;
+    fs.utimesSync(oldPath, now - 100, now - 100);
+    fs.utimesSync(newPath, now, now);
+    assert.strictEqual(findLatestSessionJsonl(cwd), newPath);
+  });
+});
+
+test('findLatestSessionJsonl ignores non-jsonl files', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    const projectPath = path.join(tmpHome, '.claude', 'projects', projDir);
+    fs.mkdirSync(projectPath, { recursive: true });
+    fs.writeFileSync(path.join(projectPath, 'notes.txt'), 'not a session');
+    assert.strictEqual(findLatestSessionJsonl(cwd), null);
+  });
+});
+
+test('getContextPressureAuto returns pressure from the latest session', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    // Old session at 80%, new session at 20% — auto must report the NEW one
+    const oldPath = makeJsonlSession('session-old', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 160000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const newPath = makeJsonlSession('session-new', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 40000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const now = Date.now() / 1000;
+    fs.utimesSync(oldPath, now - 100, now - 100);
+    fs.utimesSync(newPath, now, now);
+    const result = getContextPressureAuto(cwd);
+    assert.ok(result !== null, 'Should return a result');
+    assert.strictEqual(result.percent, 20);
+    assert.strictEqual(result.overThreshold, false);
+  });
+});
+
+test('getContextPressureAuto returns null when no sessions exist', () => {
+  withTempHome((tmpHome) => {
+    assert.strictEqual(getContextPressureAuto(path.join(tmpHome, 'empty-project')), null);
+  });
+});
+
 // ── Result ────────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
