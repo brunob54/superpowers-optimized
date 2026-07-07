@@ -603,7 +603,14 @@ async function main() {
 }
 
 if (require.main === module) {
-  main();
+  if (process.argv[2] === '--pressure') {
+    // CLI mode: report context pressure for the given (or current) cwd.
+    // Used by subagent-driven-development's batched autonomous mode between tasks.
+    const pressure = getContextPressureAuto(process.argv[3] || process.cwd());
+    process.stdout.write(JSON.stringify(pressure || { error: 'unmeasurable' }));
+  } else {
+    main();
+  }
 } else {
   module.exports = {
     matchSkills,

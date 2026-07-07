@@ -866,6 +866,52 @@ test('getContextPressureAuto returns null when no sessions exist', () => {
   });
 });
 
+// ── --pressure CLI ────────────────────────────────────────────────────────────
+
+const { execFileSync } = require('child_process');
+const ACTIVATOR_PATH = path.join(__dirname, '..', '..', 'hooks', 'skill-activator.js');
+
+function runPressureCli(cwd, tmpHome) {
+  const out = execFileSync('node', [ACTIVATOR_PATH, '--pressure', cwd], {
+    env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
+  }).toString();
+  return JSON.parse(out);
+}
+
+console.log('\n--pressure CLI');
+
+test('CLI reports pressure below threshold', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    makeJsonlSession('session-a', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 40000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const result = runPressureCli(cwd, tmpHome);
+    assert.strictEqual(result.percent, 20);
+    assert.strictEqual(result.overThreshold, false);
+  });
+});
+
+test('CLI reports overThreshold at >= 60%', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    makeJsonlSession('session-a', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 130000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const result = runPressureCli(cwd, tmpHome);
+    assert.strictEqual(result.overThreshold, true);
+  });
+});
+
+test('CLI prints {"error":"unmeasurable"} when no session data exists', () => {
+  withTempHome((tmpHome) => {
+    const result = runPressureCli(path.join(tmpHome, 'empty-project'), tmpHome);
+    assert.deepStrictEqual(result, { error: 'unmeasurable' });
+  });
+});
+
 // ── Result ────────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
