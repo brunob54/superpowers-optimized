@@ -397,15 +397,14 @@ function isExecutionTrigger(prompt) {
 /**
  * Convert a filesystem cwd path to the Claude Code project directory name.
  * Examples:
- *   Windows: "C:\Users\Tjerk Pieksma\..." → "c--Users-Tjerk-Pieksma-..."
- *   Unix:    "/home/user/projects/foo"    → "home-user-projects-foo"
+ *   Windows: "C:\Users\Tjerk Pieksma\..."       → "c--Users-Tjerk-Pieksma-..."
+ *   Unix:    "/home/user/AI_Coding/My_tools"    → "-home-user-AI-Coding-My-tools"
  */
 function cwdToProjectDir(cwd) {
   return cwd
     .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + '-') // C: → c-
-    .replace(/[/\\]/g, '-')  // path separators → -
-    .replace(/\s/g, '-')     // spaces → -
-    .replace(/-+$/, '');     // trim trailing dashes
+    .replace(/[^A-Za-z0-9]/g, '-') // every other non-alphanumeric → -
+    .replace(/-+$/, '');           // trim trailing dashes
 }
 
 /**

@@ -570,6 +570,10 @@ test('Forward slashes treated same as backslashes', () => {
   const fwd = cwdToProjectDir('C:/Users/user/project');
   assert.strictEqual(win, fwd, 'Forward and backslash paths should produce the same result');
 });
+test('Underscores encode to dashes (matches real Claude Code encoding)', () => {
+  const result = cwdToProjectDir('/Users/bruno/Programming/AI/AI_Coding/My_tools/Superpowers');
+  assert.strictEqual(result, '-Users-bruno-Programming-AI-AI-Coding-My-tools-Superpowers');
+});
 
 console.log('\nContext pressure gate — getContextPressure');
 
