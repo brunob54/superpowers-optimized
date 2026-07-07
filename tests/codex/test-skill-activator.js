@@ -912,6 +912,40 @@ test('CLI prints {"error":"unmeasurable"} when no session data exists', () => {
   });
 });
 
+// ── Batched autonomous mode triggers ─────────────────────────────────────────
+
+const { matchSkills } = require('../../hooks/skill-activator');
+
+console.log('\nBatched autonomous mode triggers');
+
+function matchesSdd(prompt) {
+  return matchSkills(prompt).some(m => m.skill === 'subagent-driven-development');
+}
+
+test('"implement the next 3 tasks of the plan" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('implement the next 3 tasks of the plan'), true);
+});
+
+test('"execute the plan in batches" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('execute the plan in batches'), true);
+});
+
+test('"resume the plan" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('resume the plan'), true);
+});
+
+test('"resume the implementation" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('resume the implementation'), true);
+});
+
+test('bare "resume" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('resume'), false);
+});
+
+test('"what is the plan" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('what is the plan here?'), false);
+});
+
 // ── Result ────────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
