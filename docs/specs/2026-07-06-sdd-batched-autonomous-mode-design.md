@@ -39,7 +39,9 @@ After each task, evaluate the batch boundary. End the batch when ANY of:
 3. **Plan complete.**
 4. **Blocker** (see Autonomy Policy).
 
-On batch end: write the handoff (below), then stop with a message that states what was completed, any open issues, and the verbatim resume instructions (`/clear`, then the exact resume prompt).
+On batch end: write the handoff (below), then stop with a message that states what was completed, any open issues, and the verbatim resume instructions (`/clear`, then the exact resume prompt). Exception: if the batch ended because the plan is complete, skip the resume instructions and proceed to the final whole-branch review and `finishing-a-development-branch`.
+
+Execution inside a batch is strictly sequential — SDD's Parallel Waves default does not apply, because the batch boundary must be evaluated after every task. *(Amended 2026-07-07 during execution, quality-review finding.)*
 
 ## Context Pressure Measurement
 
@@ -75,7 +77,7 @@ Rules:
 Never ask the user mid-batch. Replaces SDD's ask-the-user paths as follows:
 
 - **NEEDS_CONTEXT:** orchestrator answers from the plan, spec, and repo. If it cannot, treat as BLOCKED.
-- **BLOCKED / plan ambiguity / verification fails 2+ times:** end the batch early. Journal the blocker and the specific question under Open Issues (marked blocking). Do NOT best-guess plan ambiguities.
+- **BLOCKED / plan ambiguity / verification fails 2+ times:** end the batch early. Journal the blocker and the specific question under Open Issues (marked blocking). Do NOT best-guess plan ambiguities. This supersedes SDD's entire BLOCKED escalation list inside a batch: autonomous remedies (more context, stronger model, task splitting) may be attempted first, but user escalation and skip-and-advance are replaced by end-batch-and-journal. *(Amended 2026-07-07.)*
 - The batch-end message surfaces blocking questions prominently; answers arrive in the resume prompt and are recorded under Decisions & Deviations.
 
 Review gates are NOT relaxed: full spec + quality review per task. Autonomous runs have nobody watching — gates matter more.

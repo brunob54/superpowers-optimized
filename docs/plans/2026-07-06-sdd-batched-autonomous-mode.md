@@ -304,6 +304,8 @@ git commit -m "Add --pressure CLI entry point to skill-activator"
 
 ### Task 3: Batched Autonomous Mode section in subagent-driven-development SKILL.md
 
+> **Deviation (2026-07-07, quality review):** four amendments applied on top of the text below — (1) Autonomy Policy explicitly supersedes the entire BLOCKED escalation list (incl. skip-and-advance item 5); (2) plan-complete batches skip resume instructions and route to final whole-branch review; (3) batches execute strictly sequentially, Parallel Waves does not apply; (4) pressure command uses `<plugin-root>` derived from the skill base dir instead of assuming `$CLAUDE_PLUGIN_ROOT`. See fix commit after 40dd993 and the amended spec.
+
 **Files:**
 - Modify: `skills/subagent-driven-development/SKILL.md`
 
@@ -691,7 +693,7 @@ git commit -m "Add integration test for batched autonomous mode"
 
 **Does NOT cover:** trigger testing of other new phrasings (one representative prompt per skill, matching the existing one-file-per-skill convention).
 
-- [ ] **Step 1: Create the prompt file**
+- [x] **Step 1: Create the prompt file**
 
 Create `tests/skill-triggering/prompts/subagent-driven-development.txt`:
 
@@ -699,7 +701,7 @@ Create `tests/skill-triggering/prompts/subagent-driven-development.txt`:
 Implement the next 3 tasks of the plan in docs/plans/plan.md, then write a handoff so I can resume after /clear.
 ```
 
-- [ ] **Step 2: Register the skill in the runner**
+- [x] **Step 2: Register the skill in the runner**
 
 In `tests/skill-triggering/run-all.sh`, in the `SKILLS=(` array, add after the `"executing-plans"` line:
 
@@ -707,12 +709,12 @@ In `tests/skill-triggering/run-all.sh`, in the `SKILLS=(` array, add after the `
     "subagent-driven-development"
 ```
 
-- [ ] **Step 3: Verify wiring**
+- [x] **Step 3: Verify wiring**
 
 Run: `bash -n tests/skill-triggering/run-all.sh && ls tests/skill-triggering/prompts/subagent-driven-development.txt`
 Expected: no syntax error; prompt file listed. (Full run requires the claude CLI: `cd tests/skill-triggering && ./run-all.sh` — expected: subagent-driven-development PASSES.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/skill-triggering/prompts/subagent-driven-development.txt tests/skill-triggering/run-all.sh
