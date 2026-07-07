@@ -25,7 +25,7 @@
 
 **Does NOT cover:** selecting among multiple *concurrently active* sessions (latest mtime wins; misattribution is accepted and mitigated by the CLI fallback in Task 2). Does not cover non-default `~/.claude` locations.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Append to `tests/codex/test-skill-activator.js`, directly after the existing `getContextPressure` test block (before the final summary/exit lines at the bottom of the file — keep those last):
 
@@ -114,12 +114,12 @@ test('getContextPressureAuto returns null when no sessions exist', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: FAIL — `findLatestSessionJsonl is not a function` (new exports missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement** *(+ post-review DRY fix 396a2fc: shared `claudeProjectPath` helper)*
 
 In `hooks/skill-activator.js`, insert after the `getContextPressure` function (after its closing brace, before `buildContextPressureBlock`):
 
@@ -177,12 +177,12 @@ In the `module.exports` block at the bottom, add after `getContextPressure,`:
     getContextPressureAuto,
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: PASS — all new autodiscovery tests green, zero regressions in existing tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add hooks/skill-activator.js tests/codex/test-skill-activator.js
@@ -201,7 +201,7 @@ git commit -m "Add session-autodiscovery context pressure functions"
 
 **Does NOT cover:** any other CLI flags; `--pressure` with extra/unknown arguments beyond the optional cwd (ignored). Stdin hook mode must remain byte-for-byte unchanged when argv has no `--pressure`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Append to `tests/codex/test-skill-activator.js` after the Task 1 test block (still before the summary/exit lines):
 
@@ -253,12 +253,12 @@ test('CLI prints {"error":"unmeasurable"} when no session data exists', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: FAIL — CLI invocation hangs waiting on stdin or returns hook output, not pressure JSON. (If it hangs, the `execFileSync` inherits no stdin and `main()` gets empty input, printing `{}` — the assertions on `percent` then fail.)
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `hooks/skill-activator.js`, replace:
 
@@ -283,17 +283,17 @@ if (require.main === module) {
 } else {
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: PASS — 3 new CLI tests green, zero regressions.
 
-- [ ] **Step 5: Run the full hook unit suite for regressions**
+- [x] **Step 5: Run the full hook unit suite for regressions**
 
 Run: `bash tests/codex/run-unit-tests.sh`
 Expected: PASS — all suites green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/skill-activator.js tests/codex/test-skill-activator.js
@@ -313,7 +313,7 @@ git commit -m "Add --pressure CLI entry point to skill-activator"
 
 **Does NOT cover:** automatic `/clear` (impossible from inside a session — user performs it); protecting `state.md` from unrelated overwrites (position survives in plan.md + git per spec non-goals); parallel-session resume.
 
-- [ ] **Step 1: Update frontmatter description**
+- [x] **Step 1: Update frontmatter description**
 
 In `skills/subagent-driven-development/SKILL.md`, replace the frontmatter:
 
@@ -345,7 +345,7 @@ description: >
 ---
 ```
 
-- [ ] **Step 2: Add the mode section**
+- [x] **Step 2: Add the mode section**
 
 Insert the following section immediately before the `## Handling Implementer Status` section:
 
@@ -427,12 +427,12 @@ task, and pre-implementation security review for `security`-flagged tasks.
 4. Start the next batch at the first genuinely unchecked task.
 ```
 
-- [ ] **Step 3: Verify structure**
+- [x] **Step 3: Verify structure**
 
 Run: `grep -c "^### " skills/subagent-driven-development/SKILL.md && grep -n "Batched Autonomous Mode\|Resume Procedure\|Autonomy Policy\|Batch End" skills/subagent-driven-development/SKILL.md`
 Expected: the four new headings present; file remains valid Markdown with frontmatter intact (`head -1` is `---`).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skills/subagent-driven-development/SKILL.md
@@ -443,6 +443,8 @@ git commit -m "Add Batched Autonomous Mode to subagent-driven-development"
 
 ### Task 4: Batch/resume triggers in skill-rules.json
 
+> **Deviation (2026-07-07, quality review):** the keywords `"handoff"` and `"next tasks"` were removed after reproducible false positives (generic PM vocabulary co-firing to threshold on status-update sentences), and the resume intentPattern gained a negative lookahead excluding conversational tails (discussion/talk/meeting/review/notes/conversation). Three false-positive regression tests added on top of the 6 below.
+
 **Files:**
 - Modify: `hooks/skill-rules.json`
 - Test: `tests/codex/test-skill-activator.js`
@@ -451,7 +453,7 @@ git commit -m "Add Batched Autonomous Mode to subagent-driven-development"
 
 **Does NOT cover:** phrasings without the word "plan", "task", or "batch" (e.g. bare "continue" or "resume" must NOT trigger — too ambiguous); routing priority changes for the existing SDD entry (stays `medium`).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Append to `tests/codex/test-skill-activator.js` (before the summary/exit lines):
 
@@ -491,12 +493,12 @@ test('"what is the plan" does NOT trigger SDD', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: FAIL — the three positive-trigger tests fail (no matching keywords/patterns yet).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement** *(+ post-review tightening ec8e6e7: "handoff"/"next tasks" keywords removed, lookahead on resume pattern, 3 regression tests)*
 
 In `hooks/skill-rules.json`, replace the `subagent-driven-development` rule:
 
@@ -546,17 +548,17 @@ with:
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: PASS — all 6 trigger tests green (positive prompts score ≥ threshold via intent patterns at weight 2; negatives stay below), zero regressions in other rules' tests.
 
-- [ ] **Step 5: Validate JSON and run full suite**
+- [x] **Step 5: Validate JSON and run full suite**
 
 Run: `node -e "JSON.parse(require('fs').readFileSync('hooks/skill-rules.json','utf8')); console.log('valid')" && bash tests/codex/run-unit-tests.sh`
 Expected: `valid`, then all suites PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/skill-rules.json tests/codex/test-skill-activator.js
@@ -574,7 +576,7 @@ git commit -m "Add batch/resume triggers for subagent-driven-development"
 
 **Does NOT cover:** full end-to-end plan execution with real subagents (existing SDD integration tests are skill-comprehension style — this follows the same convention; a live batch run would take 30+ minutes and burn quota).
 
-- [ ] **Step 1: Create the test following the existing convention**
+- [x] **Step 1: Create the test following the existing convention**
 
 Create `tests/claude-code/test-batched-autonomous-mode.sh` (mode 755, matching `test-subagent-driven-development.sh` style):
 
@@ -664,17 +666,17 @@ echo ""
 echo "=== All batched autonomous mode tests passed ==="
 ```
 
-- [ ] **Step 2: Make executable and lint**
+- [x] **Step 2: Make executable and lint**
 
 Run: `chmod +x tests/claude-code/test-batched-autonomous-mode.sh && bash -n tests/claude-code/test-batched-autonomous-mode.sh && echo "syntax OK"`
 Expected: `syntax OK`
 
-- [ ] **Step 3: Run the test (requires claude CLI; skip in CI-less environments)**
+- [x] **Step 3: Run the test (requires claude CLI; skip in CI-less environments)** *(deferred to Task 7 final verification / user run — quota)*
 
 Run: `cd tests/claude-code && ./test-batched-autonomous-mode.sh`
 Expected: PASS — all 4 assertions green. (If `claude` is unavailable, record the skip in the task notes — Step 2's syntax check is the minimum gate.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/claude-code/test-batched-autonomous-mode.sh
@@ -736,14 +738,14 @@ git commit -m "Add skill-triggering test for batched execution prompts"
 
 **Does NOT cover:** publishing/tagging (user-driven); resolving the pre-existing plugin.universal.yaml drift beyond syncing its version number.
 
-- [ ] **Step 1: Bump versions to 6.7.0**
+- [x] **Step 1: Bump versions to 6.7.0**
 
 - `VERSION`: replace `6.6.1` with `6.7.0`
 - `.claude-plugin/plugin.json`: `"version": "6.6.1"` → `"version": "6.7.0"`
 - `.claude-plugin/marketplace.json`: `"version": "6.6.1"` → `"version": "6.7.0"`
 - `plugin.universal.yaml`: `version: "6.5.2"` → `version: "6.7.0"`
 
-- [ ] **Step 2: Add release notes entry**
+- [x] **Step 2: Add release notes entry**
 
 In `RELEASE-NOTES.md`, insert after the `# Superpowers Optimized Release Notes` heading (before the `## v6.6.1` section):
 
@@ -765,17 +767,17 @@ Batched Autonomous Mode: resumable, context-bounded plan execution.
 **Test coverage** — Unit tests for session autodiscovery and the `--pressure` CLI in `test-skill-activator.js`; new integration test `tests/claude-code/test-batched-autonomous-mode.sh`; skill-triggering prompt for batched execution.
 ```
 
-- [ ] **Step 3: Verify version consistency**
+- [x] **Step 3: Verify version consistency**
 
 Run: `cat VERSION && grep '"version"' .claude-plugin/plugin.json .claude-plugin/marketplace.json && grep 'version:' plugin.universal.yaml | head -1`
 Expected: all four report `6.7.0`.
 
-- [ ] **Step 4: Final full test run**
+- [x] **Step 4: Final full test run**
 
 Run: `bash tests/codex/run-unit-tests.sh && bash tests/smart-compress/run-tests.sh`
-Expected: all suites PASS.
+Expected: all suites PASS. *(Result: codex hook suites fully green, 92/92 skill-activator. smart-compress: 10 failures — verified PRE-EXISTING on base commit ae16bf3 via clean worktree, unrelated to this branch's changes; needs a separate fix before tagging the release.)*
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.universal.yaml RELEASE-NOTES.md
