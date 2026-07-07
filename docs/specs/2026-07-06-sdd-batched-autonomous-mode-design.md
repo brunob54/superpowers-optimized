@@ -49,6 +49,10 @@ Execution inside a batch is strictly sequential — SDD's Parallel Waves default
 - Session file selection: the most recently modified session JSONL under the encoded-cwd project directory.
 - **Fallback:** if measurement fails, is ambiguous (e.g. concurrent sessions), or returns implausible values, fall back to a conservative fixed cap of **3 tasks per batch**. Never let a failed measurement extend a batch.
 
+Accepted limitations *(final-review findings, 2026-07-07)*:
+- No explicit ambiguity detection: the CLI takes the newest-mtime JSONL. A concurrently active session in the same project can be measured instead of the orchestrator's; mitigated because the orchestrator's own JSONL is appended immediately before the check. Accepted — degradation is bounded by the fallback cap.
+- `CONTEXT_WINDOW_SIZE` is hardcoded to 200K (pre-existing v6.6.1 constant): sessions on 1M-window models can report percent > 100 and read overThreshold permanently, collapsing batches to 1 task — conservative direction. Making the window configurable is follow-up work.
+
 ## Handoff Document
 
 The handoff **is** `state.md` at the project root — the existing session-start machinery and context-management skill already discover it; no new artifact.
