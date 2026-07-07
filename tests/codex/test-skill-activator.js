@@ -946,6 +946,18 @@ test('"what is the plan" does NOT trigger SDD', () => {
   assert.strictEqual(matchesSdd('what is the plan here?'), false);
 });
 
+test('"here is the handoff for the next tasks" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('here is the handoff for the next tasks'), false);
+});
+
+test('"resume the plan discussion from yesterday" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('resume the plan discussion from yesterday'), false);
+});
+
+test('"resume the implementation talk after lunch" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('resume the implementation talk after lunch'), false);
+});
+
 // ── Result ────────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);

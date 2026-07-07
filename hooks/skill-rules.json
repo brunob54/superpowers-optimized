@@ -72,8 +72,8 @@
       "skill": "subagent-driven-development",
       "type": "workflow",
       "priority": "medium",
-      "keywords": ["parallel", "subagent", "run in parallel", "concurrent", "in batches", "batched", "next tasks", "resume the plan", "handoff"],
-      "intentPatterns": ["(run|do|execute)\\s+(these|them|tasks?)\\s+(in\\s+)?parallel", "use\\s+subagent", "implement\\s+the\\s+next\\s+\\d+\\s+tasks?", "(execute|run|implement)\\s+(the\\s+)?plan\\s+in\\s+batch(es)?", "resume\\s+the\\s+(plan|implementation)"]
+      "keywords": ["parallel", "subagent", "run in parallel", "concurrent", "in batches", "batched", "resume the plan"],
+      "intentPatterns": ["(run|do|execute)\\s+(these|them|tasks?)\\s+(in\\s+)?parallel", "use\\s+subagent", "implement\\s+the\\s+next\\s+\\d+\\s+tasks?", "(execute|run|implement)\\s+(the\\s+)?plan\\s+in\\s+batch(es)?", "resume\\s+the\\s+(plan|implementation)(?!\\s+(discussion|talk|meeting|review|notes|conversation))"]
     },
     {
       "skill": "finishing-a-development-branch",
