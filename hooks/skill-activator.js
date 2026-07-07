@@ -409,6 +409,14 @@ function cwdToProjectDir(cwd) {
 }
 
 /**
+ * Absolute path of the Claude Code project directory for a cwd.
+ */
+function claudeProjectPath(cwd) {
+  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
+  return path.join(homeDir, '.claude', 'projects', cwdToProjectDir(cwd));
+}
+
+/**
  * Read the current session JSONL and return context pressure info.
  * Uses the last assistant turn's total input tokens as the context size estimate —
  * this is the most accurate indicator of how much context window is currently occupied.
@@ -417,9 +425,7 @@ function cwdToProjectDir(cwd) {
 function getContextPressure(cwd, sessionId) {
   if (!sessionId) return null;
 
-  const projectDir = cwdToProjectDir(cwd);
-  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
-  const jsonlPath = path.join(homeDir, '.claude', 'projects', projectDir, sessionId + '.jsonl');
+  const jsonlPath = path.join(claudeProjectPath(cwd), sessionId + '.jsonl');
 
   let content;
   try {
@@ -465,9 +471,7 @@ function getContextPressure(cwd, sessionId) {
  * Returns the full path, or null if the project dir is absent or has no sessions.
  */
 function findLatestSessionJsonl(cwd) {
-  const projectDir = cwdToProjectDir(cwd);
-  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
-  const projectPath = path.join(homeDir, '.claude', 'projects', projectDir);
+  const projectPath = claudeProjectPath(cwd);
 
   let files;
   try {
