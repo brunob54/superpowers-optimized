@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-18
 **Branch:** `BB/handoff+token-optimization`
-**Source:** obra/superpowers v6.0.0 (`task-reviewer-prompt.md`, `scripts/{sdd-workspace,task-brief,review-package}`, SKILL.md sections "Pre-Flight Plan Review", "Model Selection", "Constructing Reviewer Prompts", "File Handoffs", "Durable Progress")
+**Source:** obra/superpowers v6.0.0 (`task-reviewer-prompt.md`, `scripts/{sdd-workspace,task-brief,review-package}`, SKILL.md sections "Pre-Flight Plan Review", "Model Selection", "Constructing Reviewer Prompts", "File Handoffs", "Durable Progress", controller narration rule)
 
 ## Goal
 
@@ -73,6 +73,7 @@ Upstream's version, keeping the fork's leakage banner and four-status contract:
 - **New: Pre-Flight Plan Review** — before Task 1, scan the plan for internal conflicts and plan-mandated rubric defects; raise everything as one batched question; clean scan proceeds silently. In Batched Autonomous Mode, a conflict found pre-flight is a blocker → journal and end batch (never best-guess), consistent with the existing autonomy policy.
 - **New: Handling Reviewer ⚠️ Items** — controller resolves each ⚠️ itself (it holds the plan and cross-task context); a confirmed gap = failed spec review → fix and re-review.
 - **New: Constructing Reviewer Prompts** — no coaching ("do not flag X", pre-rated severity banned); global-constraints block copied verbatim from the plan; Minor findings recorded in the ledger and handed to the final review for triage; final whole-branch review gets its own package (`review-package MERGE_BASE HEAD`); **final-review findings go to ONE fix subagent with the complete list**, never one fixer per finding.
+- **New: controller narration rule** (per upstream, verbatim): "Narration: between tool calls, narrate at most one short line — the ledger and the tool results carry the record." This was upstream's largest single measured token lever (−54% in their autoresearch runs); it is SDD-specific (tied to the ledger) and complements, not duplicates, the generic `token-efficiency` guidance.
 - **New: Durable Progress ledger** — `.superpowers/sdd/progress.md`; on each clean review append `Task N: complete (commits <base7>..<head7>, review clean)`. Authority order stays: plan.md checkboxes + git log are authoritative for position (as Batched Mode already defines); the ledger adds commit ranges for post-compaction recovery and Minor-finding carryover. Check for an existing ledger at skill start; never re-dispatch tasks it marks complete.
 - **Model Selection:** keep the fork's haiku/sonnet/opus table; add upstream's rules — always specify the model explicitly (with the silent-inheritance warning), "turn count beats token price" (sonnet floor for reviewers and prose-spec implementers; haiku only when the plan text contains the complete code, or for single-file mechanical fixes), final whole-branch review on opus.
 - **Parallel Waves:** review step becomes the single gate; per-task packages built with `review-package --commits` from each implementer's reported SHAs. If an implementer's report omits SHAs, the controller asks that implementer for them — never falls back to a range in wave mode.
@@ -93,6 +94,7 @@ Upstream's version, keeping the fork's leakage banner and four-status contract:
 - Version bump to **6.8.0**: `VERSION`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`; RELEASE-NOTES entry crediting upstream v6.0.0 and documenting the `--commits` fork extension.
 - No `hooks/skill-rules.json` change: no skill added or renamed.
 - Behavioral testing note: sessions run the installed copy — re-run the `git archive HEAD` reinstall into `~/.claude/plugins/cache/superpowers-optimized/superpowers-optimized/6.6.1/` before any live-session validation.
+- SDD skill markdown and its bash scripts are consumed by Codex sessions too: run `tests/codex/post-push-validation-checklist.md` after push (upstream's own v6.0.0 validation surfaced Codex test-isolation issues).
 
 ## Interfaces / contracts summary
 
@@ -107,7 +109,7 @@ Upstream's version, keeping the fork's leakage banner and four-status contract:
 ## Error handling
 
 - `task-brief`: missing plan file → exit 2; unmatched task heading → exit 3 with message. Controller must not dispatch on an empty brief.
-- `review-package`: unresolvable SHAs → exit 2. Missing diff file at review time → template's documented fallback (reviewer fetches the range itself) covers sequential mode; wave mode controller regenerates via `--commits`.
+- `review-package`: unresolvable SHAs → exit 2. Missing diff file at review time → template's documented exception-only fallback (reviewer fetches the range itself — permitted solely in this failure case, not a dilution of the no-git rule) covers sequential mode; wave mode controller regenerates via `--commits`.
 - Workspace destroyed by `git clean -fdx` → ledger recovered from `git log`; briefs/packages regenerated on demand.
 
 ## Failure modes considered
