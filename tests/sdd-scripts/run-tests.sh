@@ -103,6 +103,53 @@ assert_eq "missing task exits 3" "$?" "3"
 "$SCRIPTS/task-brief" nope.md 1 2>/dev/null
 assert_eq "missing plan exits 2" "$?" "2"
 
+bold "review-package (range mode)"
+
+echo "base" > base.txt
+git add base.txt && git commit --quiet -m "base commit"
+BASE=$(git rev-parse HEAD)
+echo "alpha" > alpha.txt
+git add alpha.txt && git commit --quiet -m "task: add alpha"
+echo "beta" > beta.txt
+git add beta.txt && git commit --quiet -m "task: add beta"
+HEAD_SHA=$(git rev-parse HEAD)
+
+PKG=$("$SCRIPTS/review-package" "$BASE" "$HEAD_SHA" | sed 's/^wrote //; s/:.*$//')
+EXPECTED_PKG="$REPO/.superpowers/sdd/review-$(git rev-parse --short "$BASE")..$(git rev-parse --short "$HEAD_SHA").diff"
+assert_eq "range package path" "$PKG" "$EXPECTED_PKG"
+assert_file_contains "range: first commit in list" "$PKG" "task: add alpha"
+assert_file_contains "range: second commit in list" "$PKG" "task: add beta"
+assert_file_contains "range: stat summary present" "$PKG" "2 files changed"
+assert_file_contains "range: alpha hunk present" "$PKG" "+alpha"
+assert_file_contains "range: beta hunk present" "$PKG" "+beta"
+
+"$SCRIPTS/review-package" deadbeef "$HEAD_SHA" 2>/dev/null
+assert_eq "bad BASE exits 2" "$?" "2"
+
+bold "review-package (--commits mode)"
+
+echo "gamma" > gamma.txt
+git add gamma.txt && git commit --quiet -m "task1: add gamma"
+C1=$(git rev-parse HEAD)
+echo "delta" > delta.txt
+git add delta.txt && git commit --quiet -m "task2: add delta (sibling)"
+echo "epsilon" > epsilon.txt
+git add epsilon.txt && git commit --quiet -m "task1: add epsilon"
+C3=$(git rev-parse HEAD)
+
+CPKG=$("$SCRIPTS/review-package" --commits "$C1" "$C3" | sed 's/^wrote //; s/:.*$//')
+EXPECTED_CPKG="$REPO/.superpowers/sdd/review-commits-$(git rev-parse --short "$C1")..$(git rev-parse --short "$C3").diff"
+assert_eq "--commits package path" "$CPKG" "$EXPECTED_CPKG"
+assert_file_contains "--commits: first commit present" "$CPKG" "+gamma"
+assert_file_contains "--commits: second commit present" "$CPKG" "+epsilon"
+assert_file_not_contains "--commits: sibling task's hunk excluded" "$CPKG" "+delta"
+assert_file_not_contains "--commits: sibling subject excluded" "$CPKG" "task2: add delta (sibling)"
+
+"$SCRIPTS/review-package" --commits deadbeef 2>/dev/null
+assert_eq "--commits bad SHA exits 2" "$?" "2"
+"$SCRIPTS/review-package" --commits 2>/dev/null
+assert_eq "--commits with no SHAs exits 2" "$?" "2"
+
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
