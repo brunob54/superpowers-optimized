@@ -1,5 +1,19 @@
 # Superpowers Optimized Release Notes
 
+## v6.8.0 (2026-07-18)
+
+### Subagent-Driven Development: token-optimized review flow (port of upstream v6.0.0)
+
+Ports obra/superpowers v6.0.0's measured cost rework (~2x faster, ~50-60% fewer tokens in upstream evals), adapted to this fork's Parallel Waves and Batched Autonomous Mode.
+
+- **One reviewer per task, two verdicts.** `spec-reviewer-prompt.md` and `code-quality-reviewer-prompt.md` are replaced by a single `task-reviewer-prompt.md` returning a spec-compliance verdict and a quality verdict, plus a "⚠️ cannot verify from diff" verdict the controller resolves itself. One fix pass clears both; reviewers are read-only and immune to implementer rationales.
+- **Handoffs move as files.** New scripts `sdd-workspace`, `task-brief`, and `review-package` write task briefs, implementer reports, and review diffs (commit list + stat + `-U10` diff) to `.superpowers/sdd/`. Dispatch prompts carry paths, not pasted text.
+- **Fork extension: `review-package --commits SHA...`** builds a wave task's package from its own reported commits — a BASE..HEAD range would mix interleaved sibling tasks' changes. Range fallback is banned in waves.
+- **Every dispatch names its model.** Templates mark `model:` REQUIRED (an omitted model silently inherits the session's most expensive one), with turn-count-beats-token-price guidance; the final whole-branch review always runs on the most capable model.
+- **Controller discipline:** at most one narration line between tool calls; a durable progress ledger (`.superpowers/sdd/progress.md`) prevents re-dispatching completed tasks after compaction; pre-flight plan review; ONE fix subagent per review's findings; reviewer coaching banned.
+- **writing-plans:** plans now carry a Global Constraints block, handed verbatim to every reviewer.
+- New fast test suite: `tests/sdd-scripts/run-tests.sh`.
+
 ## v6.7.1 (2026-07-18)
 
 Debug-prompt routing fix.
