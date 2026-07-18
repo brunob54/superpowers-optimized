@@ -43,7 +43,7 @@
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Write the test harness with the sdd-workspace section (failing first)**
+- [x] **Step 1: Write the test harness with the sdd-workspace section (failing first)**
 
 Create `tests/sdd-scripts/run-tests.sh` with exactly:
 
@@ -111,12 +111,12 @@ fi
 
 Then: `chmod +x tests/sdd-scripts/run-tests.sh`
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: FAIL / error — `sdd-workspace: No such file or directory`
 
-- [ ] **Step 3: Implement `sdd-workspace`**
+- [x] **Step 3: Implement `sdd-workspace`**
 
 Create `skills/subagent-driven-development/scripts/sdd-workspace` with exactly:
 
@@ -147,12 +147,12 @@ cd "$dir" && pwd
 
 Then: `chmod +x skills/subagent-driven-development/scripts/sdd-workspace`
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: PASS — 5 passed, 0 failed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/sdd-scripts/run-tests.sh skills/subagent-driven-development/scripts/sdd-workspace
@@ -169,7 +169,7 @@ git commit -m "Add SDD workspace script and script test harness"
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Add failing tests**
+- [x] **Step 1: Add failing tests**
 
 In `tests/sdd-scripts/run-tests.sh`, insert immediately BEFORE the line `bold ""` (the results block):
 
@@ -227,12 +227,12 @@ assert_eq "missing task exits 3" "$?" "3"
 assert_eq "missing plan exits 2" "$?" "2"
 `````
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: FAIL — `task-brief: No such file or directory` (sdd-workspace section still passes)
 
-- [ ] **Step 3: Implement `task-brief`**
+- [x] **Step 3: Implement `task-brief`**
 
 Create `skills/subagent-driven-development/scripts/task-brief` with exactly:
 
@@ -287,12 +287,12 @@ echo "wrote ${out}: $(wc -l < "$out" | tr -d ' ') lines"
 
 Then: `chmod +x skills/subagent-driven-development/scripts/task-brief`
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: PASS — 15 passed, 0 failed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/subagent-driven-development/scripts/task-brief tests/sdd-scripts/run-tests.sh
@@ -309,7 +309,7 @@ git commit -m "Add task-brief script: plan task text moves as a file"
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Add failing tests**
+- [x] **Step 1: Add failing tests**
 
 In `tests/sdd-scripts/run-tests.sh`, insert immediately BEFORE the line `bold ""` (the results block):
 
@@ -362,12 +362,12 @@ assert_eq "--commits bad SHA exits 2" "$?" "2"
 assert_eq "--commits with no SHAs exits 2" "$?" "2"
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: FAIL — `review-package: No such file or directory` (earlier sections still pass)
 
-- [ ] **Step 3: Implement `review-package`**
+- [x] **Step 3: Implement `review-package`**
 
 Create `skills/subagent-driven-development/scripts/review-package` with exactly:
 
@@ -479,12 +479,12 @@ Then: `chmod +x skills/subagent-driven-development/scripts/review-package`
 
 Deviation note (intentional, matches spec intent): `--commits` mode emits per-commit stats under "Files changed (per commit)" rather than a single combined stat — git cannot produce one stat across non-contiguous commits.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: PASS — 29 passed, 0 failed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/subagent-driven-development/scripts/review-package tests/sdd-scripts/run-tests.sh
@@ -500,7 +500,7 @@ git commit -m "Add review-package script with range and --commits (wave) modes"
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Create the template**
+- [x] **Step 1: Create the template**
 
 Create `skills/subagent-driven-development/task-reviewer-prompt.md` with exactly:
 
@@ -708,12 +708,12 @@ A fix dispatch can address spec gaps and quality findings together;
 re-review after fixes covers both verdicts.
 ````
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `grep -c "Subagent Rules\|REQUIRED\|Cannot verify from diff" skills/subagent-driven-development/task-reviewer-prompt.md`
 Expected: a count ≥ 6 (banner present, REQUIRED model + placeholders, ⚠️ verdict present)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/subagent-driven-development/task-reviewer-prompt.md
@@ -729,7 +729,7 @@ git commit -m "Add merged task-reviewer template: one reviewer, two verdicts"
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Replace the file content**
+- [x] **Step 1: Replace the file content**
 
 Replace the entire content of `skills/subagent-driven-development/implementer-prompt.md` with:
 
@@ -891,12 +891,12 @@ Task tool (general-purpose):
 - `[directory]` — the working directory for the task
 ````
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `grep -c "BRIEF_FILE\|REPORT_FILE\|REQUIRED" skills/subagent-driven-development/implementer-prompt.md && grep -c "FULL task text" skills/subagent-driven-development/implementer-prompt.md`
 Expected: first count ≥ 6; second command exits 1 with count 0 (old inline-paste marker gone)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/subagent-driven-development/implementer-prompt.md
@@ -915,7 +915,7 @@ git commit -m "Implementer works from brief file, reports to file, model require
 
 **Does NOT cover:** the new sections (Pre-Flight, File Handoffs, ⚠️ Items, Constructing Reviewer Prompts, Durable Progress) and Model Selection additions — those are Task 7. After this task no references to deleted files remain. Steps 2 and 5 intentionally insert forward references to Task 7's sections (Pre-Flight Plan Review, Handling Reviewer ⚠️ Items, Durable Progress); they dangle until Task 7 lands — expected, not a defect.
 
-- [ ] **Step 1: Replace the per-task cluster and edges in the dot graph**
+- [x] **Step 1: Replace the per-task cluster and edges in the dot graph**
 
 In the `Core Flow` dot graph, replace the `cluster_per_task` subgraph nodes:
 
@@ -952,7 +952,7 @@ and replace the per-task edges with:
 
 Keep the outer nodes (`Final whole-branch review`, `Shut down spawned subagents`, `Invoke finishing-a-development-branch`) and their edges unchanged.
 
-- [ ] **Step 2: Replace the numbered Core Flow list**
+- [x] **Step 2: Replace the numbered Core Flow list**
 
 Replace list items 1–3 (keep 4–6: final review, shutdown, finishing) with:
 
@@ -972,7 +972,7 @@ Replace list items 1–3 (keep 4–6: final review, shutdown, finishing) with:
    - For tasks centered on frontend/UI, apply `frontend-design` standards to guide structure, styling, and accessibility.
 ```
 
-- [ ] **Step 3: Update Parallel Waves**
+- [x] **Step 3: Update Parallel Waves**
 
 Replace step 3 of the Parallel Waves numbered list ("Review each task with the same two-stage gate.") with:
 
@@ -980,7 +980,7 @@ Replace step 3 of the Parallel Waves numbered list ("Review each task with the s
 3. Review each task with the single task-review gate. Build each task's package with `scripts/review-package --commits <that task's reported commit SHAs>` — NEVER a BASE..HEAD range in a wave: commits interleave, so a range would mix sibling tasks' changes into the review. If an implementer's report omits its commit SHAs, ask that implementer for them before reviewing.
 ```
 
-- [ ] **Step 4: Update Handling Implementer Status (DONE)**
+- [x] **Step 4: Update Handling Implementer Status (DONE)**
 
 Replace the `**DONE:** Proceed to spec compliance review.` line with:
 
@@ -988,14 +988,14 @@ Replace the `**DONE:** Proceed to spec compliance review.` line with:
 **DONE:** Generate the review package (`scripts/review-package BASE HEAD`, from this skill's directory — it prints the unique file path it wrote; BASE is the commit you recorded before dispatching the implementer — never `HEAD~1`), then dispatch the task reviewer with the printed path. In a wave, use `--commits` with the implementer's reported SHAs instead.
 ```
 
-- [ ] **Step 5: Update Batched Autonomous Mode wording**
+- [x] **Step 5: Update Batched Autonomous Mode wording**
 
 - In Batch Loop step 2, replace `(implementer → spec review → quality review → update plan.md checkbox → commit)` with `(implementer → task review (both verdicts) → update plan.md checkbox → commit)`.
 - Replace `Review gates are NOT relaxed: full spec-compliance and code-quality review per task, and pre-implementation security review for `security`-flagged tasks.` with `Review gates are NOT relaxed: the full task review (spec-compliance AND code-quality verdicts) per task, and pre-implementation security review for `security`-flagged tasks. A conflict found by the Pre-Flight Plan Review is a blocker: journal it under `## Open Issues` and end the batch — never best-guess a plan conflict.`
 
 Note: both target strings wrap across two lines in SKILL.md (at "spec review →/quality review" and "review per/task") — match them including the line break, not as single lines.
 
-- [ ] **Step 6: Update Hard Rules**
+- [x] **Step 6: Update Hard Rules**
 
 Replace:
 - `- Do not skip spec review.` and `- Do not skip quality review.` (two lines) with `- Do not skip the task review — both verdicts, spec compliance and code quality.`
@@ -1008,7 +1008,7 @@ Append to the Hard Rules list:
 - Narration: between tool calls, narrate at most one short line — the ledger and the tool results carry the record.
 ```
 
-- [ ] **Step 7: Update Prompt Templates section and delete old files**
+- [x] **Step 7: Update Prompt Templates section and delete old files**
 
 Replace the Prompt Templates list with:
 
@@ -1028,7 +1028,7 @@ Also update the `## Integration` section: replace `- Use `requesting-code-review
 
 Also update the Model Selection table's `opus` row: replace `complex spec review` with `complex design review` — otherwise the Step 8 grep below finds a leftover "spec review" at that row and fails.
 
-- [ ] **Step 8: Verify consistency**
+- [x] **Step 8: Verify consistency**
 
 Run: `grep -rn "spec-reviewer-prompt\|code-quality-reviewer-prompt\|two-stage gate\|spec review\|quality review" skills/subagent-driven-development/SKILL.md`
 Expected: no hits (all references to the deleted files and the two-stage flow are gone; "task review" phrasing remains)
@@ -1036,7 +1036,7 @@ Expected: no hits (all references to the deleted files and the two-stage flow ar
 Run: `bash tests/sdd-scripts/run-tests.sh`
 Expected: PASS (scripts untouched — guards against accidental edits)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A skills/subagent-driven-development
@@ -1052,7 +1052,7 @@ git commit -m "SDD: single task-review gate; wave packages via --commits; narrat
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Insert Pre-Flight Plan Review after the Core Flow numbered list** (immediately before `## Parallel Waves`)
+- [x] **Step 1: Insert Pre-Flight Plan Review after the Core Flow numbered list** (immediately before `## Parallel Waves`)
 
 ```markdown
 ## Pre-Flight Plan Review
@@ -1071,7 +1071,7 @@ conflicts that only emerge from implementation. (In Batched Autonomous Mode
 a pre-flight conflict is a blocker — journal it and end the batch.)
 ```
 
-- [ ] **Step 2: Insert File Handoffs, Handling Reviewer ⚠️ Items, Constructing Reviewer Prompts, and Durable Progress** (all four sections, one block, immediately after the `## Handling Implementer Status` section, before `## Hard Rules`)
+- [x] **Step 2: Insert File Handoffs, Handling Reviewer ⚠️ Items, Constructing Reviewer Prompts, and Durable Progress** (all four sections, one block, immediately after the `## Handling Implementer Status` section, before `## Hard Rules`)
 
 ```markdown
 ## File Handoffs
@@ -1169,7 +1169,7 @@ expensive failure mode. Track progress in a ledger file, not only in todos:
   that happens, recover from `git log`.
 ```
 
-- [ ] **Step 3: Extend Model Selection**
+- [x] **Step 3: Extend Model Selection**
 
 Append to the `## Model Selection for Agent Tool Calls` section (after the existing "Apply via the `model` parameter…" paragraph):
 
@@ -1190,7 +1190,7 @@ complexity, and risk — a subtle concurrency change deserves `opus`; the
 final whole-branch review always runs on `opus`, not the session default.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `grep -c "^## " skills/subagent-driven-development/SKILL.md && grep -n "Pre-Flight Plan Review\|File Handoffs\|Reviewer ⚠️ Items\|Constructing Reviewer Prompts\|Durable Progress\|Turn count beats token price" skills/subagent-driven-development/SKILL.md`
 Expected: every pattern present. The five new section names each appear exactly once as a `## ` heading; additional hits are intentional cross-references (Core Flow list, Hard Rules, Batched Mode wording) — do NOT delete them to reduce counts. "Turn count beats token price" appears exactly once.
@@ -1201,7 +1201,7 @@ Expected: no hits (Task 6's guard still holds after this task's insertions — t
 Run: `bash tests/codex/run-unit-tests.sh`
 Expected: PASS (hook units unaffected — guard)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/subagent-driven-development/SKILL.md
@@ -1217,7 +1217,7 @@ git commit -m "SDD: file handoffs, pre-flight review, ledger, model-required gui
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Add the block to the Plan Header template**
+- [x] **Step 1: Add the block to the Plan Header template**
 
 In the `## Plan Header` template of `skills/writing-plans/SKILL.md`, insert after the `**Assumptions:**` line:
 
@@ -1225,12 +1225,12 @@ In the `## Plan Header` template of `skills/writing-plans/SKILL.md`, insert afte
 **Global Constraints:** <rules that bind every task — version floors, dependency limits, naming and copy, exact values — copied verbatim from the spec. subagent-driven-development hands this block verbatim to every reviewer as its attention lens. Omit only if the spec truly has none; a missing block forces the SDD controller to re-derive constraints from the spec on every dispatch.>
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `grep -n "Global Constraints" skills/writing-plans/SKILL.md`
 Expected: 1+ hits inside the Plan Header template
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/writing-plans/SKILL.md
@@ -1250,13 +1250,13 @@ git commit -m "writing-plans: plans carry a Global Constraints block for SDD rev
 
 **Does NOT cover:** running the behavioral suites (slow, invoke real `claude`; they run in CI / on demand). Verification here is static: the scripts must reference only the merged-gate concepts and stay syntactically valid.
 
-- [ ] **Step 1: Update `test-subagent-driven-development.sh`**
+- [x] **Step 1: Update `test-subagent-driven-development.sh`**
 
 - Test 2: replace the question `"Read the file at $SKILL_FILE. Answer yes or no: does spec compliance review happen before code quality review in subagent-driven-development?"` with `"Read the file at $SKILL_FILE. Answer yes or no: does a single task reviewer return both a spec-compliance verdict and a code-quality verdict in subagent-driven-development?"`, and replace the assert pattern `"[Yy]es\|spec.*compliance.*before\|compliance.*first\|compliance.*then.*quality\|quality.*after.*compliance"` with `"[Yy]es\|both.*verdict\|single.*review\|one review\|two verdict"` and its description `"Spec compliance before code quality"` with `"Single reviewer, both verdicts"`.
 - Test 5: replace `"what is the spec compliance reviewer's attitude toward the implementer's report?"` with `"what is the task reviewer's attitude toward the implementer's report?"`; in the follow-up assertion, replace pattern `"read.*code\|inspect.*code\|verify.*code"` with `"read.*code\|inspect.*code\|verify.*code\|read.*diff\|verify.*diff"` (the reviewer's view of the change is the diff file).
 - Test 7 (asserts the OLD inline-paste contract — the port inverts it): replace the comment `# Test 7: Verify full task text is provided` with `# Test 7: Verify task hand-off via brief file`; replace the question `"Read the file at $SKILL_FILE and answer: how does the controller provide task information to the implementer subagent? Does it make them read a file or provide it directly?"` with `"Read the file at $SKILL_FILE and answer: how does the controller hand the task requirements to the implementer subagent? Does it paste the task text into the prompt or point at a file?"`; replace the assert pattern `"provide.*directly\|full.*text\|paste\|include.*prompt\|inline\|passed.*directly"` with `"brief\|task-brief\|read.*file\|file.*path\|workspace"` and its description `"Provides text directly"` with `"Hands over a brief file"`.
 
-- [ ] **Step 2: Update `test-subagent-driven-development-integration.sh`**
+- [x] **Step 2: Update `test-subagent-driven-development-integration.sh`**
 
 - Line ~15: `echo "  2. Full task text provided to subagents"` → `echo "  2. Task briefs handed to subagents as files"`
 - Line ~16: `echo "  4. Spec compliance review before code quality"` → `echo "  4. Single task review returns spec + quality verdicts"`
@@ -1267,7 +1267,7 @@ git commit -m "writing-plans: plans carry a Global Constraints block for SDD rev
 - Line ~300: `echo "  ✓ Provides full task text to subagents"` → `echo "  ✓ Hands task briefs to subagents as files"`
 - Lines ~302-303: `echo "  ✓ Runs spec compliance before code quality"` → `echo "  ✓ Runs the single task review (both verdicts)"`; `echo "  ✓ Spec reviewer verifies independently"` → `echo "  ✓ Task reviewer verifies independently"`
 
-- [ ] **Step 3: Update `tests/claude-code/README.md`**
+- [x] **Step 3: Update `tests/claude-code/README.md`**
 
 The README describes what these two tests verify; keep it in sync with the merged gate:
 
@@ -1276,12 +1276,12 @@ The README describes what these two tests verify; keep it in sync with the merge
 - Line ~106: `  - Spec compliance review happens before code quality` → `  - A single task review returns both spec-compliance and code-quality verdicts`
 - Line ~107: `  - Spec reviewer reads code independently` → `  - Task reviewer verifies the diff independently`
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `bash -n tests/claude-code/test-subagent-driven-development.sh && bash -n tests/claude-code/test-subagent-driven-development-integration.sh && grep -c "spec compliance review before\|spec.*compliance.*before\|[Ff]ull task text" tests/claude-code/test-subagent-driven-development*.sh tests/claude-code/README.md`
 Expected: both `bash -n` clean; grep exits 1 (0 remaining "before" orderings AND 0 remaining "full task text" inline-paste references in the tests or the README)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/claude-code/test-subagent-driven-development.sh tests/claude-code/test-subagent-driven-development-integration.sh tests/claude-code/README.md
@@ -1299,14 +1299,14 @@ git commit -m "Behavioral tests and README assert the merged task-review gate"
 
 **Does NOT cover:** tagging (user decides when to tag), the plugin-cache reinstall (post-merge/manual step), and the live Codex validation (needs a Codex machine — run the repo-adapter smoke checks from `tests/codex/post-push-validation-checklist.md` only).
 
-- [ ] **Step 1: Bump version to 6.8.0 in all four files**
+- [x] **Step 1: Bump version to 6.8.0 in all four files**
 
 - `VERSION`: replace content with `6.8.0`
 - `.claude-plugin/plugin.json`: update the `"version"` field to `"6.8.0"`
 - `.claude-plugin/marketplace.json`: update the version field(s) referencing the current version to `6.8.0`
 - `plugin.universal.yaml`: update the `meta` block's `version:` to `"6.8.0"` — touch nothing else in this file (its hook wiring is known-stale, but the version must not drift; it is currently in sync)
 
-- [ ] **Step 2: Add the RELEASE-NOTES entry**
+- [x] **Step 2: Add the RELEASE-NOTES entry**
 
 Insert at the top of the version entries in `RELEASE-NOTES.md`:
 
@@ -1326,7 +1326,7 @@ Ports obra/superpowers v6.0.0's measured cost rework (~2x faster, ~50-60% fewer 
 - New fast test suite: `tests/sdd-scripts/run-tests.sh`.
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cat VERSION && grep '"version"' .claude-plugin/plugin.json .claude-plugin/marketplace.json && grep -n 'version: "6.8.0"' plugin.universal.yaml && grep -n "v6.8.0" RELEASE-NOTES.md | head -2`
 Expected: `6.8.0` everywhere (including the yaml `meta` version); RELEASE-NOTES entry present at top
@@ -1334,7 +1334,7 @@ Expected: `6.8.0` everywhere (including the yaml `meta` version); RELEASE-NOTES 
 Run: `bash tests/sdd-scripts/run-tests.sh && bash tests/codex/run-unit-tests.sh`
 Expected: both PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.universal.yaml RELEASE-NOTES.md
