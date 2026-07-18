@@ -43,6 +43,7 @@ digraph sdd_process {
     "Read plan, extract all tasks, create tracking" [shape=box];
     "More tasks?" [shape=diamond];
     "Final whole-branch review" [shape=box];
+    "Shut down spawned subagents" [shape=box];
     "Invoke finishing-a-development-branch" [shape=doublecircle];
 
     "Read plan, extract all tasks, create tracking" -> "Dispatch implementer subagent";
@@ -62,7 +63,8 @@ digraph sdd_process {
     "Mark task complete" -> "More tasks?";
     "More tasks?" -> "Dispatch implementer subagent" [label="yes"];
     "More tasks?" -> "Final whole-branch review" [label="no"];
-    "Final whole-branch review" -> "Invoke finishing-a-development-branch";
+    "Final whole-branch review" -> "Shut down spawned subagents";
+    "Shut down spawned subagents" -> "Invoke finishing-a-development-branch";
 }
 ```
 
@@ -80,7 +82,11 @@ digraph sdd_process {
    - For complex or high-risk tasks, validate the approach against requirements and consider simpler alternatives before or after the implementer’s work.
    - For tasks centered on frontend/UI, apply `frontend-design` standards to guide structure, styling, and accessibility.
 4. Run final whole-branch review.
-5. Invoke `finishing-a-development-branch`.
+5. Shut down all spawned subagents. Named teammates stay resident and idle
+   after their task so they remain addressable for review fix cycles — they do
+   not terminate themselves. Once the final review passes, send each one a
+   `shutdown_request`; do not leave the user to discover a pile of idle agents.
+6. Invoke `finishing-a-development-branch`.
 
 ## Parallel Waves (default for independent tasks)
 
@@ -176,6 +182,10 @@ plan-execution sections, hard cap 100 lines):
 
 Do NOT re-summarize earlier batches: completed work lives in plan.md checkboxes
 and git history. Carry forward only facts a future batch needs.
+
+Before stopping, shut down all subagents spawned this batch (send each a
+`shutdown_request`) — idle teammates do not survive `/clear` usefully and
+would otherwise linger as orphans.
 
 Then stop with a message stating what was completed, any open issues
 (blocking questions first), and verbatim resume instructions:
