@@ -27,17 +27,14 @@ digraph sdd_process {
 
     subgraph cluster_per_task {
         label="Per Task";
-        "Dispatch implementer subagent" [shape=box];
+        "Record BASE, write task brief, dispatch implementer" [shape=box];
         "Implementer asks questions?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
-        "Implementer implements, tests, self-reviews" [shape=box];
-        "Dispatch spec reviewer subagent" [shape=box];
-        "Spec compliant?" [shape=diamond];
-        "Implementer fixes spec gaps" [shape=box];
-        "Dispatch code quality reviewer" [shape=box];
-        "Quality approved?" [shape=diamond];
-        "Implementer fixes quality issues" [shape=box];
-        "Mark task complete" [shape=box];
+        "Implementer implements, tests, self-reviews, writes report file" [shape=box];
+        "Generate review package, dispatch task reviewer" [shape=box];
+        "Spec ✅ and quality approved?" [shape=diamond];
+        "Dispatch fix subagent (spec + quality findings together)" [shape=box];
+        "Mark task complete, append ledger line" [shape=box];
     }
 
     "Read plan, extract all tasks, create tracking" [shape=box];
@@ -46,40 +43,36 @@ digraph sdd_process {
     "Shut down spawned subagents" [shape=box];
     "Invoke finishing-a-development-branch" [shape=doublecircle];
 
-    "Read plan, extract all tasks, create tracking" -> "Dispatch implementer subagent";
-    "Dispatch implementer subagent" -> "Implementer asks questions?";
+    "Read plan, extract all tasks, create tracking" -> "Record BASE, write task brief, dispatch implementer";
+    "Record BASE, write task brief, dispatch implementer" -> "Implementer asks questions?";
     "Implementer asks questions?" -> "Answer questions, provide context" [label="yes"];
-    "Answer questions, provide context" -> "Dispatch implementer subagent";
-    "Implementer asks questions?" -> "Implementer implements, tests, self-reviews" [label="no"];
-    "Implementer implements, tests, self-reviews" -> "Dispatch spec reviewer subagent";
-    "Dispatch spec reviewer subagent" -> "Spec compliant?";
-    "Spec compliant?" -> "Implementer fixes spec gaps" [label="no"];
-    "Implementer fixes spec gaps" -> "Dispatch spec reviewer subagent" [label="re-review"];
-    "Spec compliant?" -> "Dispatch code quality reviewer" [label="yes"];
-    "Dispatch code quality reviewer" -> "Quality approved?";
-    "Quality approved?" -> "Implementer fixes quality issues" [label="no"];
-    "Implementer fixes quality issues" -> "Dispatch code quality reviewer" [label="re-review"];
-    "Quality approved?" -> "Mark task complete" [label="yes"];
-    "Mark task complete" -> "More tasks?";
-    "More tasks?" -> "Dispatch implementer subagent" [label="yes"];
+    "Answer questions, provide context" -> "Record BASE, write task brief, dispatch implementer";
+    "Implementer asks questions?" -> "Implementer implements, tests, self-reviews, writes report file" [label="no"];
+    "Implementer implements, tests, self-reviews, writes report file" -> "Generate review package, dispatch task reviewer";
+    "Generate review package, dispatch task reviewer" -> "Spec ✅ and quality approved?";
+    "Spec ✅ and quality approved?" -> "Dispatch fix subagent (spec + quality findings together)" [label="no"];
+    "Dispatch fix subagent (spec + quality findings together)" -> "Generate review package, dispatch task reviewer" [label="re-review"];
+    "Spec ✅ and quality approved?" -> "Mark task complete, append ledger line" [label="yes"];
+    "Mark task complete, append ledger line" -> "More tasks?";
+    "More tasks?" -> "Record BASE, write task brief, dispatch implementer" [label="yes"];
     "More tasks?" -> "Final whole-branch review" [label="no"];
     "Final whole-branch review" -> "Shut down spawned subagents";
     "Shut down spawned subagents" -> "Invoke finishing-a-development-branch";
 }
 ```
 
-1. Read the plan once and extract all tasks.
-2. Create task tracking for all tasks.
+1. Read the plan once and extract all tasks. Run `scripts/sdd-workspace` (from this skill's directory) once to create the artifact workspace, and check `.superpowers/sdd/progress.md` for a ledger from an earlier session — tasks it marks complete are DONE; never re-dispatch them.
+2. Create task tracking for all tasks. Run the Pre-Flight Plan Review (below) before dispatching Task 1.
 3. For each task:
-- Dispatch implementer subagent with full task text and minimal required context.
+- Record BASE: `git rev-parse HEAD` before dispatching.
+- Run `scripts/task-brief PLAN_FILE N` and dispatch the implementer with the brief path, a report-file path (`task-N-report.md` beside the brief), and an explicit model.
 - Resolve implementer questions before coding.
-- Require implementer verification evidence.
-- Run spec-compliance review.
-- If spec fails, return to implementer and re-review.
-- Run code-quality review.
-- If quality fails, return to implementer and re-review.
-- Mark task complete: update the task’s checkbox in plan.md from `- [ ]` to `- [x]`. If `state.md` exists with a plan status section, update it to reflect the completed task.
-   - For complex or high-risk tasks, validate the approach against requirements and consider simpler alternatives before or after the implementer’s work.
+- Require the implementer's ≤15-line status return; the detail lives in its report file.
+- Run `scripts/review-package BASE HEAD` (never `HEAD~1` — it silently drops all but the last commit of a multi-commit task) and dispatch the single task reviewer (`./task-reviewer-prompt.md`) with the brief, report, and package paths.
+- Resolve any ⚠️ "cannot verify from diff" items yourself (see Handling Reviewer ⚠️ Items).
+- If the review finds Critical/Important issues: dispatch ONE fix subagent for all of them (spec gaps and quality findings together), have it append to the report file, then re-review — the re-review covers both verdicts.
+- Mark task complete: update the task's checkbox in plan.md from `- [ ]` to `- [x]`, append the ledger line (see Durable Progress), and sync `state.md` if it has a plan status section.
+   - For complex or high-risk tasks, validate the approach against requirements and consider simpler alternatives before or after the implementer's work.
    - For tasks centered on frontend/UI, apply `frontend-design` standards to guide structure, styling, and accessibility.
 4. Run final whole-branch review.
 5. Shut down all spawned subagents. Named teammates stay resident and idle
@@ -96,7 +89,7 @@ When tasks are independent and touch disjoint files, dispatch them as a wave —
 
 1. Build a wave of independent tasks.
 2. Dispatch all implementers in a **single message** with multiple parallel Agent tool calls. Do not stagger across multiple messages.
-3. Review each task with the same two-stage gate.
+3. Review each task with the single task-review gate. Build each task's package with `scripts/review-package --commits <that task's reported commit SHAs>` — NEVER a BASE..HEAD range in a wave: commits interleave, so a range would mix sibling tasks' changes into the review. If an implementer's report omits its commit SHAs, ask that implementer for them before reviewing.
 4. Run integration verification after the wave completes.
 5. Update all completed task checkboxes in plan.md (`- [ ]` → `- [x]`) and sync state.md if present.
 6. Proceed to the next wave.
@@ -148,8 +141,7 @@ the user. Announce: `I'm using subagent-driven-development (batched autonomous m
 
 1. If `state.md` at the project root records a plan in progress, run the
    Resume Procedure below before executing anything.
-2. Execute tasks with the normal per-task flow (implementer → spec review →
-   quality review → update plan.md checkbox → commit). Per-task checkboxes and
+2. Execute tasks with the normal per-task flow (implementer → task review (both verdicts) → update plan.md checkbox → commit). Per-task checkboxes and
    commits are the crash-safe position record — never defer them to batch end.
    This mode executes tasks sequentially — the Parallel Waves default does NOT
    apply inside a batch, because the boundary must be evaluated after every task.
@@ -214,8 +206,7 @@ implementer statuses for the duration of a batch:
   attempted first, but escalating to the user (item 4) and skip-and-advance
   (item 5) are replaced by end-batch-and-journal.
 
-Review gates are NOT relaxed: full spec-compliance and code-quality review per
-task, and pre-implementation security review for `security`-flagged tasks.
+Review gates are NOT relaxed: the full task review (spec-compliance AND code-quality verdicts) per task, and pre-implementation security review for `security`-flagged tasks. A conflict found by the Pre-Flight Plan Review is a blocker: journal it under `## Open Issues` and end the batch — never best-guess a plan conflict.
 
 ### Resume Procedure (fresh session after /clear)
 
@@ -235,7 +226,7 @@ task, and pre-implementation security review for `security`-flagged tasks.
 
 Implementer subagents report one of four statuses. Handle each appropriately:
 
-**DONE:** Proceed to spec compliance review.
+**DONE:** Generate the review package (`scripts/review-package BASE HEAD`, from this skill's directory — it prints the unique file path it wrote; BASE is the commit you recorded before dispatching the implementer — never `HEAD~1`), then dispatch the task reviewer with the printed path. In a wave, use `--commits` with the implementer's reported SHAs instead.
 
 **DONE_WITH_CONCERNS:** The implementer completed the work but flagged doubts. Read the concerns before proceeding. If the concerns are about correctness or scope, address them before review. If they're observations (e.g., "this file is getting large"), note them and proceed to review.
 
@@ -253,10 +244,11 @@ Implementer subagents report one of four statuses. Handle each appropriately:
 ## Hard Rules
 
 - Do not execute implementation on `main`/`master` without explicit user permission.
-- Do not skip spec review.
-- Do not skip quality review.
+- Do not skip the task review — both verdicts, spec compliance and code quality.
 - Do not accept unresolved review findings.
-- Do not ask subagents to read long plan files when task text can be passed directly.
+- Do not paste task text, diffs, or reports into dispatch prompts when a workspace file can carry them — pass paths (see File Handoffs).
+- Never coach a reviewer: no "do not flag X", no pre-rated severities, no suppressed findings.
+- Narration: between tool calls, narrate at most one short line — the ledger and the tool results carry the record.
 
 ## Context Isolation
 
@@ -284,7 +276,7 @@ Choose model based on task type when dispatching subagents via the Agent tool:
 |---|---|
 | `haiku` | File reads, summarization, log scanning, patch verification — output is data, not decisions |
 | `sonnet` | Default for all implementation tasks |
-| `opus` | Architecture analysis, complex spec review, multi-system debugging, any task requiring reasoning across many constraints at once |
+| `opus` | Architecture analysis, complex design review, multi-system debugging, any task requiring reasoning across many constraints at once |
 
 Apply via the `model` parameter in Agent tool calls. Default to `sonnet` when uncertain. Only upgrade to `opus` when the task is genuinely reasoning-heavy — not just large.
 
@@ -292,11 +284,10 @@ Apply via the `model` parameter in Agent tool calls. Default to `sonnet` when un
 
 Use:
 - `./implementer-prompt.md`
-- `./spec-reviewer-prompt.md`
-- `./code-quality-reviewer-prompt.md`
+- `./task-reviewer-prompt.md`
 
 ## Integration
 
 - Setup workspace first with `using-git-worktrees`.
-- Use `requesting-code-review` templates for quality review structure.
+- The final whole-branch review uses `requesting-code-review/code-reviewer.md` on the most capable model.
 - Finish with `finishing-a-development-branch`.
