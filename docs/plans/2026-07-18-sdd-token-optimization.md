@@ -30,7 +30,7 @@
 - Modify: `skills/subagent-driven-development/SKILL.md` — single review gate, file handoffs, new sections, model rules.
 - Delete: `skills/subagent-driven-development/spec-reviewer-prompt.md`, `skills/subagent-driven-development/code-quality-reviewer-prompt.md`.
 - Modify: `skills/writing-plans/SKILL.md` — Global Constraints block in the plan header.
-- Modify: `tests/claude-code/test-subagent-driven-development.sh`, `tests/claude-code/test-subagent-driven-development-integration.sh` — merged-gate assertions.
+- Modify: `tests/claude-code/test-subagent-driven-development.sh`, `tests/claude-code/test-subagent-driven-development-integration.sh`, `tests/claude-code/README.md` — merged-gate and brief-file assertions, doc sync.
 - Modify: `VERSION`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `plugin.universal.yaml`, `RELEASE-NOTES.md` — v6.8.0.
 
 ---
@@ -1071,7 +1071,7 @@ conflicts that only emerge from implementation. (In Batched Autonomous Mode
 a pre-flight conflict is a blocker — journal it and end the batch.)
 ```
 
-- [ ] **Step 2: Insert File Handoffs and Handling Reviewer ⚠️ Items** (immediately after the `## Handling Implementer Status` section, before `## Hard Rules`)
+- [ ] **Step 2: Insert File Handoffs, Handling Reviewer ⚠️ Items, Constructing Reviewer Prompts, and Durable Progress** (all four sections, one block, immediately after the `## Handling Implementer Status` section, before `## Hard Rules`)
 
 ```markdown
 ## File Handoffs
@@ -1113,7 +1113,7 @@ requirements that live in unchanged code or span tasks. These do not block
 the rest of the review, but you must resolve each one yourself before
 marking the task complete: you hold the plan and cross-task context the
 reviewer lacks. If you confirm an item is a real gap, treat it as a failed
-spec review — send it back to the implementer and re-review.
+spec verdict — send it back to the implementer and re-review.
 
 ## Constructing Reviewer Prompts
 
@@ -1193,7 +1193,10 @@ final whole-branch review always runs on `opus`, not the session default.
 - [ ] **Step 4: Verify**
 
 Run: `grep -c "^## " skills/subagent-driven-development/SKILL.md && grep -n "Pre-Flight Plan Review\|File Handoffs\|Reviewer ⚠️ Items\|Constructing Reviewer Prompts\|Durable Progress\|Turn count beats token price" skills/subagent-driven-development/SKILL.md`
-Expected: all six patterns found, each exactly once as a heading/lead
+Expected: every pattern present. The five new section names each appear exactly once as a `## ` heading; additional hits are intentional cross-references (Core Flow list, Hard Rules, Batched Mode wording) — do NOT delete them to reduce counts. "Turn count beats token price" appears exactly once.
+
+Run: `grep -rn "spec-reviewer-prompt\|code-quality-reviewer-prompt\|two-stage gate\|spec review\|quality review" skills/subagent-driven-development/SKILL.md`
+Expected: no hits (Task 6's guard still holds after this task's insertions — the ⚠️ Items section says "failed spec verdict", not "failed spec review")
 
 Run: `bash tests/codex/run-unit-tests.sh`
 Expected: PASS (hook units unaffected — guard)
@@ -1251,13 +1254,17 @@ git commit -m "writing-plans: plans carry a Global Constraints block for SDD rev
 
 - Test 2: replace the question `"Read the file at $SKILL_FILE. Answer yes or no: does spec compliance review happen before code quality review in subagent-driven-development?"` with `"Read the file at $SKILL_FILE. Answer yes or no: does a single task reviewer return both a spec-compliance verdict and a code-quality verdict in subagent-driven-development?"`, and replace the assert pattern `"[Yy]es\|spec.*compliance.*before\|compliance.*first\|compliance.*then.*quality\|quality.*after.*compliance"` with `"[Yy]es\|both.*verdict\|single.*review\|one review\|two verdict"` and its description `"Spec compliance before code quality"` with `"Single reviewer, both verdicts"`.
 - Test 5: replace `"what is the spec compliance reviewer's attitude toward the implementer's report?"` with `"what is the task reviewer's attitude toward the implementer's report?"`; in the follow-up assertion, replace pattern `"read.*code\|inspect.*code\|verify.*code"` with `"read.*code\|inspect.*code\|verify.*code\|read.*diff\|verify.*diff"` (the reviewer's view of the change is the diff file).
+- Test 7 (asserts the OLD inline-paste contract — the port inverts it): replace the comment `# Test 7: Verify full task text is provided` with `# Test 7: Verify task hand-off via brief file`; replace the question `"Read the file at $SKILL_FILE and answer: how does the controller provide task information to the implementer subagent? Does it make them read a file or provide it directly?"` with `"Read the file at $SKILL_FILE and answer: how does the controller hand the task requirements to the implementer subagent? Does it paste the task text into the prompt or point at a file?"`; replace the assert pattern `"provide.*directly\|full.*text\|paste\|include.*prompt\|inline\|passed.*directly"` with `"brief\|task-brief\|read.*file\|file.*path\|workspace"` and its description `"Provides text directly"` with `"Hands over a brief file"`.
 
 - [ ] **Step 2: Update `test-subagent-driven-development-integration.sh`**
 
+- Line ~15: `echo "  2. Full task text provided to subagents"` → `echo "  2. Task briefs handed to subagents as files"`
 - Line ~16: `echo "  4. Spec compliance review before code quality"` → `echo "  4. Single task review returns spec + quality verdicts"`
 - Line ~19: `echo "  6. Spec reviewer reads code independently"` → `echo "  6. Task reviewer verifies the diff independently"`
+- Both prompt blocks (~128 and ~143): `2. Provide full task text to subagents (don't make them read files)` → `2. Hand each subagent its task brief file (don't paste task text into prompts)` — the old line instructs the controller to violate the new File Handoffs rule mid-run
 - Both prompt blocks (~129-131 and ~144-146): `4. Run spec compliance review before code quality review` → `4. Run the single task review (spec compliance + code quality verdicts)`
 - Line ~271-273: `echo "Test 8: No extra features added (spec compliance)..."` → `echo "Test 8: No extra features added (task review, spec verdict)..."`; `echo "  [WARN] Extra features found (spec review should have caught this)"` → `echo "  [WARN] Extra features found (task review should have caught this)"`
+- Line ~300: `echo "  ✓ Provides full task text to subagents"` → `echo "  ✓ Hands task briefs to subagents as files"`
 - Lines ~302-303: `echo "  ✓ Runs spec compliance before code quality"` → `echo "  ✓ Runs the single task review (both verdicts)"`; `echo "  ✓ Spec reviewer verifies independently"` → `echo "  ✓ Task reviewer verifies independently"`
 
 - [ ] **Step 3: Update `tests/claude-code/README.md`**
@@ -1265,13 +1272,14 @@ git commit -m "writing-plans: plans carry a Global Constraints block for SDD rev
 The README describes what these two tests verify; keep it in sync with the merged gate:
 
 - Line ~87: `- Workflow ordering (spec compliance before code quality)` → `- Workflow ordering (single task review, spec + quality verdicts)`
+- Line ~104: `  - Full task text provided in subagent prompts` → `  - Task briefs handed to subagents as workspace files`
 - Line ~106: `  - Spec compliance review happens before code quality` → `  - A single task review returns both spec-compliance and code-quality verdicts`
 - Line ~107: `  - Spec reviewer reads code independently` → `  - Task reviewer verifies the diff independently`
 
 - [ ] **Step 4: Verify**
 
-Run: `bash -n tests/claude-code/test-subagent-driven-development.sh && bash -n tests/claude-code/test-subagent-driven-development-integration.sh && grep -c "spec compliance review before\|spec.*compliance.*before" tests/claude-code/test-subagent-driven-development*.sh tests/claude-code/README.md`
-Expected: both `bash -n` clean; grep exits 1 (0 remaining "before" orderings in the tests or the README)
+Run: `bash -n tests/claude-code/test-subagent-driven-development.sh && bash -n tests/claude-code/test-subagent-driven-development-integration.sh && grep -c "spec compliance review before\|spec.*compliance.*before\|[Ff]ull task text" tests/claude-code/test-subagent-driven-development*.sh tests/claude-code/README.md`
+Expected: both `bash -n` clean; grep exits 1 (0 remaining "before" orderings AND 0 remaining "full task text" inline-paste references in the tests or the README)
 
 - [ ] **Step 5: Commit**
 
