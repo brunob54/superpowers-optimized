@@ -27,6 +27,7 @@ Save to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
 **Architecture:** <2-4 sentences>
 **Tech Stack:** <languages/libraries/tools>
 **Assumptions:** <list the key assumptions this plan rests on. For each, state what it excludes: "Assumes X — will NOT work if Y."> *(skip only if the plan contains zero conditional logic)*
+**Global Constraints:** <rules that bind every task — version floors, dependency limits, naming and copy, exact values — copied verbatim from the spec. subagent-driven-development hands this block verbatim to every reviewer as its attention lens. Omit only if the spec truly has none; a missing block forces the SDD controller to re-derive constraints from the spec on every dispatch.>
 
 ---
 ```
