@@ -51,6 +51,58 @@ STATUS=$(git status --porcelain)
 assert_eq "workspace invisible to git status" "$STATUS" ""
 git reset --quiet
 
+bold "task-brief"
+
+cat > plan.md << 'PLAN'
+# Some Plan
+
+## Global Constraints
+- constraint one
+
+### Task 1: First thing
+
+Body of task one.
+
+- [ ] Step 1
+
+### Task 2: Second thing
+
+Body of task two.
+
+```text
+### Task 9: decoy inside a fence
+```
+
+Still task two text.
+
+````markdown
+```text
+### Task 8: decoy inside nested fences
+```
+````
+
+Past the nested decoy.
+
+### Task 3: Third thing
+
+Body of task three.
+PLAN
+
+BRIEF=$("$SCRIPTS/task-brief" plan.md 2 | sed 's/^wrote //; s/:.*$//')
+assert_eq "brief path" "$BRIEF" "$REPO/.superpowers/sdd/task-2-brief.md"
+assert_file_contains "brief has task 2 heading" "$BRIEF" "### Task 2: Second thing"
+assert_file_contains "brief spans past the fenced decoy" "$BRIEF" "Still task two text."
+assert_file_contains "fenced decoy heading kept inside brief" "$BRIEF" "### Task 9: decoy inside a fence"
+assert_file_contains "brief spans past the nested-fence decoy" "$BRIEF" "Past the nested decoy."
+assert_file_contains "nested decoy heading kept inside brief" "$BRIEF" "### Task 8: decoy inside nested fences"
+assert_file_not_contains "brief excludes task 1" "$BRIEF" "Body of task one."
+assert_file_not_contains "brief excludes task 3" "$BRIEF" "Body of task three."
+
+"$SCRIPTS/task-brief" plan.md 99 2>/dev/null
+assert_eq "missing task exits 3" "$?" "3"
+"$SCRIPTS/task-brief" nope.md 1 2>/dev/null
+assert_eq "missing plan exits 2" "$?" "2"
+
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
