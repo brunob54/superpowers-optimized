@@ -85,7 +85,7 @@ echo "=== All tests passed ==="
 #### test-subagent-driven-development.sh
 Tests skill content and requirements (~2 minutes):
 - Skill loading and accessibility
-- Workflow ordering (spec compliance before code quality)
+- Workflow ordering (single task review, spec + quality verdicts)
 - Self-review requirements documented
 - Plan reading efficiency documented
 - Spec compliance reviewer skepticism documented
@@ -101,10 +101,10 @@ Full workflow execution test (~10-30 minutes):
 - Executes plan using subagent-driven-development
 - Verifies actual behaviors:
   - Plan read once at start (not per task)
-  - Full task text provided in subagent prompts
+  - Task briefs handed to subagents as workspace files
   - Subagents perform self-review before reporting
-  - Spec compliance review happens before code quality
-  - Spec reviewer reads code independently
+  - A single task review returns both spec-compliance and code-quality verdicts
+  - Task reviewer verifies the diff independently
   - Working implementation is produced
   - Tests pass
   - Proper git commits created

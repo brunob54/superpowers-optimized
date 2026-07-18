@@ -34,9 +34,9 @@ echo ""
 # Test 2: Verify skill describes correct workflow order
 echo "Test 2: Workflow ordering..."
 
-output=$(run_claude "Read the file at $SKILL_FILE. Answer yes or no: does spec compliance review happen before code quality review in subagent-driven-development?" 60 "Read")
+output=$(run_claude "Read the file at $SKILL_FILE. Answer yes or no: does a single task reviewer return both a spec-compliance verdict and a code-quality verdict in subagent-driven-development?" 60 "Read")
 
-if assert_contains "$output" "[Yy]es\|spec.*compliance.*before\|compliance.*first\|compliance.*then.*quality\|quality.*after.*compliance" "Spec compliance before code quality"; then
+if assert_contains "$output" "[Yy]es\|both.*verdict\|single.*review\|one review\|two verdict" "Single reviewer, both verdicts"; then
     : # pass
 else
     exit 1
@@ -85,7 +85,7 @@ echo ""
 # Test 5: Verify spec compliance reviewer is skeptical
 echo "Test 5: Spec compliance reviewer mindset..."
 
-output=$(run_claude "Read the file at $SKILL_FILE and answer: what is the spec compliance reviewer's attitude toward the implementer's report?" 60 "Read")
+output=$(run_claude "Read the file at $SKILL_FILE and answer: what is the task reviewer's attitude toward the implementer's report?" 60 "Read")
 
 if assert_contains "$output" "not trust\|don't trust\|skeptical\|verify.*independently\|suspiciously" "Reviewer is skeptical"; then
     : # pass
@@ -93,7 +93,7 @@ else
     exit 1
 fi
 
-if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code" "Reviewer reads code"; then
+if assert_contains "$output" "read.*code\|inspect.*code\|verify.*code\|read.*diff\|verify.*diff" "Reviewer reads code"; then
     : # pass
 else
     exit 1
@@ -120,12 +120,12 @@ fi
 
 echo ""
 
-# Test 7: Verify full task text is provided
+# Test 7: Verify task hand-off via brief file
 echo "Test 7: Task context provision..."
 
-output=$(run_claude "Read the file at $SKILL_FILE and answer: how does the controller provide task information to the implementer subagent? Does it make them read a file or provide it directly?" 60 "Read")
+output=$(run_claude "Read the file at $SKILL_FILE and answer: how does the controller hand the task requirements to the implementer subagent? Does it paste the task text into the prompt or point at a file?" 60 "Read")
 
-if assert_contains "$output" "provide.*directly\|full.*text\|paste\|include.*prompt\|inline\|passed.*directly" "Provides text directly"; then
+if assert_contains "$output" "brief\|task-brief\|read.*file\|file.*path\|workspace" "Hands over a brief file"; then
     : # pass
 else
     exit 1
