@@ -962,6 +962,28 @@ test('"resume the implementation talk after lunch" does NOT trigger SDD', () => 
   assert.strictEqual(matchesSdd('resume the implementation talk after lunch'), false);
 });
 
+// ── Debug-prompt routing (Codex post-push checklist canonical prompt) ─────────
+
+console.log('\nDebug-prompt routing');
+
+function matchesDebugging(prompt) {
+  return matchSkills(prompt).some(m => m.skill === 'systematic-debugging');
+}
+
+test('checklist debug prompt routes to systematic-debugging', () => {
+  assert.strictEqual(
+    matchesDebugging('debug this stack trace from the API and identify the root cause before proposing a fix'),
+    true);
+});
+
+test('"debug why the login fails" routes to systematic-debugging', () => {
+  assert.strictEqual(matchesDebugging('debug why the login fails'), true);
+});
+
+test('"cargo build --debug is slow" does NOT route to systematic-debugging', () => {
+  assert.strictEqual(matchesDebugging('cargo build --debug is slow'), false);
+});
+
 // ── Result ────────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
