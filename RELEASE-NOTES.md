@@ -1,5 +1,13 @@
 # Superpowers Optimized Release Notes
 
+## v6.7.1 (2026-07-18)
+
+Debug-prompt routing fix.
+
+### Fixes
+
+**systematic-debugging trigger keywords** — Added "debug" and "root cause" to the systematic-debugging rule in `hooks/skill-rules.json`. Canonical debugging prompts such as "debug this stack trace and identify the root cause" scored below the routing confidence threshold because the rule contained neither word, so no skill hint was injected. Surfaced by the Codex post-push validation smoke checks; covered by three new matcher tests (including a `--debug`-build-flag negative).
+
 ## v6.7.0 (2026-07-07)
 
 Batched Autonomous Mode: resumable, context-bounded plan execution.
@@ -15,6 +23,12 @@ Batched Autonomous Mode: resumable, context-bounded plan execution.
 **subagent-driven-development triggers** — `hooks/skill-rules.json` now routes "implement the next N tasks", "execute the plan in batches", and "resume the plan/implementation" to subagent-driven-development. Trigger vocabulary was deliberately kept narrow after false-positive analysis: generic terms ("handoff", "next tasks") were excluded, and the resume pattern ignores conversational tails ("resume the plan discussion").
 
 **Test coverage** — Unit tests for session autodiscovery, the `--pressure` CLI, and trigger matching (incl. false-positive regressions) in `test-skill-activator.js`; new integration test `tests/claude-code/test-batched-autonomous-mode.sh`; skill-triggering prompt for batched execution.
+
+### Fixes
+
+**`cwdToProjectDir` encoding (skill-activator)** — Project paths are now encoded by normalizing every non-alphanumeric character to a dash, matching Claude Code's real session-directory naming. Previously underscores and dots were preserved, so on any project path containing them (e.g. `.../AI_Coding/My_tools/...`) the session JSONL lookup silently missed — which disabled both the new `--pressure` CLI and the pre-existing v6.6.1 context-pressure gate for those projects. Caught by a live smoke test in the final whole-branch review; the unit tests had passed because they round-tripped paths through the same (wrong) encoder on both sides. A regression test now asserts against the hardcoded real-world encoding.
+
+**smart-compress test harness** — Repaired 10 chronic failures (some latent for multiple releases) in `tests/smart-compress/run-tests.sh`. The bash suite invoked `bash-compress-hook.js` twice per command under a shared session id — colliding with the hook's intentional once-per-session re-run skip, whose tmpdir tracking files also persist across runs for constant session ids (the source of the "flaky" pass-on-first-run-only behavior). Tests now use a unique session id per invocation; the end-to-end git-log test asserts on the live `HEAD` subject instead of a hardcoded commit message that had scrolled out of the truncated output window. Suite is 87/87 across repeated runs; hook behavior unchanged.
 
 ## v6.6.1 (2026-05-08)
 
