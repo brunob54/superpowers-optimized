@@ -846,7 +846,7 @@ git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugi
 git commit -m "v6.9.0 - multi-review skill, gate integrations, guard exemption"
 ```
 
-- [ ] **Step 5: Reinstall the plugin cache at 6.9.0**
+- [x] **Step 5: Reinstall the plugin cache at 6.9.0**
 
 Sessions run the installed copy, not this repo, and the marketplace pointer
 demonstrably lags the repo (installed: 6.6.1 while the repo was at 6.8.0) —
@@ -868,7 +868,7 @@ confirm a fresh session's start banner shows the multi-review skill available.
 This step is the prerequisite for Task 4 Step 4's triggering run, Task 8's
 behavioral run, and Step 6 below.
 
-- [ ] **Step 6: Manual gate check (after reinstall)**
+- [x] **Step 6: Manual gate check (after reinstall)**
 
 Run brainstorming end-to-end on a toy feature in a scratch project and
 confirm the multi-review loop fires between spec self-review and the user
