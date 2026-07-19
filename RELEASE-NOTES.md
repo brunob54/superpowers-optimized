@@ -1,5 +1,49 @@
 # Superpowers Optimized Release Notes
 
+## v6.8.0 (2026-07-18)
+
+### Subagent-Driven Development: token-optimized review flow (port of upstream v6.0.0)
+
+Ports obra/superpowers v6.0.0's measured cost rework (~2x faster, ~50-60% fewer tokens in upstream evals), adapted to this fork's Parallel Waves and Batched Autonomous Mode.
+
+- **One reviewer per task, two verdicts.** `spec-reviewer-prompt.md` and `code-quality-reviewer-prompt.md` are replaced by a single `task-reviewer-prompt.md` returning a spec-compliance verdict and a quality verdict, plus a "⚠️ cannot verify from diff" verdict the controller resolves itself. One fix pass clears both; reviewers are read-only and immune to implementer rationales.
+- **Handoffs move as files.** New scripts `sdd-workspace`, `task-brief`, and `review-package` write task briefs, implementer reports, and review diffs (commit list + stat + `-U10` diff) to `.superpowers/sdd/`. Dispatch prompts carry paths, not pasted text.
+- **Fork extension: `review-package --commits SHA...`** builds a wave task's package from its own reported commits — a BASE..HEAD range would mix interleaved sibling tasks' changes. Range fallback is banned in waves.
+- **Every dispatch names its model.** Templates mark `model:` REQUIRED (an omitted model silently inherits the session's most expensive one), with turn-count-beats-token-price guidance; the final whole-branch review always runs on the most capable model.
+- **Controller discipline:** at most one narration line between tool calls; a durable progress ledger (`.superpowers/sdd/progress.md`) prevents re-dispatching completed tasks after compaction; pre-flight plan review; ONE fix subagent per review's findings; reviewer coaching banned.
+- **writing-plans:** plans now carry a Global Constraints block, handed verbatim to every reviewer.
+- New fast test suite: `tests/sdd-scripts/run-tests.sh`.
+
+## v6.7.1 (2026-07-18)
+
+Debug-prompt routing fix.
+
+### Fixes
+
+**systematic-debugging trigger keywords** — Added "debug" and "root cause" to the systematic-debugging rule in `hooks/skill-rules.json`. Canonical debugging prompts such as "debug this stack trace and identify the root cause" scored below the routing confidence threshold because the rule contained neither word, so no skill hint was injected. Surfaced by the Codex post-push validation smoke checks; covered by three new matcher tests (including a `--debug`-build-flag negative).
+
+## v6.7.0 (2026-07-07)
+
+Batched Autonomous Mode: resumable, context-bounded plan execution.
+
+### New Features
+
+**Batched Autonomous Mode (subagent-driven-development)** — Execute up to N plan tasks per session, each via a fresh subagent with full review gates, ending the batch when context pressure reaches 60% (measured live via the new `--pressure` CLI on the skill-activator hook, with a conservative 3-task fallback cap when measurement fails). Execution inside a batch is strictly sequential and fully autonomous: blockers and plan ambiguities end the batch early with a journaled question instead of a guess, superseding the interactive escalation paths. At batch end the orchestrator writes a handoff into `state.md` (100-line cap, no cumulative re-summarizing) and prints exact resume instructions; after `/clear`, "resume the plan" reconciles position from plan.md checkboxes + git (authoritative) against the state.md narrative, refuses to run past unanswered blocking questions, and starts the next batch. Plan-complete batches skip resume instructions and route to the final whole-branch review. Spec: `docs/specs/2026-07-06-sdd-batched-autonomous-mode-design.md`.
+
+**`--pressure` CLI on skill-activator** — `node hooks/skill-activator.js --pressure [cwd]` reports the current session's context pressure as JSON by reading the most recently modified session JSONL, reusing the v6.6.1 pressure-gate estimation. Prints `{"error":"unmeasurable"}` when no usable session data exists.
+
+### Changes
+
+**subagent-driven-development triggers** — `hooks/skill-rules.json` now routes "implement the next N tasks", "execute the plan in batches", and "resume the plan/implementation" to subagent-driven-development. Trigger vocabulary was deliberately kept narrow after false-positive analysis: generic terms ("handoff", "next tasks") were excluded, and the resume pattern ignores conversational tails ("resume the plan discussion").
+
+**Test coverage** — Unit tests for session autodiscovery, the `--pressure` CLI, and trigger matching (incl. false-positive regressions) in `test-skill-activator.js`; new integration test `tests/claude-code/test-batched-autonomous-mode.sh`; skill-triggering prompt for batched execution.
+
+### Fixes
+
+**`cwdToProjectDir` encoding (skill-activator)** — Project paths are now encoded by normalizing every non-alphanumeric character to a dash, matching Claude Code's real session-directory naming. Previously underscores and dots were preserved, so on any project path containing them (e.g. `.../AI_Coding/My_tools/...`) the session JSONL lookup silently missed — which disabled both the new `--pressure` CLI and the pre-existing v6.6.1 context-pressure gate for those projects. Caught by a live smoke test in the final whole-branch review; the unit tests had passed because they round-tripped paths through the same (wrong) encoder on both sides. A regression test now asserts against the hardcoded real-world encoding.
+
+**smart-compress test harness** — Repaired 10 chronic failures (some latent for multiple releases) in `tests/smart-compress/run-tests.sh`. The bash suite invoked `bash-compress-hook.js` twice per command under a shared session id — colliding with the hook's intentional once-per-session re-run skip, whose tmpdir tracking files also persist across runs for constant session ids (the source of the "flaky" pass-on-first-run-only behavior). Tests now use a unique session id per invocation; the end-to-end git-log test asserts on the live `HEAD` subject instead of a hardcoded commit message that had scrolled out of the truncated output window. Suite is 87/87 across repeated runs; hook behavior unchanged.
+
 ## v6.6.1 (2026-05-08)
 
 Context pressure gate, Tailwind v4 reference, plan-level security flag, stub scan, and cleaner docs paths.

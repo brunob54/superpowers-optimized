@@ -13,6 +13,7 @@ SKILLS=(
     "writing-plans"
     "dispatching-parallel-agents"
     "executing-plans"
+    "subagent-driven-development"
     "requesting-code-review"
 )
 

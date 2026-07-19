@@ -1,0 +1,1 @@
+Implement the next 3 tasks of the plan in docs/plans/plan.md, then write a handoff so I can resume after /clear.

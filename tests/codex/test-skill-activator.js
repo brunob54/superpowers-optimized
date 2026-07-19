@@ -570,6 +570,10 @@ test('Forward slashes treated same as backslashes', () => {
   const fwd = cwdToProjectDir('C:/Users/user/project');
   assert.strictEqual(win, fwd, 'Forward and backslash paths should produce the same result');
 });
+test('Underscores encode to dashes (matches real Claude Code encoding)', () => {
+  const result = cwdToProjectDir('/Users/bruno/Programming/AI/AI_Coding/My_tools/Superpowers');
+  assert.strictEqual(result, '-Users-bruno-Programming-AI-AI-Coding-My-tools-Superpowers');
+});
 
 console.log('\nContext pressure gate — getContextPressure');
 
@@ -781,6 +785,203 @@ test('Non-execution prompt + high pressure → no pressure block', () => {
 
   const ctx = result.hookSpecificOutput?.additionalContext || '';
   assert.ok(!ctx.includes('context-pressure-gate'), 'Non-execution prompt should never get pressure block');
+});
+
+// ── Context pressure — session autodiscovery ─────────────────────────────────
+
+const {
+  findLatestSessionJsonl,
+  getContextPressureAuto,
+} = require('../../hooks/skill-activator');
+
+console.log('\nContext pressure — findLatestSessionJsonl / getContextPressureAuto');
+
+function withTempHome(fn) {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-auto-'));
+  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
+  process.env.USERPROFILE = tmpHome;
+  process.env.HOME = tmpHome;
+  try {
+    return fn(tmpHome);
+  } finally {
+    process.env.USERPROFILE = orig.up;
+    process.env.HOME = orig.home;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+}
+
+test('findLatestSessionJsonl returns null when project dir does not exist', () => {
+  withTempHome((tmpHome) => {
+    const result = findLatestSessionJsonl(path.join(tmpHome, 'no-such-project'));
+    assert.strictEqual(result, null);
+  });
+});
+
+test('findLatestSessionJsonl picks the most recently modified jsonl', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    const turns = [{ input_tokens: 5, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 10 }];
+    const oldPath = makeJsonlSession('session-old', projDir, tmpHome, turns);
+    const newPath = makeJsonlSession('session-new', projDir, tmpHome, turns);
+    // Force distinct mtimes — same-millisecond writes are common
+    const now = Date.now() / 1000;
+    fs.utimesSync(oldPath, now - 100, now - 100);
+    fs.utimesSync(newPath, now, now);
+    assert.strictEqual(findLatestSessionJsonl(cwd), newPath);
+  });
+});
+
+test('findLatestSessionJsonl ignores non-jsonl files', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    const projectPath = path.join(tmpHome, '.claude', 'projects', projDir);
+    fs.mkdirSync(projectPath, { recursive: true });
+    fs.writeFileSync(path.join(projectPath, 'notes.txt'), 'not a session');
+    assert.strictEqual(findLatestSessionJsonl(cwd), null);
+  });
+});
+
+test('getContextPressureAuto returns pressure from the latest session', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    // Old session at 80%, new session at 20% — auto must report the NEW one
+    const oldPath = makeJsonlSession('session-old', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 160000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const newPath = makeJsonlSession('session-new', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 40000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const now = Date.now() / 1000;
+    fs.utimesSync(oldPath, now - 100, now - 100);
+    fs.utimesSync(newPath, now, now);
+    const result = getContextPressureAuto(cwd);
+    assert.ok(result !== null, 'Should return a result');
+    assert.strictEqual(result.percent, 20);
+    assert.strictEqual(result.overThreshold, false);
+  });
+});
+
+test('getContextPressureAuto returns null when no sessions exist', () => {
+  withTempHome((tmpHome) => {
+    assert.strictEqual(getContextPressureAuto(path.join(tmpHome, 'empty-project')), null);
+  });
+});
+
+// ── --pressure CLI ────────────────────────────────────────────────────────────
+
+const { execFileSync } = require('child_process');
+const ACTIVATOR_PATH = path.join(__dirname, '..', '..', 'hooks', 'skill-activator.js');
+
+function runPressureCli(cwd, tmpHome) {
+  const out = execFileSync('node', [ACTIVATOR_PATH, '--pressure', cwd], {
+    env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
+  }).toString();
+  return JSON.parse(out);
+}
+
+console.log('\n--pressure CLI');
+
+test('CLI reports pressure below threshold', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    makeJsonlSession('session-a', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 40000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const result = runPressureCli(cwd, tmpHome);
+    assert.strictEqual(result.percent, 20);
+    assert.strictEqual(result.overThreshold, false);
+  });
+});
+
+test('CLI reports overThreshold at >= 60%', () => {
+  withTempHome((tmpHome) => {
+    const cwd = path.join(tmpHome, 'myproject');
+    const projDir = cwdToProjectDir(cwd);
+    makeJsonlSession('session-a', projDir, tmpHome, [
+      { input_tokens: 0, cache_creation_input_tokens: 130000, cache_read_input_tokens: 0, output_tokens: 10 },
+    ]);
+    const result = runPressureCli(cwd, tmpHome);
+    assert.strictEqual(result.overThreshold, true);
+  });
+});
+
+test('CLI prints {"error":"unmeasurable"} when no session data exists', () => {
+  withTempHome((tmpHome) => {
+    const result = runPressureCli(path.join(tmpHome, 'empty-project'), tmpHome);
+    assert.deepStrictEqual(result, { error: 'unmeasurable' });
+  });
+});
+
+// ── Batched autonomous mode triggers ─────────────────────────────────────────
+
+const { matchSkills } = require('../../hooks/skill-activator');
+
+console.log('\nBatched autonomous mode triggers');
+
+function matchesSdd(prompt) {
+  return matchSkills(prompt).some(m => m.skill === 'subagent-driven-development');
+}
+
+test('"implement the next 3 tasks of the plan" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('implement the next 3 tasks of the plan'), true);
+});
+
+test('"execute the plan in batches" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('execute the plan in batches'), true);
+});
+
+test('"resume the plan" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('resume the plan'), true);
+});
+
+test('"resume the implementation" triggers SDD', () => {
+  assert.strictEqual(matchesSdd('resume the implementation'), true);
+});
+
+test('bare "resume" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('resume'), false);
+});
+
+test('"what is the plan" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('what is the plan here?'), false);
+});
+
+test('"here is the handoff for the next tasks" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('here is the handoff for the next tasks'), false);
+});
+
+test('"resume the plan discussion from yesterday" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('resume the plan discussion from yesterday'), false);
+});
+
+test('"resume the implementation talk after lunch" does NOT trigger SDD', () => {
+  assert.strictEqual(matchesSdd('resume the implementation talk after lunch'), false);
+});
+
+// ── Debug-prompt routing (Codex post-push checklist canonical prompt) ─────────
+
+console.log('\nDebug-prompt routing');
+
+function matchesDebugging(prompt) {
+  return matchSkills(prompt).some(m => m.skill === 'systematic-debugging');
+}
+
+test('checklist debug prompt routes to systematic-debugging', () => {
+  assert.strictEqual(
+    matchesDebugging('debug this stack trace from the API and identify the root cause before proposing a fix'),
+    true);
+});
+
+test('"debug why the login fails" routes to systematic-debugging', () => {
+  assert.strictEqual(matchesDebugging('debug why the login fails'), true);
+});
+
+test('"cargo build --debug is slow" does NOT route to systematic-debugging', () => {
+  assert.strictEqual(matchesDebugging('cargo build --debug is slow'), false);
 });
 
 // ── Result ────────────────────────────────────────────────────────────────────

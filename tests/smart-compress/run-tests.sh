@@ -171,7 +171,10 @@ check_compressed() {
 
 check_rule() {
   local out
-  out=$(run_hook "$1")
+  # Fresh session id per call: the hook skips re-compressing a command it has
+  # already rewritten in the same session (shouldSkipForRerun), and each
+  # command was already run through check_compressed under the shared session.
+  out=$(run_hook "$1" "rule-$$-$RANDOM")
   get_rule_type "$out"
 }
 
@@ -337,9 +340,11 @@ assert_contains     "optimizer: real git status contains branch info"    "$outpu
 assert_not_contains "optimizer: real git status removes hint lines"       "$output" '(use "git'
 assert_contains     "optimizer: real git status has [compressed] marker"  "$output" "[compressed:"
 
-# git log — real repo
+# git log — real repo. Assert on the current HEAD subject, not a hardcoded
+# message: hardcoded history scrolls out of the truncated window as commits land.
+head_subject=$(git log -1 --format=%s)
 output=$(run_optimizer "git log --oneline -5" "git-log")
-assert_contains "optimizer: git log runs and returns commits" "$output" "Update README"
+assert_contains "optimizer: git log runs and returns commits" "$output" "$head_subject"
 
 # Exit code preservation
 exit_code=$(node -e "
@@ -368,7 +373,9 @@ bold "\n6. HOOK I/O PROTOCOL"
 # ═══════════════════════════════════════════════════════
 
 # Valid PreToolUse JSON structure
-raw=$(run_hook "git status")
+# Fresh session id: 'git status' was already compressed under the shared
+# session in section 3, and the hook skips re-compression per session.
+raw=$(run_hook "git status" "io-$$-$RANDOM")
 tmpf=$(mktmp)
 printf '%s' "$raw" > "$tmpf"
 result=$(node -e "
@@ -385,7 +392,9 @@ result=$(node -e "
 assert "hook returns valid PreToolUse JSON with updatedInput" "$result" "ok"
 
 # Original tool_input fields preserved alongside rewritten command
-inp='{"session_id":"x","tool_name":"Bash","tool_input":{"command":"git status","description":"my desc","timeout":60000},"cwd":"'"$PLUGIN_ROOT"'"}'
+# Unique session id: a constant one leaves a rerun-tracking file in the OS
+# tmpdir that persists across test runs and makes this test fail on run 2+.
+inp='{"session_id":"io2-'"$$-$RANDOM"'","tool_name":"Bash","tool_input":{"command":"git status","description":"my desc","timeout":60000},"cwd":"'"$PLUGIN_ROOT"'"}'
 tmpf=$(mktmp)
 printf '%s' "$inp" > "$tmpf"
 raw=$(node "$PLUGIN_ROOT/hooks/bash-compress-hook.js" < "$tmpf")

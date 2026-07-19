@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Generate a review package the reviewer reads in one call: commit list,
+# stat summary, and the diff with extended context, written to a file.
+#
+# Range mode (sequential execution):
+#   review-package BASE HEAD [OUTFILE]
+#   Uses the recorded per-task BASE (never HEAD~1) so multi-commit tasks stay
+#   intact. Default OUTFILE: <workspace>/review-<base7>..<head7>.diff
+#   (named per range, so a re-review after fixes gets a distinct fresh file).
+#
+# Explicit-commit mode (wave execution — fork extension):
+#   review-package --commits SHA [SHA...] [--out OUTFILE]
+#   Builds the package from the implementer's reported commit SHAs, because
+#   wave tasks commit interleaved on one branch and a BASE..HEAD range would
+#   mix sibling tasks' changes into the review.
+#   Default OUTFILE: <workspace>/review-commits-<first7>..<last7>.diff
+set -euo pipefail
+
+usage() {
+  echo "usage: review-package BASE HEAD [OUTFILE]" >&2
+  echo "       review-package --commits SHA [SHA...] [--out OUTFILE]" >&2
+  exit 2
+}
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+
+if [ "${1:-}" = "--commits" ]; then
+  shift
+  out=""
+  commits=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --out) [ $# -ge 2 ] || usage; out=$2; shift 2 ;;
+      *) commits+=("$1"); shift ;;
+    esac
+  done
+  [ "${#commits[@]}" -ge 1 ] || usage
+  for c in "${commits[@]}"; do
+    git rev-parse --verify --quiet "${c}^{commit}" >/dev/null || { echo "bad commit: $c" >&2; exit 2; }
+  done
+  if [ -z "$out" ]; then
+    dir=$("$script_dir/sdd-workspace")
+    first=$(git rev-parse --short "${commits[0]}")
+    last=$(git rev-parse --short "${commits[$((${#commits[@]} - 1))]}")
+    out="$dir/review-commits-${first}..${last}.diff"
+  fi
+  {
+    echo "# Review package (explicit commits)"
+    echo
+    echo "## Commits"
+    for c in "${commits[@]}"; do
+      git log -1 --oneline "$c"
+    done
+    echo
+    echo "## Files changed (per commit)"
+    for c in "${commits[@]}"; do
+      git show --stat --format="%h %s" "$c"
+      echo
+    done
+    echo "## Diff"
+    for c in "${commits[@]}"; do
+      git show -U10 --format="### commit %h %s" "$c"
+      echo
+    done
+  } > "$out"
+  echo "wrote ${out}: ${#commits[@]} commit(s), $(wc -c < "$out" | tr -d ' ') bytes"
+  exit 0
+fi
+
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+  usage
+fi
+
+base=$1
+head=$2
+
+git rev-parse --verify --quiet "$base" >/dev/null || { echo "bad BASE: $base" >&2; exit 2; }
+git rev-parse --verify --quiet "$head" >/dev/null || { echo "bad HEAD: $head" >&2; exit 2; }
+
+if [ $# -eq 3 ]; then
+  out=$3
+else
+  dir=$("$script_dir/sdd-workspace")
+  out="$dir/review-$(git rev-parse --short "$base")..$(git rev-parse --short "$head").diff"
+fi
+
+{
+  echo "# Review package: ${base}..${head}"
+  echo
+  echo "## Commits"
+  git log --oneline "${base}..${head}"
+  echo
+  echo "## Files changed"
+  git diff --stat "${base}..${head}"
+  echo
+  echo "## Diff"
+  git diff -U10 "${base}..${head}"
+} > "$out"
+
+count=$(git rev-list --count "${base}..${head}")
+echo "wrote ${out}: ${count} commit(s), $(wc -c < "$out" | tr -d ' ') bytes"

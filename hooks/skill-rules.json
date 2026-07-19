@@ -4,7 +4,7 @@
       "skill": "systematic-debugging",
       "type": "process",
       "priority": "critical",
-      "keywords": ["bug", "error", "broken", "not working", "crash", "exception", "stack trace", "failing", "fails", "traceback", "undefined", "null pointer", "segfault", "warning"],
+      "keywords": ["bug", "error", "broken", "not working", "crash", "exception", "stack trace", "failing", "fails", "traceback", "undefined", "null pointer", "segfault", "warning", "debug", "root cause"],
       "intentPatterns": ["fix\\s+(this|the|a)\\s+(bug|error|issue)", "why\\s+(is|does|isn't)", "not\\s+work(ing)?", "stopped\\s+working", "something\\s+(is\\s+)?wrong", "unexpected\\s+(behavior|result|output|error)", "can('t|\\s*not)\\s+(figure|find|tell|determine)", "(shows?|displays?|renders?|gives?)\\s+(a\\s+)?(blank|white|empty|wrong|incorrect)", "(went|jumped|spiked|increased|degraded)\\s+(from|to|up|down)", "(but|except|however)\\s+(it\\s+)?(works?|runs?)\\s+(fine|ok|correctly|locally)", "(works?|runs?)\\s+(fine|ok|correctly|locally|on\\s+my)\\s+(but|except|however|only)", "(throw|throwing|throws)\\s+(?!.{0,10}(custom|new|my|our|a\\s+new)).{0,30}(error|warning|exception)"]
     },
     {
@@ -72,8 +72,8 @@
       "skill": "subagent-driven-development",
       "type": "workflow",
       "priority": "medium",
-      "keywords": ["parallel", "subagent", "run in parallel", "concurrent"],
-      "intentPatterns": ["(run|do|execute)\\s+(these|them|tasks?)\\s+(in\\s+)?parallel", "use\\s+subagent"]
+      "keywords": ["parallel", "subagent", "run in parallel", "concurrent", "in batches", "batched", "resume the plan"],
+      "intentPatterns": ["(run|do|execute)\\s+(these|them|tasks?)\\s+(in\\s+)?parallel", "use\\s+subagent", "implement\\s+the\\s+next\\s+\\d+\\s+tasks?", "(execute|run|implement)\\s+(the\\s+)?plan\\s+in\\s+batch(es)?", "resume\\s+the\\s+(plan|implementation)(?!\\s+(discussion|talk|meeting|review|notes|conversation))"]
     },
     {
       "skill": "finishing-a-development-branch",

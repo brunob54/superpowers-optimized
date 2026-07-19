@@ -397,15 +397,22 @@ function isExecutionTrigger(prompt) {
 /**
  * Convert a filesystem cwd path to the Claude Code project directory name.
  * Examples:
- *   Windows: "C:\Users\Tjerk Pieksma\..." → "c--Users-Tjerk-Pieksma-..."
- *   Unix:    "/home/user/projects/foo"    → "home-user-projects-foo"
+ *   Windows: "C:\Users\Tjerk Pieksma\..."       → "c--Users-Tjerk-Pieksma-..."
+ *   Unix:    "/home/user/AI_Coding/My_tools"    → "-home-user-AI-Coding-My-tools"
  */
 function cwdToProjectDir(cwd) {
   return cwd
     .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + '-') // C: → c-
-    .replace(/[/\\]/g, '-')  // path separators → -
-    .replace(/\s/g, '-')     // spaces → -
-    .replace(/-+$/, '');     // trim trailing dashes
+    .replace(/[^A-Za-z0-9]/g, '-') // every other non-alphanumeric → -
+    .replace(/-+$/, '');           // trim trailing dashes
+}
+
+/**
+ * Absolute path of the Claude Code project directory for a cwd.
+ */
+function claudeProjectPath(cwd) {
+  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
+  return path.join(homeDir, '.claude', 'projects', cwdToProjectDir(cwd));
 }
 
 /**
@@ -417,9 +424,7 @@ function cwdToProjectDir(cwd) {
 function getContextPressure(cwd, sessionId) {
   if (!sessionId) return null;
 
-  const projectDir = cwdToProjectDir(cwd);
-  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
-  const jsonlPath = path.join(homeDir, '.claude', 'projects', projectDir, sessionId + '.jsonl');
+  const jsonlPath = path.join(claudeProjectPath(cwd), sessionId + '.jsonl');
 
   let content;
   try {
@@ -457,6 +462,49 @@ function getContextPressure(cwd, sessionId) {
     percent: Math.round(ratio * 100),
     overThreshold: ratio >= CONTEXT_PRESSURE_THRESHOLD,
   };
+}
+
+/**
+ * Find the most recently modified session JSONL for this project.
+ * Used when the caller does not know its own session id (e.g. --pressure CLI).
+ * Returns the full path, or null if the project dir is absent or has no sessions.
+ */
+function findLatestSessionJsonl(cwd) {
+  const projectPath = claudeProjectPath(cwd);
+
+  let files;
+  try {
+    files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+  } catch {
+    return null;
+  }
+
+  let latest = null;
+  let latestMtime = -1;
+  for (const f of files) {
+    const full = path.join(projectPath, f);
+    let st;
+    try {
+      st = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    if (st.mtimeMs > latestMtime) {
+      latestMtime = st.mtimeMs;
+      latest = full;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Context pressure from the most recently modified session JSONL.
+ * Same return shape as getContextPressure; null when unmeasurable.
+ */
+function getContextPressureAuto(cwd) {
+  const jsonlPath = findLatestSessionJsonl(cwd);
+  if (!jsonlPath) return null;
+  return getContextPressure(cwd, path.basename(jsonlPath, '.jsonl'));
 }
 
 /**
@@ -554,7 +602,14 @@ async function main() {
 }
 
 if (require.main === module) {
-  main();
+  if (process.argv[2] === '--pressure') {
+    // CLI mode: report context pressure for the given (or current) cwd.
+    // Used by subagent-driven-development's batched autonomous mode between tasks.
+    const pressure = getContextPressureAuto(process.argv[3] || process.cwd());
+    process.stdout.write(JSON.stringify(pressure || { error: 'unmeasurable' }));
+  } else {
+    main();
+  }
 } else {
   module.exports = {
     matchSkills,
@@ -568,6 +623,8 @@ if (require.main === module) {
     isExecutionTrigger,
     cwdToProjectDir,
     getContextPressure,
+    findLatestSessionJsonl,
+    getContextPressureAuto,
     buildContextPressureBlock,
     RULES,
     CONFIDENCE_THRESHOLD,
