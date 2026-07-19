@@ -158,6 +158,13 @@
       "priority": "medium",
       "keywords": ["dependency", "dependencies", "upgrade packages", "npm update", "pip upgrade", "outdated", "vulnerability", "CVE", "security advisory", "breaking change", "migration guide", "peer dependency", "dependabot", "npm audit"],
       "intentPatterns": ["update\\s+(the\\s+)?(dependencies|packages|deps)", "upgrade\\s+(to|packages|deps)", "(fix|resolve|address)\\s+(the\\s+)?(vulnerabilit|CVE|security\\s+advisory)", "npm\\s+(audit|outdated|update)", "pip\\s+(audit|install\\s+--upgrade)", "breaking\\s+change(s)?\\s+(in|from|after)", "migrate\\s+to\\s+(v?\\d|new\\s+version|latest)"]
+    },
+    {
+      "skill": "multi-review",
+      "type": "workflow",
+      "priority": "high",
+      "keywords": ["multi review", "multi-review", "review rounds", "independent review", "independent reviews", "review the spec", "review the plan", "spec review", "plan review"],
+      "intentPatterns": ["review\\s+(the\\s+|this\\s+|my\\s+)?(spec|plan|document)\\s+(again|\\d+\\s+times)", "(run|do|perform)\\s+\\d+\\s+(independent\\s+)?review\\s+rounds?", "(several|multiple|independent)\\s+reviews?\\s+of\\s+(the\\s+|this\\s+|my\\s+)?(spec|plan|document)"]
     }
   ]
 }

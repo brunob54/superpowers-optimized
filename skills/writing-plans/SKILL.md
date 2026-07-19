@@ -24,6 +24,7 @@ Save to `docs/plans/YYYY-MM-DD-<feature-name>.md`.
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers-optimized:subagent-driven-development (recommended) or superpowers-optimized:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** <single sentence>
+**Spec:** `docs/specs/<the spec this plan implements>.md` *(multi-review reads this line to locate the spec on direct plan reviews)*
 **Architecture:** <2-4 sentences>
 **Tech Stack:** <languages/libraries/tools>
 **Assumptions:** <list the key assumptions this plan rests on. For each, state what it excludes: "Assumes X — will NOT work if Y."> *(skip only if the plan contains zero conditional logic)*
@@ -132,9 +133,19 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
+## Multi-Round Plan Review
+
+After self-review, invoke `superpowers-optimized:multi-review` on the saved
+plan (doc type `plan`; spec path from the plan header's `**Spec:**` line).
+It asks for N if not already stated (default 3; 0 skips), runs at most once
+per gate, and writes its audit log to `<plan-basename>-review-log.md`. If
+the user requests plan changes afterward, re-run only Self-Review — another
+loop pass only on explicit user request. Skip on platforms without the
+Agent tool.
+
 ## Execution Handoff
 
-After saving the plan and completing self-review, auto-select the execution approach using the logic below, then output the ready message and **stop**. Do not invoke any execution skill until the user replies.
+After saving the plan, completing self-review, and completing the multi-round plan review, auto-select the execution approach using the logic below, then output the ready message and **stop**. Do not invoke any execution skill until the user replies.
 
 ### Selection Logic (evaluate in order)
 

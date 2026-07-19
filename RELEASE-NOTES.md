@@ -1,5 +1,22 @@
 # Superpowers Optimized Release Notes
 
+## v6.9.0 — multi-review: N-round independent document review
+
+- New `multi-review` skill: runs up to N (default 3, cap 10) independent
+  review rounds on a spec or plan — one clean-context reviewer subagent per
+  round under a rotating lens (correctness, ambiguity, feasibility,
+  adversarial) — merging Critical/Important findings between rounds, with a
+  sidecar `<doc>-review-log.md` audit trail and early exit after two
+  consecutive clean rounds.
+- brainstorming and writing-plans invoke the loop automatically before their
+  user approval gates (once per gate); direct use: `/multi-review <doc> [N]`.
+- writing-plans Plan Header gains a `**Spec:**` line so plan reviews can
+  locate their spec.
+- subagent-guard: reviewer reports (marker `<!-- multi-review report -->`)
+  are exempt from skill-leakage blocking; `multi-review` added to the roster.
+- Removed orphaned `spec-document-reviewer-prompt.md` /
+  `plan-document-reviewer-prompt.md` (superseded).
+
 ## v6.8.0 (2026-07-18)
 
 ### Subagent-Driven Development: token-optimized review flow (port of upstream v6.0.0)

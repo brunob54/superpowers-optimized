@@ -46,7 +46,14 @@ const SKILL_NAMES = [
   'refactoring',
   'performance-investigation',
   'dependency-management',
+  'multi-review',
 ];
+
+// Multi-review reviewer reports legitimately quote skill names — they review
+// documents about skills. A genuine report opens with this exact marker
+// (reviewer-prompt.md makes it the mandatory first line); anything after the
+// start of the message does not count.
+const REVIEW_REPORT_MARKER = '<!-- multi-review report -->';
 
 const ACTION_VERB = '(?:invoking?|using|use|running?|called?|calling|activat(?:e|ed|ing)|trigger(?:ing|ed)?|execut(?:e|ed|ing)|launch(?:ing|ed)?|spawn(?:ing|ed)?|start(?:ing|ed)?)\\s+(?:the\\s+)?';
 
@@ -89,6 +96,11 @@ function main() {
       const lastMessage = data.last_assistant_message || '';
       const agentId = data.agent_id || 'unknown';
       const agentType = data.agent_type || 'unknown';
+
+      if (lastMessage.trimStart().startsWith(REVIEW_REPORT_MARKER)) {
+        process.stdout.write('{}');
+        return;
+      }
 
       // Check if the subagent's output shows evidence of skill invocation
       for (const pattern of VIOLATION_PATTERNS) {

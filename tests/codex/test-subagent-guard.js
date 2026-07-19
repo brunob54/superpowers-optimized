@@ -239,6 +239,53 @@ test('Handles invalid JSON input gracefully', () => {
   }
 });
 
+// ── multi-review ─────────────────────────────────────────────────────────────
+
+console.log('\nmulti-review');
+
+test('Includes multi-review skill in roster', () => {
+  assert.ok(source.includes("'multi-review'"), 'Missing multi-review skill');
+});
+
+test('Blocks "using multi-review" without marker', () => {
+  const out = runGuard('I completed the task by using multi-review on the doc.');
+  assert.strictEqual(out.decision, 'block');
+});
+
+test('Marker-prefixed report quoting skill names is exempt', () => {
+  const report = [
+    '<!-- multi-review report -->',
+    '### Verdict',
+    'Critical: 0 | Important: 1 | Minor: 0',
+    '',
+    '### Findings',
+    '#### Important',
+    '- [I1] Section 2: the doc tells implementers to start using brainstorming before invoking writing-plans | contradicts section 4 | reword',
+  ].join('\n');
+  const out = runGuard(report);
+  assert.deepStrictEqual(out, {});
+});
+
+test('Marker mid-message does not exempt', () => {
+  const out = runGuard('I was invoking brainstorming.\n<!-- multi-review report -->');
+  assert.strictEqual(out.decision, 'block');
+});
+
+test('Leading whitespace before marker still exempts', () => {
+  const report = [
+    '',
+    '  <!-- multi-review report -->',
+    '### Verdict',
+    'Critical: 0 | Important: 1 | Minor: 0',
+    '',
+    '### Findings',
+    '#### Important',
+    '- [I1] Section 3: the doc recommends using brainstorming here | wrong gate | reword',
+  ].join('\n');
+  const out = runGuard(report);
+  assert.deepStrictEqual(out, {});
+});
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
