@@ -542,7 +542,7 @@ git commit -m "skill-rules: route multi-review (keywords + intent patterns + tri
 
 **Does NOT cover:** re-running the loop after user-requested spec changes (once-per-gate; explicit user request only) and non-Claude-Code platforms (loop skipped, self-review still runs).
 
-- [ ] **Step 1: Insert checklist step**
+- [x] **Step 1: Insert checklist step**
 
 Replace:
 
@@ -559,7 +559,7 @@ with:
 13. Invoke `writing-plans`.
 ```
 
-- [ ] **Step 2: Update the digraph**
+- [x] **Step 2: Update the digraph**
 
 Replace:
 
@@ -580,7 +580,7 @@ and add, with the other node declarations:
     "Multi-review loop" [shape=box];
 ```
 
-- [ ] **Step 3: Add the once-per-gate note to User Review Gate**
+- [x] **Step 3: Add the once-per-gate note to User Review Gate**
 
 Append to the "User Review Gate" section (after "Only proceed once the user approves."):
 
@@ -592,7 +592,7 @@ invocation entry from this gate). Run the loop again only if the user
 explicitly asks.
 ```
 
-- [ ] **Step 4: Add exit criterion**
+- [x] **Step 4: Add exit criterion**
 
 In "Exit Criteria", after the spec self-review line, add:
 
@@ -600,12 +600,12 @@ In "Exit Criteria", after the spec self-review line, add:
 - Multi-review loop completed or explicitly skipped (N=0) — every Critical/Important finding applied or rejected-with-reason in the review log.
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `grep -in "multi-review" skills/brainstorming/SKILL.md | wc -l`
 Expected: ≥ 5 — case-insensitive is required: the checklist step and gate note say "multi-review", while the exit-criteria line and the three digraph occurrences say "Multi-review".
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/brainstorming/SKILL.md
@@ -621,7 +621,7 @@ git commit -m "brainstorming: multi-review loop before the user spec gate"
 
 **Does NOT cover:** pre-existing plans without a `**Spec:**` line (multi-review asks the user once — handled in the multi-review skill, not here).
 
-- [ ] **Step 1: Add the Spec line to the Plan Header template**
+- [x] **Step 1: Add the Spec line to the Plan Header template**
 
 In the "Plan Header" fenced template, after the `**Goal:**` line, insert:
 
@@ -629,7 +629,7 @@ In the "Plan Header" fenced template, after the `**Goal:**` line, insert:
 **Spec:** `docs/specs/<the spec this plan implements>.md` *(multi-review reads this line to locate the spec on direct plan reviews)*
 ```
 
-- [ ] **Step 2: Add the gate section**
+- [x] **Step 2: Add the gate section**
 
 Insert a new section between "Self-Review" and "Execution Handoff":
 
@@ -645,7 +645,7 @@ loop pass only on explicit user request. Skip on platforms without the
 Agent tool.
 ```
 
-- [ ] **Step 3: Update the handoff opener**
+- [x] **Step 3: Update the handoff opener**
 
 Replace:
 
@@ -659,12 +659,12 @@ with:
 After saving the plan, completing self-review, and completing the multi-round plan review, auto-select the execution approach
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `grep -n "Multi-Round Plan Review\|\*\*Spec:\*\*" skills/writing-plans/SKILL.md | wc -l`
 Expected: ≥ 3 (header line, section title, section body reference).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/writing-plans/SKILL.md
@@ -679,7 +679,7 @@ git commit -m "writing-plans: Spec header line + multi-review loop before handof
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Confirm they are still orphaned, then remove**
+- [x] **Step 1: Confirm they are still orphaned, then remove**
 
 Run: `git grep -lE "spec-document-reviewer-prompt|plan-document-reviewer-prompt" -- ':!docs'`
 Expected: only `RELEASE-NOTES.md` — historical entries stay; `docs/` is excluded because this feature's own spec, plan, and review log legitimately name the deleted files. (`git grep` is used deliberately: its output format is stable, while plain `grep` on this machine is ugrep, which prints paths without a `./` prefix.) Then:
@@ -688,12 +688,12 @@ Expected: only `RELEASE-NOTES.md` — historical entries stay; `docs/` is exclud
 git rm skills/brainstorming/spec-document-reviewer-prompt.md skills/writing-plans/plan-document-reviewer-prompt.md
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `ls skills/brainstorming/ skills/writing-plans/`
 Expected: each directory contains only `SKILL.md`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -m "Remove orphaned single-shot document reviewer templates (superseded by multi-review)"
@@ -708,7 +708,7 @@ git commit -m "Remove orphaned single-shot document reviewer templates (supersed
 
 **Does NOT cover:** gate-integration behavior (brainstorming/writing-plans invoking the loop) — that is the spec's Manual gate check after plugin reinstall, not automatable here; and it cannot assert specific findings (reviewer output is nondeterministic), only the contract: log exists, round entry present, doc-modification consistent with dispositions.
 
-- [ ] **Step 1: Create the file with exactly this content**
+- [x] **Step 1: Create the file with exactly this content**
 
 ```bash
 #!/usr/bin/env bash
@@ -788,12 +788,12 @@ else
 fi
 ```
 
-- [ ] **Step 2: Syntax-check and register**
+- [x] **Step 2: Syntax-check and register**
 
 Run: `bash -n tests/claude-code/test-multi-review.sh && chmod +x tests/claude-code/test-multi-review.sh && grep -n "test-" tests/claude-code/run-skill-tests.sh | head -20`
 Expected: no syntax errors. If `run-skill-tests.sh` enumerates test files explicitly, the edit is mechanical: append `test-multi-review.sh` to the same list/array/case that contains `test-subagent-driven-development-integration.sh` (the **integration**/slow set — this test runs the real CLI for up to 30 minutes), matching the surrounding syntax exactly; if discovery is glob-based, no change.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/claude-code/test-multi-review.sh tests/claude-code/run-skill-tests.sh
