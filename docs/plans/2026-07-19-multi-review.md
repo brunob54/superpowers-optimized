@@ -86,15 +86,27 @@ test('Marker mid-message does not exempt', () => {
 });
 
 test('Leading whitespace before marker still exempts', () => {
-  const out = runGuard('\n  <!-- multi-review report -->\n### Verdict\nNo material issues under this lens.');
+  const report = [
+    '',
+    '  <!-- multi-review report -->',
+    '### Verdict',
+    'Critical: 0 | Important: 1 | Minor: 0',
+    '',
+    '### Findings',
+    '#### Important',
+    '- [I1] Section 3: the doc recommends using brainstorming here | wrong gate | reword',
+  ].join('\n');
+  const out = runGuard(report);
   assert.deepStrictEqual(out, {});
 });
 ```
 
+*(Both exemption tests carry a verb+skill-name phrase — "using brainstorming" — so they genuinely block without the exemption; a message without such a phrase can never detect an exemption regression.)*
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `node tests/codex/test-subagent-guard.js`
-Expected: FAIL — "Missing multi-review skill" and the two exemption tests get `decision: 'block'` instead of `{}` (mid-message and no-marker cases already pass).
+Expected: FAIL on exactly four of the five new tests — the roster source check ("Missing multi-review skill"), the "Blocks 'using multi-review'" test (nothing matches yet, guard returns `{}` instead of `block`), and the two marker-exemption tests get `decision: 'block'` instead of `{}` — while the mid-message test already passes. (Net: tests 1, 2, 3, 5 fail; test 4 passes.)
 
 - [ ] **Step 3: Implement minimal change**
 
@@ -241,6 +253,8 @@ Agent tool (general-purpose):
   "the target document below is the only document you may read there"
 - `[SPEC_LINE]` — for `plan` docs: `Spec the plan implements (you may read
   it): [SPEC_PATH]`; omit the line entirely for other doc types
+- `[SPEC_PATH]` — REQUIRED for `plan` docs (inside `[SPEC_LINE]`): absolute
+  path of the spec the plan implements; never used for other doc types
 
 **Nothing else may be added to the prompt.** The conversation, design
 rationale, prior rounds' findings, and the review log are never passed.
@@ -252,7 +266,7 @@ doc-section references.
 - [ ] **Step 2: Verify**
 
 Run: `grep -c "multi-review report" skills/multi-review/reviewer-prompt.md && grep -c "\[LENS_INSTRUCTIONS\]" skills/multi-review/reviewer-prompt.md`
-Expected: both counts ≥ 1 (marker appears in prose + prompt; placeholder documented and used).
+Expected: both counts ≥ 1 (marker present in the prompt's output-format block; placeholder both used in the prompt and documented in the Placeholders list).
 
 - [ ] **Step 3: Commit**
 
@@ -318,7 +332,10 @@ rounds' findings — that independence is the point.
 Create or open the sidecar log `<doc-basename>-review-log.md` next to the
 target document and append an invocation note: date, N, and invoker
 (`gate: brainstorming` | `gate: writing-plans` | `direct`). Round numbering
-continues across invocations.
+continues across invocations; lens selection does NOT — it uses the
+per-invocation round index (round 1 of a re-run uses lens 1, on the by-then
+revised document), while the log's `## Round <i>` header uses the continuing
+global number.
 
 For each round `i` in 1..N:
 
@@ -426,6 +443,8 @@ _Invocation <k> — YYYY-MM-DD — N=<n> — <invoker>_
 - [M2] deferred — <finding summary>
 ```
 
+A clean round (zero findings) writes exactly one disposition line:
+`- none — no material issues under this lens`.
 Skipped invocations (N=0) get a one-line `skipped` entry under their
 invocation note; failed rounds get `inconclusive` entries.
 
@@ -450,8 +469,8 @@ get blocked and rounds degrade to retries.
 
 - [ ] **Step 2: Verify**
 
-Run: `grep -c "two consecutive clean rounds" skills/multi-review/SKILL.md && grep -c "gate: brainstorming" skills/multi-review/SKILL.md && grep -n "name: multi-review" skills/multi-review/SKILL.md`
-Expected: counts ≥ 1 and the frontmatter name line found.
+Run: `grep -c "consecutive clean" skills/multi-review/SKILL.md && grep -c "gate: brainstorming" skills/multi-review/SKILL.md && grep -n "name: multi-review" skills/multi-review/SKILL.md`
+Expected: first count ≥ 2 (the full phrase "two consecutive clean rounds" is line-wrapped in the file — grep the fragment that stays on one line), second ≥ 1, and the frontmatter name line found.
 
 - [ ] **Step 3: Commit**
 
@@ -490,16 +509,29 @@ Expected: `ok 9 3`
 - [ ] **Step 3: Run the unit suite**
 
 Run: `bash tests/codex/run-unit-tests.sh`
-Expected: PASS. If `test-skill-activator.js` asserts a fixed rules count or skill roster, extend that assertion to include `multi-review` (check with `grep -n "multi-review\|rules.length\|skills = \[" tests/codex/test-skill-activator.js`) and re-run until green.
+Expected: PASS. If `test-skill-activator.js` asserts a fixed rules count or skill roster (check with `grep -n "multi-review\|rules.length\|skills = \[" tests/codex/test-skill-activator.js`), the edit is mechanical: append `'multi-review'` to the asserted roster array, or increment the asserted count by exactly 1 — nothing else. Re-run until green.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Register in the skill-triggering suite**
 
-```bash
-git add hooks/skill-rules.json tests/codex/test-skill-activator.js
-git commit -m "skill-rules: route multi-review (keywords + intent patterns)"
+Create `tests/skill-triggering/prompts/multi-review.txt` with exactly:
+
+```
+I want to run several independent reviews of the spec and merge the issues they find before I approve it.
 ```
 
-*(If test-skill-activator.js needed no change, commit only the JSON file.)*
+Then append `multi-review` to the `SKILLS` array in `tests/skill-triggering/run-all.sh` (locate it with `grep -n "SKILLS" tests/skill-triggering/run-all.sh`).
+
+Verify registration: `grep -n "multi-review" tests/skill-triggering/run-all.sh && test -f tests/skill-triggering/prompts/multi-review.txt && echo ok`
+Expected: the array line and `ok`. (Actually running `tests/skill-triggering/run-all.sh` needs the reinstalled plugin — deferred to post-reinstall, same as Task 8.)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add hooks/skill-rules.json tests/codex/test-skill-activator.js tests/skill-triggering/prompts/multi-review.txt tests/skill-triggering/run-all.sh
+git commit -m "skill-rules: route multi-review (keywords + intent patterns + triggering test)"
+```
+
+*(If test-skill-activator.js needed no change, omit it from the add.)*
 
 ### Task 5: Brainstorming gate integration
 
@@ -570,8 +602,8 @@ In "Exit Criteria", after the spec self-review line, add:
 
 - [ ] **Step 5: Verify**
 
-Run: `grep -n "multi-review" skills/brainstorming/SKILL.md | wc -l && grep -c "Multi-review loop" skills/brainstorming/SKILL.md`
-Expected: first count ≥ 3 (checklist, gate note, exit criteria), second ≥ 2 (digraph edge + node).
+Run: `grep -in "multi-review" skills/brainstorming/SKILL.md | wc -l`
+Expected: ≥ 5 — case-insensitive is required: the checklist step and gate note say "multi-review", while the exit-criteria line and the three digraph occurrences say "Multi-review".
 
 - [ ] **Step 6: Commit**
 
@@ -649,8 +681,8 @@ git commit -m "writing-plans: Spec header line + multi-review loop before handof
 
 - [ ] **Step 1: Confirm they are still orphaned, then remove**
 
-Run: `grep -rln "spec-document-reviewer-prompt\|plan-document-reviewer-prompt" --include="*.md" --include="*.json" --include="*.js" . | grep -v node_modules`
-Expected: only `RELEASE-NOTES.md` (historical entries stay). Then:
+Run: `git grep -lE "spec-document-reviewer-prompt|plan-document-reviewer-prompt" -- ':!docs'`
+Expected: only `RELEASE-NOTES.md` — historical entries stay; `docs/` is excluded because this feature's own spec, plan, and review log legitimately name the deleted files. (`git grep` is used deliberately: its output format is stable, while plain `grep` on this machine is ugrep, which prints paths without a `./` prefix.) Then:
 
 ```bash
 git rm skills/brainstorming/spec-document-reviewer-prompt.md skills/writing-plans/plan-document-reviewer-prompt.md
@@ -715,7 +747,10 @@ Failed exports are retried a reasonable number of times.
 SPEC_EOF
 SPEC_SHA_BEFORE=$(shasum "$SPEC" | cut -d' ' -f1)
 
-PROMPT="Invoke the superpowers-optimized:multi-review skill on the document $SPEC with N=2. The document type is spec. Do not ask me any questions — use N=2 and proceed to completion."
+PROMPT="Invoke the superpowers-optimized:multi-review skill on the document $SPEC with N=2. Do not ask me any questions — use N=2 and proceed to completion."
+# Deliberately no doc-type statement: the spec's Testing Strategy requires this
+# test to exercise path-based inference (docs/specs/ -> spec); stating the type
+# would override inference per the skill's Parameters rule.
 
 cd "$PLUGIN_DIR" && timeout 1800 claude -p "$PROMPT" \
     --permission-mode bypassPermissions \
@@ -739,7 +774,7 @@ else
         echo "FAIL(b): log claims applied Critical/Important findings but the spec is byte-identical"
         FAILURES=$((FAILURES+1))
     fi
-    if ! grep -qE "applied|rejected:|deferred|No material issues|skipped|inconclusive" "$LOG"; then
+    if ! grep -qiE "applied|rejected:|deferred|no material issues|skipped|inconclusive" "$LOG"; then
         echo "FAIL(c): log has no disposition line and no no-findings verdict"
         FAILURES=$((FAILURES+1))
     fi
@@ -756,7 +791,7 @@ fi
 - [ ] **Step 2: Syntax-check and register**
 
 Run: `bash -n tests/claude-code/test-multi-review.sh && chmod +x tests/claude-code/test-multi-review.sh && grep -n "test-" tests/claude-code/run-skill-tests.sh | head -20`
-Expected: no syntax errors. If `run-skill-tests.sh` enumerates test files explicitly, add `test-multi-review.sh` to its **integration** (slow) list — this test runs the real CLI for up to 30 minutes; if discovery is glob-based, no change.
+Expected: no syntax errors. If `run-skill-tests.sh` enumerates test files explicitly, the edit is mechanical: append `test-multi-review.sh` to the same list/array/case that contains `test-subagent-driven-development-integration.sh` (the **integration**/slow set — this test runs the real CLI for up to 30 minutes), matching the surrounding syntax exactly; if discovery is glob-based, no change.
 
 - [ ] **Step 3: Commit**
 
@@ -801,8 +836,8 @@ git commit -m "Behavioral test: multi-review log contract on a seeded flawed spe
 
 - [ ] **Step 3: Verify**
 
-Run: `cat VERSION && grep -h '"version"' .claude-plugin/plugin.json .claude-plugin/marketplace.json && grep 'version:' plugin.universal.yaml | head -1 && head -3 RELEASE-NOTES.md`
-Expected: `6.9.0` in all four; release-notes entry on top.
+Run: `cat VERSION && grep -h '"version"' .claude-plugin/plugin.json .claude-plugin/marketplace.json && grep -c 'version: "6.9.0"' plugin.universal.yaml && head -3 RELEASE-NOTES.md`
+Expected: `6.9.0` in VERSION and both JSON files, yaml count exactly `1` (the meta version — an exact-string match, immune to other `version:` keys), release-notes entry on top.
 
 - [ ] **Step 4: Commit**
 
@@ -810,3 +845,33 @@ Expected: `6.9.0` in all four; release-notes entry on top.
 git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.universal.yaml RELEASE-NOTES.md
 git commit -m "v6.9.0 - multi-review skill, gate integrations, guard exemption"
 ```
+
+- [ ] **Step 5: Reinstall the plugin cache at 6.9.0**
+
+Sessions run the installed copy, not this repo, and the marketplace pointer
+demonstrably lags the repo (installed: 6.6.1 while the repo was at 6.8.0) —
+so the ACTIVE version dir is the primary install target, not a new one:
+
+```bash
+CACHE_ROOT="$HOME/.claude/plugins/cache/superpowers-optimized/superpowers-optimized"
+ACTIVE=$(ls "$CACHE_ROOT")   # the currently loaded version dir(s)
+echo "active: $ACTIVE"
+# extract over the active dir (mainline), and into 6.9.0 for when the pointer advances
+for d in $ACTIVE 6.9.0; do
+  mkdir -p "$CACHE_ROOT/$d"
+  git archive HEAD | tar -x -C "$CACHE_ROOT/$d"
+done
+```
+
+Verify: `ls "$CACHE_ROOT/$ACTIVE/skills/multi-review/SKILL.md"` → file exists;
+confirm a fresh session's start banner shows the multi-review skill available.
+This step is the prerequisite for Task 4 Step 4's triggering run, Task 8's
+behavioral run, and Step 6 below.
+
+- [ ] **Step 6: Manual gate check (after reinstall)**
+
+Run brainstorming end-to-end on a toy feature in a scratch project and
+confirm the multi-review loop fires between spec self-review and the user
+review gate (spec Testing Strategy, item 3). Record the outcome (fired / did
+not fire, N asked, log created) in the PR description alongside the
+behavioral-test result from Task 8.
