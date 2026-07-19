@@ -15,6 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/../lib/timeout-shim.sh"
 source "$SCRIPT_DIR/test-helpers.sh"
 
 TEST_PROJECT=$(create_test_project)

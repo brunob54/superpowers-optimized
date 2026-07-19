@@ -335,10 +335,19 @@ assert "git-log long output → truncated with 'more lines' marker" "$result" "o
 bold "\n5. END-TO-END: REAL COMMAND EXECUTION VIA OPTIMIZER"
 # ═══════════════════════════════════════════════════════
 
+# Seed an untracked probe file: on a pristine tree `git status` is 2 lines with
+# no hint lines to strip, so the optimizer would not compress and no marker
+# would appear. Must not end in .txt (.gitignore covers *.txt).
+PROBE_FILE="$PLUGIN_ROOT/.sp-test-probe.tmp"
+touch "$PROBE_FILE"
+TMPFILES+=("$PROBE_FILE")
+
 output=$(run_optimizer "git status" "git-status")
 assert_contains     "optimizer: real git status contains branch info"    "$output" "On branch"
 assert_not_contains "optimizer: real git status removes hint lines"       "$output" '(use "git'
 assert_contains     "optimizer: real git status has [compressed] marker"  "$output" "[compressed:"
+
+rm -f "$PROBE_FILE"
 
 # git log — real repo. Assert on the current HEAD subject, not a hardcoded
 # message: hardcoded history scrolls out of the truncated window as commits land.
