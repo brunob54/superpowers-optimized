@@ -17,6 +17,17 @@
 
 Built on the trusted obra/superpowers workflow and refined through research into LLM agent behavior, it adds automatic 3-tier workflow routing, proactive safety hooks, self-consistency verification at critical decision points, cross-session memory, and adversarial red-teaming — everything the original does, plus the discipline layer it was missing.
 
+> [!NOTE]
+> **Lineage & status:** this repository builds on two origins — the original [obra/superpowers](https://github.com/obra/superpowers) by Jesse Vincent and its optimized fork [REPOZY/superpowers-optimized](https://github.com/REPOZY/superpowers-optimized) (baseline v6.6.1). Full credit to both. This fork's own additions (v6.7.0–v6.9.0) are **under testing and evaluation** — see [What this fork adds](#what-this-fork-adds).
+
+### What this fork adds
+
+Three releases beyond the REPOZY v6.6.1 baseline — full guide with usage, details, and motivations in [docs/FORK-IMPROVEMENTS.md](docs/FORK-IMPROVEMENTS.md):
+
+- **SDD Batched Autonomous Mode (v6.7.0)** — execute a plan in resumable batches of N tasks, ending each batch at 60% measured context pressure with a `state.md` handoff; say "implement the next 3 tasks", then after `/clear`: "resume the plan". [Details](docs/FORK-IMPROVEMENTS.md#1-sdd-batched-autonomous-mode-v670)
+- **SDD Token-Optimized Review Flow (v6.8.0)** — port of upstream obra v6.0.0: one two-verdict task reviewer, file-based handoffs under `.superpowers/sdd/`, explicit per-dispatch model selection; automatic whenever subagent-driven-development executes a plan (~2x faster, ~50–60% fewer tokens per upstream measurement). [Details](docs/FORK-IMPROVEMENTS.md#2-sdd-token-optimized-review-flow-v680)
+- **multi-review (v6.9.0)** — N independent clean-context review rounds with rotating lenses on every spec and plan before its approval gate, with a sidecar audit log; automatic at the gates, or direct: `/multi-review docs/specs/<doc>.md 3`. [Details](docs/FORK-IMPROVEMENTS.md#3-multi-review--n-round-independent-document-review-v690)
+
 Cross-session memory changes the experience fundamentally. Without it, every session starts blind: the AI re-explores structure it already mapped, re-proposes approaches that were already rejected, re-debugs errors that were already solved. With the memory stack, it arrives knowing what was tried, what was decided, and why — and with a pre-computed snapshot of exactly what changed since the last commit — and builds forward instead of sideways.
 
 Five research-backed principles run throughout: *less is more* (minimal always-on instructions), *fresh context beats accumulated context* (subagents get clean scoped prompts, not polluted history), *compliance ≠ competence* (instructions must be carefully engineered, not just comprehensive), *verify your own reasoning* (multi-path self-consistency catches confident-but-wrong failures before they become expensive), and *accountability drives accuracy* (agents that know their output has real downstream consequences perform better).
@@ -51,7 +62,7 @@ See [Installation](#installation) for install, update, and uninstall commands on
 ---
 
 > [!IMPORTANT]
-> **Compatibility Note:** This plugin includes a comprehensive workflow router and 24 specialized skills covering debugging, planning, code review, TDD, execution, and more.
+> **Compatibility Note:** This plugin includes a comprehensive workflow router and 25 specialized skills covering debugging, planning, code review, TDD, execution, and more.
 >
 > Other plugins or custom skills/agents in your `.claude/skills/` and `.claude/agents/` folders may interfere if they cover overlapping domains. Duplicate or competing skills can cause trigger conflicts, contradictory instructions, and unnecessary **context bloat/rot**, which will degrade the model's performance.
 >
@@ -100,7 +111,7 @@ User sends a prompt
 ┌─ skill-activator.js (UserPromptSubmit hook) ──────────────┐
 │  Is this a micro-task? ("fix typo on line 42")            │
 │    YES → {} (no routing, zero overhead)                   │
-│    NO  → Score against 22 skill rules                     │
+│    NO  → Score against 23 skill rules                     │
 │          Score < 2? → {} (weak match, skip)               │
 │          Score ≥ 2? → Inject skill suggestions            │
 └───────────────────────────────────────────────────────────┘
@@ -251,12 +262,12 @@ Generate once with "map this project". After that, the session-start hook inject
 _Generated: 2026-03-20 14:32 | Git: a4b9c2d_
 
 ## Directory Structure
-skills/ — 24 skills, each in skills/<name>/SKILL.md
+skills/ — 25 skills, each in skills/<name>/SKILL.md
 hooks/ — 10 hooks (JS) + hooks.json registry + skill-rules.json
 
 ## Key Files
 hooks/skill-activator.js — UserPromptSubmit: context pressure gate (blocks plan execution at ≥60% context, reads session JSONL); skill hints via skill-rules.json; memory recall from session-log.md + known-issues.md. Micro-task detection skips all enrichment.
-hooks/skill-rules.json — 22 rules: skill name, keywords, intentPatterns, priority.
+hooks/skill-rules.json — 23 rules: skill name, keywords, intentPatterns, priority.
 
 ## Critical Constraints
 - hooks.json uses \" not ' around ${CLAUDE_PLUGIN_ROOT} (single quotes break Linux)
@@ -361,7 +372,7 @@ With this stack, sessions start with full context and zero re-discovery overhead
 ---
 
 
-## Skills Library (24 skills)
+## Skills Library (25 skills)
 
 ### Core Workflow
 - **using-superpowers** — Mandatory workflow router with 3-tier complexity classification (micro/lightweight/full) and instruction priority hierarchy
@@ -396,6 +407,7 @@ With this stack, sessions start with full context and zero re-discovery overhead
 ### Review & Integration
 - **requesting-code-review** — Structured code review with integrated security analysis (OWASP, auth flows, secrets handling, dependency vulnerabilities), adversarial red team dispatch, and ASI-guided iterative auto-fix pipeline for critical findings (fix one → re-check affected files only → re-prioritize → repeat)
 - **receiving-code-review** — Technical feedback handling with pushback rules and no-sycophancy enforcement
+- **multi-review** — N-round independent spec/plan review: one clean-context reviewer per round under rotating lenses, findings merged between rounds, sidecar audit log; automatic at the brainstorming/writing-plans gates or direct via `/multi-review <doc> [N]`
 - **finishing-a-development-branch** — 4-option branch completion (merge/PR/keep/discard) with safety gates
 
 ### Intelligence
@@ -577,6 +589,7 @@ MIT License - see LICENSE file for details
 
 
 **Support**
-- Issues: https://github.com/REPOZY/superpowers-optimized/issues
+- Issues (this fork): https://github.com/brunob54/superpowers-optimized/issues
+- Optimized fork base: https://github.com/REPOZY/superpowers-optimized
 - Original: https://github.com/obra/superpowers
 - Discussions: https://github.com/REPOZY/superpowers-optimized/discussions
