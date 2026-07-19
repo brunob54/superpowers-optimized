@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Helper functions for Claude Code skill tests
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/timeout-shim.sh"
+
 # Run Claude Code with a prompt and capture output
 # Usage: run_claude "prompt text" [timeout_seconds] [allowed_tools]
 run_claude() {
