@@ -32,7 +32,7 @@ into the two existing approval gates:
   approval point.
 - No Codex/Cursor support. Subagent dispatch is Claude Code-only, same as
   subagent-driven-development. On platforms without the Task tool the gate
-  integrations are skipped (the inline self-review still runs).
+  integrations are skipped (the host skill's own self-review still runs).
 - Does not replace code-review gates on implementation
   (requesting-code-review, SDD task reviews). This reviews *documents*.
 - Reviewer severity calibration is guided, not guaranteed (see Limitations).
@@ -40,10 +40,28 @@ into the two existing approval gates:
 ## Parameters
 
 - **N (round cap):** if the user stated a count in conversation, use it.
-  Otherwise ask once at gate time via a single question (default **3**;
-  **0** skips the loop entirely, logged as skipped). Invalid input → 3.
-- **Doc type:** `spec`, `plan`, or `general` (direct invocation on anything
-  else). Determines lens phrasing and reviewer inputs.
+  Otherwise ask once via a single question — at gate time for gate
+  invocations, immediately for direct invocations (default **3**;
+  **0** skips the loop entirely, logged as skipped). Valid N is an integer
+  0–10 (the ceiling bounds cost); anything else → 3. If several counts were
+  stated in conversation, the most recent wins.
+- **Doc type:** `spec`, `plan`, or `general`. Gate invocations pass the type
+  explicitly (brainstorming → `spec`, writing-plans → `plan`). For direct
+  invocation the controller infers from the path — under `docs/specs/` →
+  `spec`, under `docs/plans/` → `plan`, anything else → `general` — and an
+  explicit user statement overrides the inference. Plans can live at
+  user-preferred locations (writing-plans allows overriding its default
+  path), so if a `general`-inferred document carries a `**Spec:**` header
+  line, the controller warns and asks the user to confirm the type instead
+  of silently reviewing a plan under `general` lenses. Determines lens
+  phrasing and reviewer inputs.
+- **Spec path (plan reviews only):** the writing-plans gate passes the spec
+  path it already knows. On direct invocation of a plan, the controller reads
+  the plan header's `**Spec:**` line (a `**Spec:** docs/specs/<file>.md` field
+  that the writing-plans integration adds to the Plan Header template); if
+  the line is absent — e.g. a pre-existing plan — it asks the user once. If
+  the user cannot supply one, the no-locatable-spec fallback in Error
+  Handling applies.
 - **Reviewer model:** inherit the session model. The dispatch template states
   this explicitly so the model line is never accidentally omitted-but-meant.
 
@@ -79,22 +97,40 @@ For each round `i` in 1..N:
    - Minor findings: apply at the controller's discretion; always logged with
      disposition.
 4. **Append a round entry** to the review log (format below).
-5. **Convergence check:** if the reviewer *reported* zero Critical and zero
-   Important findings, the loop exits early. Convergence is computed from
-   reviewer-reported severities, never post-triage — controller rejections can
-   never manufacture convergence.
+5. **Convergence check:** the loop exits early only after **two consecutive
+   clean rounds** — rounds whose reviewer reported zero Critical and zero
+   Important findings. Because consecutive rounds use different lenses,
+   convergence always reflects at least two distinct perspectives — a single
+   clean round never exits (which would leave the other lens classes
+   unexamined). An `inconclusive` round (see Error Handling) breaks the
+   clean streak. Severities are read from the report's **enumerated
+   findings**, never the count line (the Verdict counts are informational;
+   on disagreement the enumerated findings win), and never post-triage —
+   controller rejections can never manufacture convergence. With N ≤ 2
+   mid-loop early exit cannot fire, but the convergence *status* is still
+   reported: whenever the final two rounds were clean, the gate report says
+   "converged" even if that coincided with the cap; N = 1 always reports
+   "cap reached."
 
-**After the loop exits** (converged or cap reached): the controller runs the
-inline self-review checklist (placeholder scan, internal consistency,
-ambiguity, scope) on the final merged document. This catches errors introduced
-by the last merge, which no reviewer sees. Then it reports to the user at the
-existing gate: rounds run, per-round finding counts, converged vs cap reached,
-and the review log path.
+**After the loop exits** (converged or cap reached): the controller runs a
+self-review checklist on the final merged document. At gate invocations this
+is the host skill's own checklist — brainstorming's Spec Self-Review or
+writing-plans' Self-Review — which is already loaded in the controller's
+context (the host invoked multi-review), so no cross-skill file read is
+needed. Direct invocations always use the four-item list (placeholder scan,
+internal consistency, ambiguity, scope) regardless of doc type — the
+post-loop check is a merge-error backstop, not a substitute for the host
+gate, and this avoids content-drift coupling with the sibling skills'
+checklists. Then the controller reports to the user at the existing gate:
+rounds run, per-round finding counts, converged vs cap reached, and the
+review log path.
 
-**Once per gate:** the loop runs at most once per approval gate. If the user
-requests changes at the gate, only the inline self-review re-runs on the
-edited document. Another multi-review pass happens only if the user explicitly
-asks for one.
+**Once per gate:** the loop runs at most once per approval gate. The detection
+signal is the review log: if the sidecar already contains an invocation entry
+for this document created at this gate, the loop is not re-run (this survives
+session restarts mid-gate). If the user requests changes at the gate, only the
+doc type's self-review checklist re-runs on the edited document. Another
+multi-review pass happens only if the user explicitly asks for one.
 
 ## Lens Rotation
 
@@ -126,7 +162,25 @@ Critical: <n> | Important: <n> | Minor: <n>
 - [M1] ...
 ```
 
+The **enumerated findings are authoritative**; the Verdict count line is
+informational and the controller recomputes counts from the enumeration when
+they disagree. The sentence "No material issues under this lens." is used
+only when there are **zero findings of any severity**; a Minor-only round
+reports counts (`Critical: 0 | Important: 0 | Minor: <n>`) with empty
+Critical/Important sections.
 Every finding must reference a section or line of the target document.
+
+**Interaction with the subagent-stop guard:** the plugin's
+`hooks/subagent-guard.js` scans every subagent's final message for
+skill-name patterns and blocks apparent skill leakage. Reviewer reports about
+documents that discuss skills — common in this repository — trip it as false
+positives (observed during the design-phase dogfood run of this very spec).
+The guard therefore gains a narrow exemption for multi-review reviewer
+reports (recognition mechanism — agent-description prefix or fixed report
+marker — decided in the plan), and its `SKILL_NAMES` roster gains
+`multi-review` so the new skill stays inside the guard's coverage. Both
+changes appear in Files.
+
 Calibration (adapted from `task-reviewer-prompt.md`): **Critical** = acting on
 the document as written would produce wrong or broken results for a core
 scenario. **Important** = the document cannot be trusted until fixed — a
@@ -136,13 +190,21 @@ contradiction, a missed requirement, an ambiguity that changes implementation.
 ## Review Log (Audit Trail)
 
 Sidecar file next to the target document: `<doc-basename>-review-log.md`
-(e.g. `2026-07-19-multi-review-design-review-log.md`). Created on the first
-round; one entry appended per round:
+(e.g. `2026-07-19-multi-review-design-review-log.md`). Created when the skill
+is invoked — including an N=0 skip, which gets a one-line `skipped` entry.
+Round numbering continues across invocations (a user-requested re-run appends
+rounds k+1... under a one-line invocation note — headers never collide). Each
+invocation note records date, N, and the **invoker** (`gate: brainstorming`,
+`gate: writing-plans`, or `direct`) — the invoker field is what makes the
+once-per-gate detection implementable: a prior direct pass or N=0 skip is
+distinguishable from a gate-initiated one. One entry appended per round:
 
 ```
 ## Round <i> — <lens name> — <model>
 **Reviewer verdict:** <n> Critical, <n> Important, <n> Minor
-**Converged:** yes/no
+**Converged:** yes/no   <!-- "yes" only on the round where the loop exits via
+                             convergence (second consecutive clean round);
+                             every other round is "no" -->
 ### Dispositions
 - [C1] applied — <doc section>: <finding summary> → <change made>
 - [I1] rejected: <reason> — <finding summary>
@@ -161,10 +223,11 @@ enforceable in the prompt.
   second failure, log the round as `inconclusive` — it never counts as
   convergence — and continue to the next round.
 - **Target document missing:** stop and report to the user; nothing dispatched.
-- **N invalid** (non-numeric, negative): use default 3. **N = 0:** skip, log.
+- **N invalid** (not an integer 0–10, per Parameters): use default 3.
+  **N = 0:** skip, log.
 - **Plan review with no locatable spec:** proceed with lens phrasing that
-  omits spec-coverage checks, and record in the log that coverage was not
-  reviewed.
+  omits spec-coverage checks — round 1 falls back to the `general` column's
+  correctness focus — and record in the log that coverage was not reviewed.
 
 ## Files
 
@@ -176,6 +239,13 @@ enforceable in the prompt.
   (`[DOC_PATH]`, `[DOC_TYPE]`, `[LENS_NAME]`, `[LENS_INSTRUCTIONS]`,
   `[SPEC_PATH]` for plans), Subagent Rules block, calibration section,
   fixed output format.
+
+**Deleted:**
+- `skills/brainstorming/spec-document-reviewer-prompt.md` and
+  `skills/writing-plans/plan-document-reviewer-prompt.md` — orphaned
+  single-shot reviewer templates from an earlier release (referenced only in
+  RELEASE-NOTES.md), superseded by `reviewer-prompt.md`. Leaving them would
+  create two competing document-review mechanisms.
 
 **Modified:**
 - `skills/brainstorming/SKILL.md` — new checklist step between 10 and 11
@@ -189,6 +259,10 @@ enforceable in the prompt.
   "review the plan") and intent patterns
   (e.g. `review\s+(the\s+)?(spec|plan|document)\s+(again|\d+\s+times)`,
   `(run|do)\s+\d+\s+review\s+rounds?`).
+- `hooks/subagent-guard.js` — add `multi-review` to the `SKILL_NAMES` roster,
+  and add the narrow reviewer-report exemption described in Reviewer Report
+  Contract (a longer roster otherwise widens the guard's false-positive
+  surface for exactly these reports).
 - Release bookkeeping per repo policy: `VERSION`,
   `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`
   (+ `plugin.universal.yaml` meta), `RELEASE-NOTES.md` entry.
@@ -200,10 +274,15 @@ enforceable in the prompt.
   supports per-skill routing assertions (`tests/skill-triggering/` covers
   prompt → skill routing).
 - **Behavioral** (`tests/claude-code/`, slow suite): seed a temp project with
-  a deliberately flawed spec (one contradiction, one ambiguity), invoke
+  a deliberately flawed spec (one contradiction, one ambiguity) at
+  `docs/specs/<name>.md` — the path matters: doc-type inference must resolve
+  it as `spec`, which is what the test exercises — and invoke
   `/multi-review <spec> 2` headlessly, assert: (a) the sidecar
   `*-review-log.md` exists with ≥1 round entry, (b) the spec file was
-  modified, (c) the log contains a disposition line. Follow existing
+  modified OR every Critical/Important finding in the log carries a
+  `rejected: <reason>` disposition (a clean or all-rejected round legitimately
+  leaves the doc untouched), (c) the log contains a disposition line or an
+  explicit no-findings verdict. Follow existing
   test-script rules: no assertions on hardcoded git history; unique session
   ids per invocation.
 - **Manual gate check** after plugin reinstall: run brainstorming end-to-end
@@ -213,8 +292,11 @@ enforceable in the prompt.
 
 - **Severity calibration is imperfect.** A reviewer may under- or over-rate
   severity, causing premature convergence or (more likely, per observed
-  experience) never converging. The N cap bounds cost; the final user gate is
-  the backstop.
+  experience) never converging. Premature exit requires two consecutive
+  under-rating reviewers under different lenses; the N cap bounds the
+  never-converge case; the final user gate is the backstop. Lenses not yet
+  run when the loop exits are by definition unexamined — accepted, since the
+  exit requires two distinct clean lenses.
 - **Independence is enforced by prompt, not sandbox.** The template's
   fixed placeholders prevent context leakage by construction, and the prompt
   bars the review log and doc git history — but a reviewer with repo read
