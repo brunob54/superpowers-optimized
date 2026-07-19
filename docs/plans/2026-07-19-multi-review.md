@@ -809,11 +809,11 @@ git commit -m "Behavioral test: multi-review log contract on a seeded flawed spe
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Bump all four version fields to 6.9.0**
+- [x] **Step 1: Bump all four version fields to 6.9.0**
 
 `VERSION` → `6.9.0`; `"version": "6.9.0"` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`; `version: "6.9.0"` in `plugin.universal.yaml` meta.
 
-- [ ] **Step 2: Prepend a RELEASE-NOTES.md entry**
+- [x] **Step 2: Prepend a RELEASE-NOTES.md entry**
 
 ```markdown
 ## v6.9.0 — multi-review: N-round independent document review
@@ -834,12 +834,12 @@ git commit -m "Behavioral test: multi-review log contract on a seeded flawed spe
   `plan-document-reviewer-prompt.md` (superseded).
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cat VERSION && grep -h '"version"' .claude-plugin/plugin.json .claude-plugin/marketplace.json && grep -c 'version: "6.9.0"' plugin.universal.yaml && head -3 RELEASE-NOTES.md`
 Expected: `6.9.0` in VERSION and both JSON files, yaml count exactly `1` (the meta version — an exact-string match, immune to other `version:` keys), release-notes entry on top.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.universal.yaml RELEASE-NOTES.md
