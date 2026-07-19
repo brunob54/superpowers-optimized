@@ -48,7 +48,7 @@
 
 **Does NOT cover:** the exemption fires only when the marker opens the message — it does NOT exempt markers appearing later, other hook events, or non-reviewer subagents that deliberately spoof the marker (accepted: the guard is an accident-prevention heuristic, not a security boundary; spoofing is out of scope per spec Limitations).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 In `tests/codex/test-subagent-guard.js`, insert immediately before the final summary block (`console.log(`\nsubagent-guard: ...`)`):
 
@@ -103,12 +103,12 @@ test('Leading whitespace before marker still exempts', () => {
 
 *(Both exemption tests carry a verb+skill-name phrase — "using brainstorming" — so they genuinely block without the exemption; a message without such a phrase can never detect an exemption regression.)*
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node tests/codex/test-subagent-guard.js`
 Expected: FAIL on exactly four of the five new tests — the roster source check ("Missing multi-review skill"), the "Blocks 'using multi-review'" test (nothing matches yet, guard returns `{}` instead of `block`), and the two marker-exemption tests get `decision: 'block'` instead of `{}` — while the mid-message test already passes. (Net: tests 1, 2, 3, 5 fail; test 4 passes.)
 
-- [ ] **Step 3: Implement minimal change**
+- [x] **Step 3: Implement minimal change**
 
 In `hooks/subagent-guard.js`:
 
@@ -137,12 +137,12 @@ const REVIEW_REPORT_MARKER = '<!-- multi-review report -->';
       }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node tests/codex/test-subagent-guard.js && bash tests/codex/run-unit-tests.sh`
 Expected: PASS, all suites green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add hooks/subagent-guard.js tests/codex/test-subagent-guard.js
@@ -156,7 +156,7 @@ git commit -m "subagent-guard: multi-review roster entry + marker-exempt reviewe
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Create the file with exactly this content**
+- [x] **Step 1: Create the file with exactly this content**
 
 ````markdown
 # Document Reviewer Prompt Template
@@ -263,12 +263,12 @@ rationale, prior rounds' findings, and the review log are never passed.
 doc-section references.
 ````
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `grep -c "multi-review report" skills/multi-review/reviewer-prompt.md && grep -c "\[LENS_INSTRUCTIONS\]" skills/multi-review/reviewer-prompt.md`
 Expected: both counts ≥ 1 (marker present in the prompt's output-format block; placeholder both used in the prompt and documented in the Placeholders list).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/multi-review/reviewer-prompt.md
@@ -284,7 +284,7 @@ git commit -m "multi-review: reviewer dispatch template"
 
 **Does NOT cover:** running the loop on non-Markdown files, per-round user approval, or platforms without the Agent tool (spec Non-Goals). Does not re-trigger at a gate where an invocation entry already exists — only an explicit user request re-runs it.
 
-- [ ] **Step 1: Create the file with exactly this content**
+- [x] **Step 1: Create the file with exactly this content**
 
 ````markdown
 ---
@@ -467,12 +467,12 @@ legitimately quote skill names. Never remove the marker instruction from
 get blocked and rounds degrade to retries.
 ````
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `grep -c "consecutive clean" skills/multi-review/SKILL.md && grep -c "gate: brainstorming" skills/multi-review/SKILL.md && grep -n "name: multi-review" skills/multi-review/SKILL.md`
 Expected: first count ≥ 2 (the full phrase "two consecutive clean rounds" is line-wrapped in the file — grep the fragment that stays on one line), second ≥ 1, and the frontmatter name line found.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/multi-review/SKILL.md
@@ -487,7 +487,7 @@ git commit -m "multi-review: controller skill (loop, lenses, triage, audit log)"
 
 **Security flag:** `none`
 
-- [ ] **Step 1: Add the rule**
+- [x] **Step 1: Add the rule**
 
 Append to the `"rules"` array (keep JSON valid — comma after the previous last entry):
 
@@ -501,17 +501,17 @@ Append to the `"rules"` array (keep JSON valid — comma after the previous last
     }
 ```
 
-- [ ] **Step 2: Verify JSON and regexes parse**
+- [x] **Step 2: Verify JSON and regexes parse**
 
 Run: `node -e "const r=require('./hooks/skill-rules.json').rules; const m=r.find(x=>x.skill==='multi-review'); if(!m) throw new Error('entry missing'); m.intentPatterns.forEach(p=>new RegExp(p)); console.log('ok', m.keywords.length, m.intentPatterns.length)"`
 Expected: `ok 9 3`
 
-- [ ] **Step 3: Run the unit suite**
+- [x] **Step 3: Run the unit suite**
 
 Run: `bash tests/codex/run-unit-tests.sh`
 Expected: PASS. If `test-skill-activator.js` asserts a fixed rules count or skill roster (check with `grep -n "multi-review\|rules.length\|skills = \[" tests/codex/test-skill-activator.js`), the edit is mechanical: append `'multi-review'` to the asserted roster array, or increment the asserted count by exactly 1 — nothing else. Re-run until green.
 
-- [ ] **Step 4: Register in the skill-triggering suite**
+- [x] **Step 4: Register in the skill-triggering suite**
 
 Create `tests/skill-triggering/prompts/multi-review.txt` with exactly:
 
@@ -524,7 +524,7 @@ Then append `multi-review` to the `SKILLS` array in `tests/skill-triggering/run-
 Verify registration: `grep -n "multi-review" tests/skill-triggering/run-all.sh && test -f tests/skill-triggering/prompts/multi-review.txt && echo ok`
 Expected: the array line and `ok`. (Actually running `tests/skill-triggering/run-all.sh` needs the reinstalled plugin — deferred to post-reinstall, same as Task 8.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add hooks/skill-rules.json tests/codex/test-skill-activator.js tests/skill-triggering/prompts/multi-review.txt tests/skill-triggering/run-all.sh
