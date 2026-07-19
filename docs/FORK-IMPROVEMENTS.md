@@ -23,6 +23,8 @@ Contents:
 
 Long implementation plans cannot finish inside one context window. Without a batch boundary, sessions drift into auto-compaction mid-task — losing decisions, re-dispatching completed work, and guessing at plan ambiguities with nobody watching. Batched Autonomous Mode makes the boundary explicit and crash-safe: context pressure is measured instead of guessed, position lives in durable artifacts (checkboxes, commits, ledger), and blockers become journaled questions instead of silent best-guesses.
 
+**Relation to the baseline 60% gate.** The REPOZY v6.6.1 baseline already uses the same 60% pressure measurement, but as a *start gate*: when a prompt is about to trigger implementation and the window is ≥60% full, the `UserPromptSubmit` hook injects a STOP block that replaces all skill hints and mandates save-state (`state.md` via context-management) → inform the user → `/compact` → resume, *before* any implementation begins. It does not compact anything itself — a hook cannot — and it fires only at the moment execution is requested. Batched Autonomous Mode (this release) reuses that measurement, exposed as the `--pressure` CLI, but flips the response: instead of gating the *start* of work behind compact-first, it re-checks pressure *after every completed task* and ends the batch with a `state.md` handoff — preferring a clean `/clear` + "resume the plan" (rebuilt from checkboxes and git) over mid-work compaction. The two mechanisms coexist: the gate protects the entry into implementation; the batch boundary protects the middle of it.
+
 ### How it works
 
 - Inside a batch, execution is fully autonomous (the user is never asked); tasks run sequentially so the boundary can be evaluated after every task.
