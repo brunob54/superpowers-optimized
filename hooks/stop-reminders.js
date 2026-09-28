@@ -321,6 +321,26 @@ function getUncommittedCount(cwd) {
   }
 }
 
+// The TDD reminder names at most this many files, so that a long session
+// does not make the block text long.
+const MAX_NAMED_FILES = 5;
+
+/**
+ * Return the file names for a reminder: each path relative to cwd, or the
+ * full path for a file outside cwd, and "and N more" after MAX_NAMED_FILES.
+ * The reminder counts every edit of the last 30 minutes, not only the last
+ * turn, so without names the reader cannot tell which edit it counted.
+ */
+function formatFileList(filePaths, cwd) {
+  const names = filePaths.slice(0, MAX_NAMED_FILES).map(filePath => {
+    const relative = path.relative(cwd, filePath);
+    const outside = relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+    return outside ? filePath : relative;
+  });
+  const rest = filePaths.length - names.length;
+  return names.join(', ') + (rest > 0 ? ` and ${rest} more` : '');
+}
+
 function generateReminders(edits, cwd, sessionId) {
   const reminders = [];
 
@@ -341,7 +361,8 @@ function generateReminders(edits, cwd, sessionId) {
   const untestedSources = sourceFiles.filter(src => !isTestFile(src));
   if (isReminderOn(REMINDER.TDD) && untestedSources.length > 0 && testFiles.length === 0) {
     reminders.push(
-      `TDD reminder: ${untestedSources.length} source file(s) modified without test changes. ` +
+      `TDD reminder: ${untestedSources.length} source file(s) modified without test changes: ` +
+      `${formatFileList(untestedSources, cwd)}. ` +
       `Consider running tests or invoking TDD workflow if behavior changed.`
     );
   }

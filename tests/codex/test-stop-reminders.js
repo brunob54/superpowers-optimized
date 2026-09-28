@@ -732,6 +732,39 @@ test('An unknown name alone never makes the hook block', () => {
   assert.deepStrictEqual(result, {}, `Expected no block, got: ${JSON.stringify(result)}`);
 });
 
+// ── TDD reminder names its files ─────────────────────────────────────────────
+
+console.log('\nTDD reminder names the source files it counts');
+
+// Reported by a user: a session edited a Markdown file, and the reminder said
+// "1 source file(s)" without a name. The file counted was an earlier code
+// edit of the same 30-minute window, but the reader could not see that.
+test('The TDD reminder names the counted source file, relative to cwd, and not a Markdown file', () => {
+  const result = evaluateStop(({ logDir, cwdDir }) =>
+    writeRecentEdits(logDir, ['src/app.py', 'docs/notes.md'].map(file => path.join(cwdDir, file))));
+  const reason = result.reason || '';
+  assert.ok(reason.includes(`: ${path.join('src', 'app.py')}.`),
+    `Expected the relative source path in the reminder, got: ${reason}`);
+  assert.ok(!reason.includes('notes.md'), `Expected no Markdown file in the reminder, got: ${reason}`);
+});
+
+test('A source file outside cwd is named with its full path', () => {
+  const outsidePath = path.join(os.tmpdir(), 'elsewhere', 'tool.py');
+  const result = evaluateStop(({ logDir }) => writeRecentEdit(logDir, outsidePath));
+  assert.ok((result.reason || '').includes(outsidePath),
+    `Expected the full path in the reminder, got: ${result.reason}`);
+});
+
+test('The TDD reminder names at most five files and counts the rest', () => {
+  const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(name => `${name}.js`);
+  const result = evaluateStop(({ logDir, cwdDir }) =>
+    writeRecentEdits(logDir, files.map(file => path.join(cwdDir, file))));
+  const reason = result.reason || '';
+  assert.ok(reason.includes('7 source file(s)') && reason.includes('a.js, b.js, c.js, d.js, e.js and 2 more.'),
+    `Expected five names and "and 2 more", got: ${reason}`);
+  assert.ok(!reason.includes('f.js'), `Expected no sixth name, got: ${reason}`);
+});
+
 // ── checkSessionLogSize hard cap ─────────────────────────────────────────────
 
 console.log('\ncheckSessionLogSize hard cap');
