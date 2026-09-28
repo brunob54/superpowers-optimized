@@ -8,6 +8,50 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.54.0 — the TDD reminder names the source files it counts
+
+**Problem.** A colleague edited a Markdown file and got "TDD reminder: 1
+source file(s) modified without test changes". A Markdown file never counts
+as source. The reminder counted an earlier code edit, but it named no file,
+so it looked false.
+
+**Change.** The TDD reminder lists the files it counts: each path relative
+to the working folder, the full path for a file outside it, at most five
+names, then "and N more".
+
+**Effect.** Reinstall the plugin. Nothing to migrate.
+
+### Why
+
+The stop hook (`hooks/stop-reminders.js`) counts as source only a file whose
+name ends in a code extension (`.js`, `.py`, `.ts`, `.go` and others), and it
+excludes `.md` explicitly. This rule has not changed since the hook was
+added. The reminder does not look at the last turn only: it counts every
+file edited with Edit or Write in the last 30 minutes of the session, and it
+fires when no test file was edited in that time. A code edit made earlier in
+the session therefore produced a reminder at the stop after a Markdown edit.
+The colleague's edit log was not available; this cause comes from reading
+the code, not from a measured case.
+
+### What changed
+
+- **Reminder text.** `TDD reminder: N source file(s) modified without test
+  changes: <files>.` The list holds at most five names; more files add
+  "and N more", so that a long session does not make the block text long.
+- **Tests.** Three tests in `tests/codex/test-stop-reminders.js`: a `.py`
+  file is named and a `.md` file of the same 30 minutes is not; a file
+  outside the working folder is named with its full path; seven files give
+  five names and "and 2 more".
+
+### Limits
+
+- The 30-minute window is unchanged. A reminder can still count an edit of
+  an earlier turn; it now names that file. A window of "edits since the last
+  stop" was rejected: it needs a marker for each stop, and a code change
+  could then pass with no reminder.
+- The Codex stop adapter (`hooks/codex/stop-adapter.js`) keeps the old text
+  without names. Codex is no longer a supported platform.
+
 ## v7.53.0 — switch off individual stop reminders by name
 
 **Problem.** The stop hook blocked the end of a task with "Commit reminder"
