@@ -37,3 +37,9 @@ Items: [task 2/1] design — plan governs: "'`pickup-scan.js` requires the modul
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## RULING 6 — 2026-09-30 — phase 3 — Platform check 9 contradicted; returned to the user by spec section 13
+Items: [task 1/2] escalated (spec wrong) — the saved query files carry no version; the spec's sync design needs a new source for it
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: none — contradiction: none
+Re-dispatch: none — escalated
