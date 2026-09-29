@@ -31,3 +31,9 @@ Items: [task 9/1] forced — plan governs: "[6, 10] '`SKILL.md` therefore writes
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: none — contradiction: none
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## RULING 5 — 2026-09-30 — phase 3 — Run-scan failures returned as a field; /pickup output unchanged
+Items: [task 2/1] design — plan governs: "'`pickup-scan.js` requires the module and prints the list in its own format (relative dates included); its output does not change'." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
