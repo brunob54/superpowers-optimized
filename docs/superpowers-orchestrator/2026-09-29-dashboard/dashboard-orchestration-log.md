@@ -19,3 +19,9 @@ Items: [task 3/1] design — plan governs: "Invariants: no edit control and no w
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: none
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## RULING 3 — 2026-09-30 — phase 3 — Dark tokens: each value once as --dark-*, both required blocks map to it
+Items: [task 7/1] forced — plan governs: "Invariants: every value from the data is inserted with `textContent` or `setAttribute` (Global Constraint 3); the app script contains none of `innerHTML`, `oute" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: none — contradiction: none
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
