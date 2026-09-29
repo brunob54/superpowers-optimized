@@ -26,3 +26,12 @@
 - **Defensible answers:** n/a
 - **Forks:** none; contradiction: none
 - **Resolution:** plan governs: "Invariants: every value from the data is inserted with `textContent` or `setAttribute` (Global Constraint 3); the app script contains none of `innerHTML`, `oute" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md — The Task 7 Contract and the Artifact tool's own page contract require the dark tokens under both blocks, which CSS can satisfy only with two assignment lists, and the DRY rule excludes writing each color value twice when one `--dark-*` token per value costs nothing, so only outcome (a) — each dark color value written once as a `--dark-*` token, both blocks mapping to it, with a comment naming the platform requirement — keeps both; (c) departs from the platform contract.
+
+## Ruling 4 — 2026-09-30 — phase 3 — [task 9/1] The --data-dir literal and the unread option
+
+- **Class:** forced
+- **Item:** [task 9/1] n/a n/a — pre-flight conflict: Global Constraint 10 and the Contracts of Tasks 9, 11 and 12 require the same `--data-dir` literal on every `SKILL.md` script command and a `--data-dir` option that the render and sync scripts accept and never read, which the DRY rule reports
+- **Contract clause:** "[6, 10] '`SKILL.md` therefore writes every script command with `--data-dir '${CLAUDE_PLUGIN_DATA}'`, and the scripts take the path only from that argument." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md, Global Constraints
+- **Defensible answers:** n/a
+- **Forks:** none; contradiction: none
+- **Resolution:** plan governs: "[6, 10] '`SKILL.md` therefore writes every script command with `--data-dir '${CLAUDE_PLUGIN_DATA}'`, and the scripts take the path only from that argument." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md — Global Constraint 10 quotes spec sections 6 and 10, which require every script command to carry the literal, and the platform substitutes the variable only in the skill text with a fresh shell per call, so outcome (b) changes the spec and only outcome (a) — the repeated literal and the accepted, unread option are required, not DRY or unused-parameter defects, with one comment at each script's option naming Global Constraint 10 — changes neither the spec nor a binding Contract.

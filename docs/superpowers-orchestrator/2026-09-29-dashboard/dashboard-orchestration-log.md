@@ -25,3 +25,9 @@ Items: [task 7/1] forced — plan governs: "Invariants: every value from the dat
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: none — contradiction: none
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## RULING 4 — 2026-09-30 — phase 3 — The --data-dir literal and the unread option are required by Global Constraint 10
+Items: [task 9/1] forced — plan governs: "[6, 10] '`SKILL.md` therefore writes every script command with `--data-dir '${CLAUDE_PLUGIN_DATA}'`, and the scripts take the path only from that argument." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: none — contradiction: none
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
