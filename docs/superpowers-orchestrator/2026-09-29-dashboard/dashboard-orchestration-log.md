@@ -13,3 +13,9 @@ Items: [task 1/1] forced — plan governs: "Load the skills `artifact-design` an
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: none — contradiction: none
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## RULING 2 — 2026-09-30 — phase 3 — One page copy of the note and status rules, tested for parity
+Items: [task 3/1] design — plan governs: "Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals cou" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: none
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
