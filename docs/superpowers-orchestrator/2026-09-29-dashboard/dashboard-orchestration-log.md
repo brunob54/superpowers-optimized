@@ -43,3 +43,9 @@ Items: [task 1/2] escalated (spec wrong) — the saved query files carry no vers
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: none — contradiction: none
 Re-dispatch: none — escalated
+
+## STOPPED — 2026-09-30 — phase 3 — platform check 9 contradicted (task 1); spec section 13 returns the design to the user
+Detail: .superpowers/sdd/task-1-report.md (### Question 2); docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md row 9
+Open: [task 1/2] escalated (spec wrong) — the files written by ArtifactData `query` with `out_dir` carry no `id` and no `version`; how does `dashboard-sync.js` get each proposal's version?
+Ruled: [task 1/1] forced — plan governs: "Load the skills `artifact-design` and `artifact-capabilities` with the Skill tool." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Resume: Resume orchestration for docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md [task 1/2]: <answer>
