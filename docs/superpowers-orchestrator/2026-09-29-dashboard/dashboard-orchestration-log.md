@@ -7,3 +7,9 @@ plan: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md — 
 
 ## Phase 2 — Plan review — rounds 4 — cap — unresolved 0
 readiness owed: 1
+
+## RULING 1 — 2026-09-30 — phase 3 — Skill tool allowed for the two artifact skills (Tasks 1, 7, 8)
+Items: [task 1/1] forced — plan governs: "Load the skills `artifact-design` and `artifact-capabilities` with the Skill tool." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: none — contradiction: none
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
