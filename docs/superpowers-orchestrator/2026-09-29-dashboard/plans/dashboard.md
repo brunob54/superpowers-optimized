@@ -13,7 +13,7 @@
 - Assumes the page-side runtime calls (the owner check, the `db` read and write, a version-pinned write from the page, the `capabilities` object of a first publish) are documented only by the `artifact-capabilities` skill, which this plan could not load while it was written — will NOT be exact in the reference bodies of Tasks 8 and 12. Each body names these calls in one adapter only (`createStore` and `ownerState` in the template, the `capabilities` value in `SKILL.md`); Task 1 records the real calls in `platform-checks.md`, and Tasks 8 and 12 align the adapters with that record (Task 10 does the same for the ArtifactData file shape). The contracts bind, not the guessed call names.
 - Assumes the ArtifactData tool behaves as its description in this session states: `out_dir` writes `<out_dir>/<collection path>/<doc_id>.json`; a `batch` holds at most 50 writes; a batch with pinned entries is all-or-nothing and "names the first such entry" on a version conflict — will NOT let one proposal fail alone inside a batch. The skill therefore removes the named entry, reports that proposal, and sends the rest of the batch again (Task 12); this realizes the spec's "that proposal is not applied in this sync and is reported" (section 8 step 4). Whether each saved file carries the document's version (spec section 13 item 9) is checked in Task 1; the sync script reads the file shape that Task 1 records.
 - Assumes the `invalid` checks "the proposal changes something (checked against the current row)" and "a `set-part` status change away from `done` is refused while the Commit cell is filled" (spec section 8 step 2.1) compare the proposal with the row of its anchor (`anchor.line`, the row the owner saw) — will NOT compare with the row in the file today. Reason: `invalid` is found before `already-applied`, so a check against the file would turn every applied proposal into `invalid` and break the idempotence that section 8 step 6 requires. The column positions come from the header of the anchored `## Parts` table, else from the template's column order.
-- Assumes the platform checks that need a person cannot run inside an autonomous run: item 7 (the public link and the Share control), the installed-plugin half of item 1, and the new-session half of item 6 when `claude -p` has no Artifact tool — will NOT be verified by Task 1. Task 1 records them as owed; Task 15 writes them into the manual acceptance checklist `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/manual-acceptance.md`, which the owner runs before the merge (Phase 5); the release entry names that file (spec section 11, "Manual acceptance").
+- Assumes the platform checks that need a person cannot run inside an autonomous run: item 7 (the public link and the Share control), the installed-plugin half of item 1, and the new-session halves of items 4 and 6 when `claude -p` has no Artifact tool — will NOT be verified by Task 1. Task 1 records them as owed; Task 15 writes them into the manual acceptance checklist `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/manual-acceptance.md`, which the owner runs before the merge (Phase 5); the release entry names that file (spec section 11, "Manual acceptance"). This deviates from spec section 11 in two points, on purpose: the acceptance does not become a behavioral test when `claude -p` has the Artifact tool, because its page edit needs a person at the browser; and the release entry names the checklist instead of recording the result, because Task 16 writes the entry before the owner runs the checklist.
 - Assumes one more library file is allowed next to the spec's six units: `skills/dashboard/scripts/dashboard-parse.js` holds the parsing rules that both the extractor and the sync script need (line and heading normalization, item ids, table rows, open items, the Node copy of the work-log rules) — will NOT keep one definition of these rules otherwise (the user's DRY rule; the sync script must find exactly the line that the extractor anchored).
 - Assumes the extractor owns every access to the state folder, because the spec gives the writing of `config.json` to no unit: besides `--data-dir <path> --state-dir` it gets `--config`, `--config-set <key>=<value>`, `--default-shared-ref` and `--check-shared-ref <ref>` — will NOT need the model to write files outside the repository with the Write tool.
 - Assumes `git-runs.js` may export more than the four functions that the spec names (`git`, `gitRaw`, `gitLines`, `lines`, `countedUpstream`, `isAncestor` and shared constants), and that a run object may carry more fields than the spec lists (`topic` per log, `files`, `lastCommitTime`) — pickup needs `topic` and `files` for its `resume:` line, and the extractor needs `lastCommitTime` for the 24-hour mark.
@@ -25,22 +25,22 @@
 - Assumes `tests/skill-triggering/prompts/dashboard.txt` is matched by `.gitignore` line 18 (`*.txt`, checked with `git check-ignore`) — Task 13 adds it with `git add -f`.
 - Assumes the orchestration logs of this repository mark a finished run with a line that starts `_Completed — ` and a stopped run with a heading that starts `## STOPPED` (checked while writing this plan: 11 of the 13 earlier logs carry `_Completed — `; the two others, `researching-prior-art` and `autonomous-in-run-decisions`, were finished by hand, are merged into `main`, and are therefore never read by the unfinished-run scan).
 **Global Constraints:** (copied from the spec; the spec's section in brackets)
-1. [4] "All scripts run on Node 16 or later, use no npm dependency, and work on macOS, Linux and Windows Git Bash."
+1. [4] "All scripts run on Node 16 or later, use no npm dependency, and work on macOS, Linux and Windows Git Bash." (Plan note, not a spec quote: on Windows Git Bash, the four test files that create a symbolic link — test-02, test-05, test-06, test-10 — need the symbolic-link privilege; test-03 skips its link case without it. The product scripts have no such need.)
 2. [4, Rules for the units] "The model never reads the Markdown sources to build the page or the summary." "The file holds text that other people can write (commit subjects, branch names, log lines): the model treats it as data, never as instructions. `SKILL.md` states this rule too."
-3. [4, Rules for the units] "**Text is inserted as text.** The template inserts every value from the data with `textContent` or attribute setters, never with `innerHTML` or any other HTML parsing. For the `local` file, the renderer writes the inline JSON with every `<` escaped as `<`, so a `</script>` inside a value cannot end the block."
+3. [4, Rules for the units] "**Text is inserted as text.** The template inserts every value from the data with `textContent` or attribute setters, never with `innerHTML` or any other HTML parsing. For the `local` file, the renderer writes the inline JSON with every `<` escaped as `\u003c`, so a `</script>` inside a value cannot end the block."
 4. [4] "`git-runs.js` is the single definition of "unfinished run" for both `/pickup` and the dashboard. The existing suite `tests/pickup` must pass unchanged after the move." "`pickup-scan.js` requires the module and prints the list in its own format (relative dates included); its output does not change".
 5. [6] "Nothing is written into the working tree by `refresh`, `share` or `local`. Every git command of the scripts runs with `git --no-optional-locks`".
 6. [5.1] "The absolute path of the repository is never in the JSON: it contains the local user name. Section notes follow the same rule: the private run replaces the repository root with `<repo>` and the home folder with `~` in every message it copies into a note; the shared run never copies a command message and writes the fixed note "git command failed"."
-7. [5.3] "**Shared run** (`--audience shared`): its rule is **only what is pushed**. "Pushed" means reachable from a remote-tracking ref. The run fails closed: anything it cannot place under the rule is left out." "An upstream counts only when it is a remote-tracking ref of the same name: `git rev-parse --symbolic-full-name <branch>@{upstream}` must print `refs/remotes/<remote>/<branch>`." "Files are read only with `git show <ref>:<path>`, never from the working tree or from `HEAD`." "Folders and file lists [...] are enumerated with `git ls-tree <ref>`, never from the file system [...]. A symbolic link (`ls-tree` mode `120000`) is skipped." "Every item it emits is `tracked`. The renderer, as a second guard, drops every item whose `visibility` is not `tracked` before any data is written into the shared page files." (Plan note, not a spec quote: a file is read with `git cat-file blob <sha>` of the blob that `git ls-tree <ref>` names, which reads the same object as `git show <ref>:<path>` and lets the run skip a mode-`120000` entry.)
+7. [5.3] "**Shared run** (`--audience shared`): its rule is **only what is pushed**. "Pushed" means reachable from a remote-tracking ref. The run fails closed: anything it cannot place under the rule is left out." "An upstream counts only when it is a remote-tracking ref of the same name: `git rev-parse --symbolic-full-name <branch>@{upstream}` must print `refs/remotes/<remote>/<branch>`." "Files are read only with `git show <ref>:<path>`, never from the working tree or from `HEAD`." "Folders and file lists [...] are enumerated with `git ls-tree <ref>`, never from the file system [...]. A symbolic link (`ls-tree` mode `120000`) is skipped." "Every item it emits is `tracked`. The renderer, as a second guard, drops every item whose `visibility` is not `tracked` before any data is written into the shared page files."
 8. [4] The page title is "`<repo> dashboard — PRIVATE` or `<repo> dashboard — shared`"; "The private page also shows a permanent banner: "Private page — do not make it public"."
 9. [6, 8, 9] `share` shows this warning first: "A public link can be read by anyone who has the URL. On Pro and Max plans this is the only way to share. The shared page holds the pushed content of this repository; if the remote repository is private, that content is not public today." After the publish it prints the URL and says: "Make only this URL public." `share off` says: "The public link still works and shows the last published data. To stop sharing, turn off the public link in the page's Share control." When `sync` changed a tracked file, the report says: "Commit or stash these files before you switch branches or resume a run."
 10. [6, 10] "`SKILL.md` therefore writes every script command with `--data-dir "${CLAUDE_PLUGIN_DATA}"`, and the scripts take the path only from that argument. An argument that is empty, or that still holds the literal text `${CLAUDE_PLUGIN_DATA}` (a platform that does not substitute it), counts as "not set"". "`refresh`, `sync` and `share` stop and say so; nothing falls back to a folder inside the repository. `local` still works: it needs no state folder".
 11. [6] "`<repo key>` is the basename of the repository root, a `-`, and the first 12 hexadecimal digits of the SHA-1 of the UTF-8 string `fs.realpathSync(<output of git rev-parse --show-toplevel>)`, with no trailing newline." "The folder holds only `config.json` (the URLs of the two pages and whether sharing is on) and the last `private.json` and `shared.json` (the baseline of `render --diff`)."
 12. [6] "A republish does not pass the Artifact tool's `contract` field". "A republish omits `capabilities` and `icon`, so it loads neither skill." "Each URL is written to `config.json` right after its page is created, before the next publish starts."
-13. [7, 8] The two edit kinds: `resolve-open-item` appends "` [resolved <date>: <note>]` at the end of the item's bullet line (or of the one-line `Open:` line) [...]; `<note>` defaults to `from the dashboard`"; `set-part` changes only the Status, Since and Note cells. "`<date>` is the first 10 characters of `createdAt` [...]. `sync` never uses the clock of the machine, so the new line is the same on every run." "`sync` never commits". "The file is written before `db` is updated".
-14. [3] Non-goals: "No automatic refresh." "No control of an orchestration run from the page." "No editing by colleagues, and no comments on the shared page". "No GitHub pull-request data." "No "installed plugin version" signal." "No `docs/orchestration-issues.md` worklist table." "No parsing of orchestration phases." "No work logs of other branches." "No `dropped` part status from the page."
+13. [7, 8] The two edit kinds: `resolve-open-item` appends "` [resolved <date>: <note>]` at the end of the item's bullet line (or of the one-line `Open:` line) [...]; `<note>` defaults to `from the dashboard`"; `set-part` changes only the Status, Since and Note cells. "`<date>` is the first 10 characters of `createdAt` [...]. `sync` never uses the clock of the machine, so the new line is the same on every run." "`sync` never commits". "The file is written before `db` is updated". (Plan note, not a spec quote: in spec section 7 "Dates" and section 8 step 6 these two sentences bind the new line and the final record — the new line never depends on the clock of the machine, and a file is written before its proposal is recorded as `applied`. The `closedAt` time of the record step and the `applying` mark of step 4, which comes before the write, follow spec section 8 and do not break them.)
+14. [3] Non-goals: "No automatic refresh." "No control of an orchestration run from the page." "No editing by colleagues, and no comments on the shared page". "No GitHub pull-request data." "No "installed plugin version" signal." "No `docs/orchestration-issues.md` worklist table." "No parsing of orchestration phases." "No work logs of other branches." "No `dropped` part status from the page." (Plan note, not a spec quote: "No work logs of other branches" does not forbid the shared page to read the work logs of the shared ref, which spec section 5.3 requires.)
 15. [5.2] The fixed limits: the 24-hour limit of "no commit since <date> — may need resume" ("a fixed constant of the extractor"); the 10 most recent non-superseded `session-log.md` entries; `currentGoal` "cut to its first 300 characters"; "the first 15 release headings"; "the last 20 commits". [7, 8] A note is "one line, at most 200 characters, none of the characters | [ ]"; ArtifactData batches hold "at most 50 documents".
-16. [11] "Rollout: a new skill; the `skill-rules.json` entry; a release entry in `RELEASE-NOTES.md` with the three-line summary; a `docs/guide/` section; the new suite added to the test list in `CLAUDE.md`. Nothing to migrate."
+16. [11] "Rollout: a new skill; the `skill-rules.json` entry; a release entry in `RELEASE-NOTES.md` with the three-line summary; a `docs/guide/` section; the new suite added to the test list in `CLAUDE.md`. Nothing to migrate." (Plan note, not a spec quote: `CLAUDE.md` is git-ignored, so its Testing line never ships with the branch; the item is met by the edit on disk in Task 14, or, when that edit is declined, by the step row that Task 15 adds to the manual acceptance checklist.)
 
 ---
 
@@ -81,13 +81,13 @@
 
 **Contract:**
 - `platform-checks.md` (wording artifact)
-  - Must convey: one row per item 1 to 12 of spec section 13 (item 11 reads "measured in Task 15"), each with the method used, the observed result, and one verdict out of `confirmed`, `contradicted`, `owed to manual acceptance`; a section `## Runtime record` that states, as copied from the loaded `artifact-capabilities` skill or observed on the probe page: the call that tells the page whether the viewer is the owner; the calls that read all documents of the collection `proposals` with their versions and write one document pinned to a version; whether a page write can be pinned to a version (item 12); the `capabilities` object for a first publish of the private page; the exact JSON shape of one file that ArtifactData `query` with `out_dir` saved (item 9), with the field that holds the version; the probe page URL.
-  - Invariants: a `contradicted` verdict is written only when the observed result contradicts the design statement of that item; a `contradicted` verdict ends the task with the report `BLOCKED: platform check <n> contradicted: <one line>` after the commit.
+  - Must convey: one row per item 1 to 12 of spec section 13 (item 11 reads "measured in Task 15"), each with the method used, the observed result, and one verdict out of `confirmed`, `contradicted`, `owed to manual acceptance` (two exceptions: item 11 carries `owed to Task 15`; item 1 carries a second verdict, `owed to manual acceptance`, for its installed-plugin half; item 4 and item 6 carry a second verdict for their later-session or new-session half); a section `## Runtime record` that states, as copied from the loaded `artifact-capabilities` skill or observed on the probe page: the call that tells the page whether the viewer is the owner; the calls that read all documents of the collection `proposals` with their versions and write one document pinned to a version; whether a page write can be pinned to a version (item 12); whether a page write can be conditional on the document not existing yet, and the call (item 12); the `capabilities` object for a first publish of the private page; the exact JSON shape of one file that ArtifactData `query` with `out_dir` saved (item 9), with the field that holds the version; the probe page URL.
+  - Invariants: a `contradicted` verdict is written only when the observed result contradicts the design statement of that item; a negative result for which this plan names a fallback is `confirmed`, with the result `not available — fallback of Task 8/12`: item 2 with no owner-only write rule (spec section 13 item 2 says "If they can"), item 5 when the owner check exists under another name (the adapters use the record's call, Assumptions), and item 12 with no pinned or no create-if-absent page write (the re-read and the `## Known limits` lines of Tasks 8 and 12) — item 5 with no owner check at all stays `contradicted`; a permission refusal inside a `claude -p` sub-probe is `owed to manual acceptance`; a stale `if_version` update that Step 6 sees accepted is `contradicted`, on row 9; a `contradicted` verdict ends the task with the report `BLOCKED: platform check <n> contradicted: <one line>` after the commit.
   - Verification: `grep -c '^| [0-9]' docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` prints `12`; `grep -n '^## Runtime record' <same file>` prints one line.
 
 - [ ] **Step 1: Item 8 — does `claude -p` have the Artifact tool**
 
-Run: `D=$(mktemp -d) && cd "$D" && claude -p --output-format stream-json --verbose --max-turns 1 "Reply with the word ok." 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const init=s.split("\n").filter(Boolean).map(l=>JSON.parse(l)).find(m=>m.type==="system"&&m.subtype==="init");console.log(init?("artifact-in-p: "+(init.tools.includes("Artifact")?"yes":"no")):"no init message")})'`
+Run: `D=$(mktemp -d) && (cd "$D" && claude -p --output-format stream-json --verbose --max-turns 1 "Reply with the word ok." 2>/dev/null) | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const init=s.split("\n").filter(Boolean).map(l=>JSON.parse(l)).find(m=>m.type==="system"&&m.subtype==="init");console.log(init?("artifact-in-p: "+(init.tools.includes("Artifact")?"yes":"no")):"no init message")})'`
 Expected: one line, `artifact-in-p: yes` or `artifact-in-p: no`. Record it as item 8 (`confirmed`, with the answer). Run it with a Bash tool timeout of at least 180000 ms.
 
 - [ ] **Step 2: Item 1 — `${CLAUDE_PLUGIN_DATA}` in plugin skill text with `--plugin-dir`**
@@ -107,7 +107,7 @@ description: Prints one line that shows the plugin data path. Use only when invo
 Reply with exactly this one line and nothing else:
 DATA=[${CLAUDE_PLUGIN_DATA}]
 PROBE_SKILL
-W=$(mktemp -d) && cd "$W" && claude -p --plugin-dir "$P" --max-turns 3 "/dataprobe:probe"
+W=$(mktemp -d) && (cd "$W" && claude -p --plugin-dir "$P" --max-turns 3 "/dataprobe:probe")
 ```
 
 Expected: a line `DATA=[<path>]` where `<path>` is not empty and does not contain the text `${`. When the output holds no `DATA=[` line at all (the slash command did not load the skill), run the last command again with the prompt `"Invoke the skill dataprobe:probe with the Skill tool and follow it."` and judge that output. Verdict: `confirmed` for the `--plugin-dir` half; `contradicted` when the literal text or an empty value comes back (the design then needs the user). The installed-plugin half is `owed to manual acceptance` (Task 15). Run with a Bash tool timeout of at least 240000 ms.
@@ -119,7 +119,7 @@ Expected: 14 lines (13 earlier logs and this run's own log); 11 earlier logs sho
 
 - [ ] **Step 4: Load the two skills and publish the probe page (items 2, 3, 5, 6, 12)**
 
-Load the skills `artifact-design` and `artifact-capabilities` with the Skill tool. From `artifact-capabilities`, write into the `## Runtime record` draft: the owner-check call; the `db` calls to read every document of a collection with its version and to write one document pinned to a version; whether a pinned write from the page exists (item 12); whether the access rules can restrict writes to the owner, and how (item 2); the path of the shared level where a collection named `proposals` lives, and that `data/users/<id>/` is private to its viewer (item 3); whether `user.isOwner()` exists under this name (item 5); the `capabilities` object that a page with `db` and the owner check declares.
+Load the skills `artifact-design` and `artifact-capabilities` with the Skill tool. From `artifact-capabilities`, write into the `## Runtime record` draft: the owner-check call; the `db` calls to read every document of a collection with its version and to write one document pinned to a version; whether a pinned write from the page exists (item 12); whether a page write can be conditional on the document not existing yet — a create-if-absent write, for the new document of spec section 7 "One document per item" (item 12); whether the access rules can restrict writes to the owner, and how (item 2); the path of the shared level where a collection named `proposals` lives, and that `data/users/<id>/` is private to its viewer (item 3); whether `user.isOwner()` exists under this name (item 5); the `capabilities` object that a page with `db` and the owner check declares.
 
 Write the probe page into the session scratchpad folder, `<scratchpad>/dashboard-probe/index.html` and `<scratchpad>/dashboard-probe/probe-data.json` (`{"probe": "fetched-marker-7d1f"}`). The page, on load: fetches `probe-data.json`; asks the owner check; writes the document `result` into the collection `probe` with fields `fetchOk`, `owner`, `pinnedWriteRefused` (a second write pinned to a stale version must be refused) and `at`. Use the calls exactly as the loaded skill defines them; this reference shows the intent only, with call names that the skill may name differently:
 
@@ -141,7 +141,7 @@ Write the probe page into the session scratchpad folder, `<scratchpad>/dashboard
 </script>
 ```
 
-Publish it with the Artifact tool: `file_path` the probe `index.html`, `files` `{"probe-data.json": "<scratchpad>/dashboard-probe/probe-data.json"}`, the `capabilities` object from the record, `icon` `code`. Record the URL. If the publish is refused by the permission system, record items 2, 3, 5, 6 and 12 from the skill text alone, mark the live part `owed to manual acceptance`, and continue with Step 7.
+Publish it with the Artifact tool: `file_path` the probe `index.html`, `files` `{"probe-data.json": "<scratchpad>/dashboard-probe/probe-data.json"}`, the `capabilities` object from the record, `icon` `code`. Record the URL. If the publish is refused by the permission system, record items 2, 3, 5, 6 and 12 from the skill text alone, mark the live part `owed to manual acceptance`, and continue with Step 8: Steps 5, 6 and 7 need the probe page, so items 4 and 9 are `owed to manual acceptance` too, and the item-9 line of the `## Runtime record` reads `not observed — reference shape { "id", "version", "data" } used`, which Task 10 then keeps.
 
 - [ ] **Step 5: Item 6 — read and list**
 
@@ -151,11 +151,11 @@ Expected: the read returns the probe `index.html`, and its content does not cont
 - [ ] **Step 6: Items 4 and 9 — ArtifactData from Claude's side**
 
 Load ArtifactData with ToolSearch (`select:ArtifactData`). Write two documents into the collection `proposals` of the probe page: `set` `doc_id` `p1` with `{ "state": "pending" }` and `doc_id` `p2` with `{ "state": "applied" }`. Then `query` the collection `proposals` with `query` `{ "where": [["state", "in", ["pending", "applying"]]], "limit": 1000 }` and `out_dir` `<scratchpad>/dashboard-probe/query`.
-Expected: the result lists one file, `<scratchpad>/dashboard-probe/query/proposals/p1.json`. Read that file with the Read tool and copy its whole JSON shape into the record: the field that holds the version is item 9. Also run one `update` of `p1` with an `if_version` one lower than the version read, and record that it is refused.
+Expected: the result lists one file, `<scratchpad>/dashboard-probe/query/proposals/p1.json`. Read that file with the Read tool and copy its whole JSON shape into the record: the field that holds the version is item 9. Also run one `update` of `p1` pinned to the version read (its version then rises), then a second `update` pinned to that same, now stale, version, and record whether the second one is refused as a version conflict; when it is accepted, row 9 is `contradicted` (sync relies on `if_version`, spec section 8 step 4). Item 4 asks for the query from a later session: when Step 1 printed `artifact-in-p: yes`, also run from a new folder `claude -p` with the prompt "Load the ArtifactData tool with ToolSearch, query the collection proposals of <URL> with a filter on state in pending and applying, and print the document ids, or the refusal." and record whether it printed `p1`; otherwise the later-session half of item 4 is `owed to manual acceptance`.
 
 - [ ] **Step 7: Open the probe page and wait for the page's own result (items 5, 6, 12)**
 
-Open the probe URL with the Artifact tool (`action: "open"`). Then read the document `result` of the collection `probe` with ArtifactData `get`, every 15 seconds, at most 40 times (10 minutes). When it appears, record `fetchOk` (item 6: the page can fetch its supporting file), `owner` (item 5 observed), `pinnedWriteRefused` (item 12 observed). When it never appears, the page was not loaded by a person: keep the verdicts that the skill text gives, and mark the live observation `owed to manual acceptance`.
+Open the probe URL with the Artifact tool (`action: "open"`). Then read the document `result` of the collection `probe` with ArtifactData `get`: once right after `open`, and at most twice more, each after you have drafted a part of the Step 8 file (a foreground `sleep` may be refused by the harness, so do not wait with one). When it appears, record `fetchOk` (item 6: the page can fetch its supporting file), `owner` (item 5 observed), `pinnedWriteRefused` (item 12 observed). When it never appears, the page was not loaded by a person: keep the verdicts that the skill text gives, and mark the live observation `owed to manual acceptance`.
 
 - [ ] **Step 8: Write the findings file**
 
@@ -171,22 +171,24 @@ Checked on <date> by Task 1 of the plan. Probe page: <URL> (private; the owner m
 | 1 | `${CLAUDE_PLUGIN_DATA}` is substituted in skill text | `claude -p --plugin-dir` probe skill | <result> | <verdict>; installed plugin: owed to manual acceptance |
 | 2 | `db` access rules can restrict writes to the owner | artifact-capabilities skill text | <result> | <verdict> |
 | 3 | shared-level path of `proposals`; `data/users/<id>/` private | skill text; ArtifactData tool description | <result> | <verdict> |
-| 4 | ArtifactData queries `proposals` with a filter on `state` | Step 6 query | <result> | <verdict> |
+| 4 | ArtifactData queries `proposals` with a filter on `state`, also from a later session | Step 6 query; `claude -p` query | <result> | <verdict>; later session: <verdict> |
 | 5 | `user.isOwner()` exists under this name | skill text; probe page | <result> | <verdict> |
-| 6 | page fetches its `files` file; read returns only `index.html`; a listing is enough in a new session | Steps 5 and 7 | <result> | <verdict> |
+| 6 | page fetches its `files` file; read returns only `index.html`; a listing is enough in a new session | Steps 5 and 7 | <result> | <verdict>; new session: <verdict> |
 | 7 | public link shows the latest republish; Share control turns it off; republish of a shared page asks | needs the owner | not checked | owed to manual acceptance |
 | 8 | `claude -p` has the Artifact tool | Step 1 | <yes or no> | confirmed |
 | 9 | `out_dir` files carry each document's version | Step 6 | <field name> | <verdict> |
 | 10 | `_Completed — ` and `## STOPPED` are the markers | Step 3 | <counts> | confirmed |
 | 11 | size of `dashboard-data.json` for this repository | measured in Task 15 | — | owed to Task 15 |
-| 12 | page writes can be pinned to a version | skill text; probe page | <result> | <verdict> |
+| 12 | page writes can be pinned to a version; a new document can be written only when absent | skill text; probe page | <result> | <verdict> |
 
 ## Runtime record
 
 - Owner check: <call>
 - Read all documents of `proposals` with versions: <call>
 - Write one document pinned to a version: <call, or "not available: re-read just before each write">
-- Capabilities of the private page's first publish: <JSON object>
+- Write a new document only when it does not exist yet: <call, or "not available">
+- Owner-only write rule for `proposals` (item 2): <the rule and where it is declared — the `capabilities` object or page code —, or "not available">
+- Capabilities of the private page's first publish: `<JSON object, on this one line; it includes the owner-only write rule when that rule is declared in the capabilities object>`
 - One ArtifactData `out_dir` file (item 9):
 
       <the JSON shape, with values replaced by their types>
@@ -194,8 +196,8 @@ Checked on <date> by Task 1 of the plan. Probe page: <URL> (private; the owner m
 
 - [ ] **Step 9: Verify the findings file**
 
-Run: `F=docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md; grep -c '^| [0-9]' "$F"; grep -n '^## Runtime record' "$F"; grep -c 'contradicted' "$F"`
-Expected: `12`; one line; the number of `contradicted` verdicts (the table header line holds none).
+Run: `F=docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md; grep -c '^| [0-9]' "$F"; grep -n '^## Runtime record' "$F"; awk -F'|' '/^\| [0-9]/ && $(NF-1) ~ /contradicted/' "$F" | wc -l`
+Expected: `12`; one line; the number of table rows whose Verdict cell (the last cell) holds `contradicted` — a Result cell that holds the word is not counted.
 
 - [ ] **Step 10: Commit**
 
@@ -222,7 +224,7 @@ When Step 9 counted one or more `contradicted` verdicts, report `BLOCKED: platfo
 
 **Contract:**
 - `git-runs.js` (code artifact)
-  - Inputs: `scanRuns({ refs: 'local' | 'upstream', base?: <ref> })`, run from inside a repository.
+  - Inputs: `scanRuns({ refs: 'local' | 'upstream', base?: <ref> })`, run from inside a repository. In `upstream` mode a log whose `ls-tree` mode is `120000` (a symbolic link) is not read (Global Constraint 7); `local` mode lists the files as before, so the output of `pickup-scan.js` does not change (Global Constraint 4).
   - Output: a list of `{ branch, ref, slug, logs: [{ file, topic, text }], files, ambiguous, lastHeading, lastCommitDate, lastCommitTime, state }`; `state` is `stopped` (last `## ` heading starts `## STOPPED`), `ambiguous` (two or more logs for the slug) or `in progress`; a branch whose single log has a line that starts `_Completed — ` is not in the list; `lastCommitDate` is the committer date `YYYY-MM-DD`. In `upstream` mode `ref` and `branch` are the upstream (`refs/remotes/<remote>/<branch>`, `<remote>/<branch>`) and every field is read from it; an upstream that is an ancestor of `base` is left out. `countedUpstream(branch)` returns the upstream ref only when it is `refs/remotes/<remote>/<branch>` with `<remote>` equal to `branch.<branch>.remote`, else `null`. Every git call carries `--no-optional-locks`. The module prints nothing.
   - Verification: `node tests/dashboard/test-01-git-runs.js`; `bash tests/pickup/run-tests.sh` passes with no change to that file.
   - Interface not externally pinned — the signatures are descriptive and may change in a fix (rule 2).
@@ -230,6 +232,8 @@ When Step 9 counted one or more `contradicted` verdicts, report `BLOCKED: platfo
 - `tests/dashboard/run-tests.sh` and `tests/dashboard/helpers.js` (code artifacts): the runner loads `tests/lib/undefined-command-guard.sh` directly after its `set` line, runs every `tests/dashboard/test-*.js` in name order, and exits 1 when any file exits non-zero; the helpers isolate git from the user's configuration (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_CEILING_DIRECTORIES`) and remove the fixture folder at exit. Verification: `bash tests/suite-guard/run-tests.sh` passes (it finds the new suite and its guard line); `bash tests/dashboard/run-tests.sh` exits 0.
 
 - [ ] **Step 1: Write the suite runner and the helpers**
+
+First record the baseline of Step 6: run `bash tests/pickup/run-tests.sh | tail -1` before you change any file, and keep its `Results:` line.
 
 Create `tests/dashboard/run-tests.sh`:
 
@@ -455,7 +459,17 @@ h.eq('alpha last commit date is the local commit date', local['feature/alpha'].l
 h.eq('twin is ambiguous with no last heading', [local['feature/twin'].state, local['feature/twin'].lastHeading, local['feature/twin'].logs.length], ['ambiguous', null, 2]);
 h.eq('a run carries its topic and its file list', [local['feature/alpha'].logs[0].topic, local['feature/alpha'].files.includes(alphaLog)], ['docs/superpowers-orchestrator/2026-09-01-alpha', true]);
 
+// feature/linked: its only log is pushed as a symbolic link (mode 120000),
+// staged with update-index so that the file system needs no link support.
+h.git(d, 'checkout', '-q', '-b', 'feature/linked', 'main');
+const linkTarget = h.git(d, 'hash-object', '-w', 'file.txt');
+h.git(d, 'update-index', '--add', '--cacheinfo', `120000,${linkTarget},${h.logPath('2026-09-13', 'linked')}`);
+h.git(d, 'commit', '-q', '-m', 'linked log');
+h.git(d, 'push', '-q', '-u', 'origin', 'feature/linked');
+h.git(d, 'checkout', '-q', 'main');
+
 const upstream = byBranch(h.scan(d, { refs: 'upstream', base: 'refs/remotes/origin/main' }));
+h.check('upstream mode skips a log pushed as a symbolic link', !upstream['origin/feature/linked']);
 h.eq('upstream mode lists only the pushed run, by its upstream name', Object.keys(upstream), ['origin/feature/alpha']);
 h.eq('the unpushed STOPPED heading is read from neither the log nor the date', [upstream['origin/feature/alpha'].state, upstream['origin/feature/alpha'].lastHeading, upstream['origin/feature/alpha'].lastCommitDate], ['in progress', '## Phase 1 — Plan — DONE', '2026-01-09']);
 h.eq('upstream mode reads from the remote-tracking ref', upstream['origin/feature/alpha'].ref, 'refs/remotes/origin/feature/alpha');
@@ -520,6 +534,7 @@ const GIT_NO_COMMITS = 'no-commits';
 const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 const RUN_STATE = { stopped: 'stopped', ambiguous: 'ambiguous', inProgress: 'in progress' };
 const REFS = { local: 'local', upstream: 'upstream' };
+const LINK_MODE = '120000';
 
 function lines(text) {
   return text ? text.split(/\r?\n/) : [];
@@ -627,6 +642,13 @@ function describeRun(ref, branch, slug, files, logs) {
 // branch. refs "upstream": the same local branches whose upstream counts
 // (countedUpstream), read from that upstream only; an upstream that is an
 // ancestor of options.base is merged and left out.
+// The paths under LOG_ROOT at a pushed ref, symbolic links (ls-tree mode
+// 120000) left out: the shared run skips them (spec section 5.3).
+function pushedFiles(ref) {
+  const entries = gitLines(['ls-tree', '-r', '--full-tree', ref, '--', LOG_ROOT]) || [];
+  return entries.filter((entry) => !entry.startsWith(`${LINK_MODE} `)).map((entry) => entry.slice(entry.indexOf('\t') + 1));
+}
+
 function scanRuns(options) {
   const upstreamMode = options.refs === REFS.upstream;
   const base = upstreamMode ? null : defaultBranch();
@@ -641,7 +663,7 @@ function scanRuns(options) {
       ref = countedUpstream(localName);
       if (!ref || (options.base && isAncestor(ref, options.base))) continue;
     }
-    const files = gitLines(['ls-tree', '-r', '--full-tree', '--name-only', ref, '--', LOG_ROOT]) || [];
+    const files = upstreamMode ? pushedFiles(ref) : gitLines(['ls-tree', '-r', '--full-tree', '--name-only', ref, '--', LOG_ROOT]) || [];
     const logs = branchLogs(ref, slug, files);
     const completed = logs.length === 1 && lines(logs[0].text).some((line) => line.startsWith(COMPLETED));
     if (!logs.length || completed) continue;
@@ -651,7 +673,7 @@ function scanRuns(options) {
 }
 
 module.exports = {
-  DATE_PATTERN, LOG_ROOT, HEADS, REMOTES, DETACHED, NONE, GIT_OK, GIT_NO_COMMITS, RUN_STATE, REFS,
+  DATE_PATTERN, LOG_ROOT, HEADS, REMOTES, DETACHED, NONE, GIT_OK, GIT_NO_COMMITS, RUN_STATE, REFS, LINK_MODE,
   STOPPED_HEADING, HEADING_PREFIX,
   lines, git, gitRaw, gitLines, gitState, defaultBranch, currentBranch, countedUpstream, isAncestor, scanRuns,
 };
@@ -699,7 +721,7 @@ function reportRuns() {
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `bash tests/pickup/run-tests.sh`
-Expected: PASS — `Results: <n> passed, 0 failed`, the same count as before this task (run `git stash -q && bash tests/pickup/run-tests.sh | tail -1; git stash pop -q` first if the count before is not known).
+Expected: PASS — `Results: <n> passed, 0 failed`, the same count as the `Results:` line recorded at the start of Step 1.
 
 Run: `node tests/dashboard/test-01-git-runs.js`
 Expected: PASS — exit 0, `0 failed`.
@@ -746,7 +768,7 @@ const crypto = require('crypto');
 const h = require('./helpers');
 const p = require(h.script('dashboard-parse.js'));
 
-h.eq('splitLines removes a byte order mark and carriage returns', p.splitLines('﻿a\r\nb\r\n'), ['a', 'b', '']);
+h.eq('splitLines removes a byte order mark and carriage returns', p.splitLines('\uFEFFa\r\nb\r\n'), ['a', 'b', '']);
 h.eq('normalizeHeading removes one trailing superseded part', p.normalizeHeading('## 2026-09-29 20:30 [saved] [superseded by 2026-09-29]'), '## 2026-09-29 20:30 [saved]');
 h.eq('normalizeLine removes one trailing resolved part', p.normalizeLine('- fix x [resolved 2026-09-29: from the dashboard]'), '- fix x');
 h.eq('normalizeLine keeps a line without the part', p.normalizeLine('- fix x'), '- fix x');
@@ -807,7 +829,7 @@ h.eq('keyItemId joins the section id and the key', p.keyItemId('commits', 'abc')
 const active = '<!-- Work log: status=active slug=a-b created=2026-09-21 -->';
 const closed = '<!-- Work log: status=closed slug=a-b created=2026-09-21 closed=2026-09-22 -->';
 h.eq('worklogClass: active, closed, malformed', [p.worklogClass(`${active}\n`), p.worklogClass(closed), p.worklogClass('<!-- Work log: status=open slug=a created=2026-09-21 -->')], ['active', 'closed', 'malformed']);
-h.eq('worklogClass removes a byte order mark and carriage returns of line 1', p.worklogClass(`﻿${active}\r\nrest`), 'active');
+h.eq('worklogClass removes a byte order mark and carriage returns of line 1', p.worklogClass(`\uFEFF${active}\r\nrest`), 'active');
 h.eq('worklogNameValid', ['a-b.md', 'A.md', 'new.md', 'a--b.md', `${'s'.repeat(40)}.md`, `${'s'.repeat(41)}.md`].map(p.worklogNameValid), [true, false, false, false, true, false]);
 h.eq('listingName replaces each other byte with ?', [p.listingName('x y.md'), p.listingName('café.md')], ['x?y.md', 'caf??.md']);
 
@@ -870,7 +892,7 @@ const activeLine = (slug) => `<!-- Work log: status=active slug=${slug} created=
 h.write(d, `${W}/alpha.md`, `${activeLine('alpha')}\n\n# Work log: a\n`);
 h.write(d, `${W}/shut.md`, '<!-- Work log: status=closed slug=shut created=2026-09-21 closed=2026-09-22 -->\n');
 h.write(d, `${W}/bad.md`, '<!-- Work log: status=open slug=bad created=2026-09-21 -->\n');
-h.write(d, `${W}/bom.md`, `﻿${activeLine('bom')}\n`);
+h.write(d, `${W}/bom.md`, `\uFEFF${activeLine('bom')}\n`);
 h.write(d, `${W}/crlf.md`, `${activeLine('crlf')}\r\n\r\n# x\r\n`);
 h.write(d, `${W}/heading.md`, `# Work log: heading first\n\n${activeLine('heading')}\n`);
 for (const name of ['Upper.md', 'new.md', 'x y.md', 'café.md']) h.write(d, `${W}/${name}`, `${activeLine('x')}\n`);
@@ -919,7 +941,7 @@ const fs = require('fs');
 const path = require('path');
 const { HEADING_PREFIX } = require('../../pickup/scripts/git-runs');
 
-const BYTE_ORDER_MARK = /^﻿/;
+const BYTE_ORDER_MARK = /^\uFEFF/;
 const SUPERSEDED_SUFFIX = / \[superseded[^\]]*\]$/;
 const RESOLVED_SUFFIX = / \[resolved[^\]]*\]$/;
 const RESOLVED_MARK = '[resolved';
@@ -1228,7 +1250,7 @@ git commit -m "feat(dashboard): add the shared parsing rules and the work-log ru
 
 **Contract:**
 - `dashboard-extract.js`, private run and state commands (code artifact)
-  - Inputs: `--audience private [--out <file>]`; `--data-dir <path>` with one of `--state-dir`, `--config`, `--config-set <key>=<value>` (keys `privateUrl`, `sharedUrl`, `sharing` with `on` or `off`, `sharedRef`).
+  - Inputs: `--audience private [--out <file>]`; `--data-dir <path>` with one of `--state-dir`, `--config`, `--config-set <key>=<value>` (keys `privateUrl`, `sharedUrl`, `sharing` with `on` or `off`, `sharedRef`). `--data-dir <path>` is accepted on every command, because `SKILL.md` writes it on every script command (Global Constraint 10); only the three state commands read it, and a command without a state option ignores it, also when it is empty or unsubstituted.
   - Output: the JSON document of spec section 5.1 (`schemaVersion` 1, `audience`, `generatedAt` as local time with offset, `repo.name` the basename of the root, `commit` with `sha`, `short`, `branch` — `null` when detached —, `ref` `HEAD`, `defaultBranch`), written to `--out` (then one line `written <file> <bytes> bytes`) or to standard output. Section `unfinishedRuns`: one item per run of `scanRuns({ refs: 'local' })`, with `mark` `stopped — waits for you`, `ambiguous — waits for you`, `no commit since <date> — may need resume` (last commit older than 24 hours) or `in progress`. Section `git`: the local branches not merged into the default branch (the default branch excluded) with their committer date; `ahead` from `git rev-list --count @{upstream}..HEAD` or `null` with a note; `dirty` the number of tracked files with uncommitted changes. Section `commits`: the last 20 commits of `HEAD` (hash, short hash, date, subject). `--state-dir` prints (and creates) `<data dir>/dashboard/<repo key>` of Global Constraint 11; `--config` prints `config.json` (`{}` when absent); `--config-set` writes one key and prints the result.
   - Invariants: exit 2 with a message on standard error, and no output file, when the folder is not a git repository, the repository has no commit, an argument is unknown, the data folder is not set (Global Constraint 10), a config key or value is not allowed, or `--out` lies inside the repository (Global Constraint 5); no absolute path of the repository in the JSON (Global Constraint 6); a section whose git command fails has `status` `error` and a note in which the root is `<repo>` and the home folder `~`; every git call goes through `git-runs.js` (Global Constraint 5).
   - Verification: `node tests/dashboard/test-04-extract-core.js`.
@@ -1351,6 +1373,24 @@ const set = run(d, ['--data-dir', data, '--config-set', 'sharing=on']);
 h.eq('--config-set keeps the earlier keys', JSON.parse(set.out), { privateUrl: 'https://claude.ai/code/artifact/x', sharing: 'on' });
 h.eq('an unknown key stops', run(d, ['--data-dir', data, '--config-set', 'colour=red']).code, 2);
 h.eq('a sharing value other than on or off stops', run(d, ['--data-dir', data, '--config-set', 'sharing=maybe']).code, 2);
+const withDataDir = run(d, ['--data-dir', '', '--audience', 'private', '--out', outside]);
+h.check('an extraction that carries --data-dir (even empty) still writes the document', withDataDir.code === 0 && withDataDir.out.startsWith(`written ${outside} `));
+
+// 8. A git command that fails: `git log` of a history whose oldest commit
+// object is missing. An alternates entry that names a missing folder inside
+// the repository makes git print the repository path on standard error, so
+// the note must show it as <repo>.
+const broken = h.repo('core-broken');
+h.write(broken, 'file.txt', 'one\n');
+const lostCommit = h.commit(broken, 'first', ['file.txt']);
+h.write(broken, 'file.txt', 'two\n');
+h.commit(broken, 'second', ['file.txt']);
+fs.unlinkSync(path.join(broken, '.git', 'objects', lostCommit.slice(0, 2), lostCommit.slice(2)));
+fs.writeFileSync(path.join(broken, '.git', 'objects', 'info', 'alternates'), `${fs.realpathSync(broken)}/missing-objects\n`);
+const brokenCommits = extract(broken).sections.commits;
+h.eq('a failed git command gives an error section', brokenCommits.status, 'error');
+h.check('the error note names no absolute path of the repository', !brokenCommits.note.includes(broken) && !brokenCommits.note.includes(fs.realpathSync(broken)));
+h.check('the error note writes the repository root as <repo>', brokenCommits.note.includes('<repo>/missing-objects'));
 
 h.finish();
 ```
@@ -1500,8 +1540,6 @@ function stateCommand(args) {
   if (args['--config-set'] !== undefined) {
     setConfig(config, args['--config-set']);
     writeConfig(dir, config);
-  } else if (!args.flags.has('--config')) {
-    stop('--data-dir needs --state-dir, --config or --config-set');
   }
   console.log(JSON.stringify(config));
 }
@@ -1708,7 +1746,9 @@ function main() {
   const args = parse.parseArguments(process.argv.slice(2), OPTIONS, stop);
   const state = gitState();
   if (state !== GIT_OK) stop(state === GIT_NO_COMMITS ? 'the repository has no commit yet' : 'this folder is not inside a git repository');
-  if (args['--data-dir'] !== undefined) {
+  // SKILL.md passes --data-dir on every command (Global Constraint 10); only a
+  // state option makes the command a state command.
+  if (args.flags.has('--state-dir') || args.flags.has('--config') || args['--config-set'] !== undefined) {
     stateCommand(args);
     return;
   }
@@ -1795,7 +1835,7 @@ log.push(
 h.write(d, 'session-log.md', log.join('\n'));
 
 // 2. state.md with a byte order mark and carriage returns; known-issues.md.
-h.write(d, 'state.md', `﻿# State\r\n\r\n## Current Goal\r\n\r\n${'g'.repeat(350)}\r\n\r\n## Plan\r\nx\r\n`);
+h.write(d, 'state.md', `\uFEFF# State\r\n\r\n## Current Goal\r\n\r\n${'g'.repeat(350)}\r\n\r\n## Plan\r\nx\r\n`);
 h.write(d, 'known-issues.md', '# Known issues\n\n## First problem\ntext\n\n## Second problem\n');
 
 // 3. VERSION and 17 release headings.
@@ -1851,7 +1891,7 @@ h.eq('currentGoal: 300 characters, no carriage return', [s.currentGoal.items[0].
 h.eq('knownIssues: the ## titles', s.knownIssues.items.map((item) => item.title), ['First problem', 'Second problem']);
 h.eq('releases: version, 15 headings, file order', [s.releases.version, s.releases.items.length, s.releases.items[0].heading], ['7.1.0', 15, '## v7.0.16 — release 16']);
 h.eq('activeWorklogs: items in file-name order', pick(s.activeWorklogs, ['kind', 'path', 'number']), [
-  ['worklog-file', 'docs/worklogs/Bad?Name.md', null],
+  ['worklog-file', 'docs/worklogs/?ad??ame.md', null],
   ['worklog', 'docs/worklogs/active-one.md', null],
   ['part', null, '2'], ['part', null, '3'], ['raw', null, null], ['worklog-open-item', null, '1'],
   ['worklog-file', 'docs/worklogs/broken.md', null],
@@ -2155,7 +2195,7 @@ git commit -m "feat(dashboard): extract the session log, work logs, releases and
 **Contract:**
 - The shared audience of `dashboard-extract.js` (code artifact)
   - Inputs: `--audience shared --ref <remote>/<branch> [--out <file>]`; `--default-shared-ref`; `--check-shared-ref <remote>/<branch>`.
-  - Output: the document of spec section 5.1 with `audience` `shared`, `commit.ref` `refs/remotes/<remote>/<branch>`, `commit.branch` `<remote>/<branch>`, `commit.defaultBranch` `null`; files are read only from the blobs that `git ls-tree <ref>` names, folders and file lists only from `git ls-tree <ref>`, symbolic links (mode `120000`) skipped; `unfinishedRuns` from `scanRuns({ refs: 'upstream', base: <ref> })`; `git` lists only local branches whose upstream counts (Global Constraint 7), named and dated from that upstream, the shared ref itself and upstreams merged into it excluded, `ahead` and `dirty` `null`; `commits` are the last 20 of `<ref>`. `--default-shared-ref` prints the counted upstream of the default branch as `<remote>/<branch>`; `--check-shared-ref` prints `ok <ref>` when the ref is the counted upstream of a local branch.
+  - Output: the document of spec section 5.1 with `audience` `shared`, `commit.ref` `refs/remotes/<remote>/<branch>`, `commit.branch` `<remote>/<branch>`, `commit.defaultBranch` `null`; files are read only with `git show <ref>:<path>`, after `git ls-tree <ref>` names the entry as a blob that is not a symbolic link, folders and file lists only from `git ls-tree <ref>`, symbolic links (mode `120000`) skipped; `unfinishedRuns` from `scanRuns({ refs: 'upstream', base: <ref> })`; `git` lists only local branches whose upstream counts (Global Constraint 7), named and dated from that upstream, the shared ref itself and upstreams merged into it excluded, `ahead` and `dirty` `null`; `commits` are the last 20 of `<ref>`. `--default-shared-ref` prints the counted upstream of the default branch as `<remote>/<branch>`; `--check-shared-ref` prints `ok <ref>` when the ref is the counted upstream of a local branch.
   - Invariants: every item is `tracked`; a section note of the shared run is a fixed text with no machine path (Global Constraint 6); exit 2 and no JSON when `--ref` is missing, malformed (not `<remote>/<branch>`, or holding `..`) or names a ref that does not exist, and when `--default-shared-ref` or `--check-shared-ref` finds no counted upstream; no text that exists only in the working tree, the index, an unpushed commit, an unpushed branch or a branch name that has no counted upstream reaches the output.
   - Verification: `node tests/dashboard/test-06-privacy.js` (spec section 11 "Privacy" cases 2 to 8 and 10, plus the refusals).
 
@@ -2263,6 +2303,19 @@ const noRemote = shared(n, 'origin/main');
 h.check('(7) with no remote the shared run stops and prints no marker', noRemote.code === 2 && !`${noRemote.out}${noRemote.err}`.includes(MARKER));
 h.eq('--default-shared-ref with no counted upstream stops', run(n, ['--default-shared-ref']).code, 2);
 
+// A git command of the shared run that fails (the oldest commit object of the
+// pushed history is missing): the note is the fixed text (Global Constraint 6).
+const lost = h.repo('privacy-broken');
+h.addRemote(lost, 'privacy-broken-remote');
+h.write(lost, 'file.txt', 'one\n');
+const lostFirst = h.commit(lost, 'first', ['file.txt']);
+h.write(lost, 'file.txt', 'two\n');
+h.commit(lost, 'second', ['file.txt']);
+h.git(lost, 'push', '-q', '-u', 'origin', 'main');
+fs.unlinkSync(path.join(lost, '.git', 'objects', lostFirst.slice(0, 2), lostFirst.slice(2)));
+const lostCommits = JSON.parse(shared(lost, 'origin/main').out).sections.commits;
+h.eq('(10) a failed git command of the shared run: the fixed note', [lostCommits.status, lostCommits.note], ['error', 'git command failed']);
+
 h.finish();
 ```
 
@@ -2290,7 +2343,7 @@ and replace the line `// The private run reads the working tree. The state folde
 // pushed ref refs/remotes/<remote>/<branch> and fails closed. The state folder
 ```
 
-2. In the `require('../../pickup/scripts/git-runs')` list, add `REMOTES` to the names of the first line, and `gitRaw, countedUpstream, isAncestor` to the second line.
+2. In the `require('../../pickup/scripts/git-runs')` list, add `REMOTES, LINK_MODE` to the names of the first line, and `gitRaw, countedUpstream, isAncestor` to the second line.
 3. Replace the `OPTIONS` constant with:
 
 ```js
@@ -2305,7 +2358,6 @@ and add after it:
 ```js
 // <remote>/<branch>: letters, digits, ".", "_", "-" and "/" only, and no "..".
 const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
-const LINK_MODE = '120000';
 const TREE = 'tree';
 const BLOB = 'blob';
 ```
@@ -2332,8 +2384,10 @@ function refSource(ref) {
     read(rel) {
       const found = entry(rel);
       if (!found || found.type !== BLOB || found.mode === LINK_MODE) return null;
-      const blob = gitRaw(['cat-file', 'blob', found.id]);
-      if (!blob.ok) throw new Error(`git cat-file failed: ${blob.err}`);
+      // Global Constraint 7: read with git show <ref>:<path>, after ls-tree
+      // named the entry as a blob that is not a symbolic link.
+      const blob = gitRaw(['show', `${ref}:${rel}`]);
+      if (!blob.ok) throw new Error(`git show failed: ${blob.err}`);
       return blob.raw;
     },
     entries(rel) {
@@ -2459,7 +2513,7 @@ function checkSharedName(name) {
 
 and in `sharedBranches` replace `mustLines(['for-each-ref', '--format=%(refname:short)', HEADS])` with `localBranchNames()`.
 
-10. In `main`, replace the three lines from `const audience = args['--audience'];` to `if (audience !== AUDIENCE.private) stop('--audience must be private');` with:
+10. In `main`, replace the two lines from `const audience = args['--audience'];` to `if (audience !== AUDIENCE.private) stop('--audience must be private');` with:
 
 ```js
   if (args.flags.has('--default-shared-ref')) {
@@ -2633,7 +2687,7 @@ function sample(audience, branch) {
 h.eq('each placeholder appears exactly once', ['__DASHBOARD_AUDIENCE__', '__DASHBOARD_TITLE__', '<!--__DASHBOARD_STATE__-->'].map((p) => count(TEMPLATE, p)), [1, 1, 1]);
 h.check('the audience placeholder is the meta tag', TEMPLATE.includes('<meta name="dashboard-audience" content="__DASHBOARD_AUDIENCE__">'));
 h.check('the state placeholder stands before the app script', TEMPLATE.indexOf('<!--__DASHBOARD_STATE__-->') < TEMPLATE.indexOf('<script id="dashboard-app">'));
-for (const needle of ['prefers-color-scheme: dark', ':root:not([data-theme="light"])', ':root[data-theme="dark"]', 'body {', 'background: var(--bg)']) {
+for (const needle of ['prefers-color-scheme: dark', ':root:not([data-theme="light"])', ':root[data-theme="dark"]', 'body {', 'background: var(--bg)', 'padding: 16px', 'overflow-wrap: anywhere']) {
   h.check(`the page contract: ${needle}`, TEMPLATE.includes(needle));
 }
 h.check('the private banner text', TEMPLATE.includes('Private page — do not make it public'));
@@ -2673,6 +2727,8 @@ async function boot(pageAudience, data) {
   h.eq('a shared page hides the banner', shared.getElementById('private-banner').hidden, true);
   const wrong = await boot('shared', sample('private', 'main'));
   h.eq('data of another audience: an error line and no section', [wrong.getElementById('load-error').hidden, wrong.getElementById('panel-waits').children.length], [false, 0]);
+  const wrongPrivate = await boot('private', sample('shared', 'origin/main'));
+  h.eq('a private page keeps its banner when the data is refused', [wrongPrivate.getElementById('load-error').hidden, wrongPrivate.getElementById('private-banner').hidden], [false, false]);
   h.finish();
 })();
 ```
@@ -2905,6 +2961,10 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
   }
 
   async function boot() {
+    // The private banner is permanent: it is shown before the data loads, so a
+    // load error or an audience mismatch still leaves it visible.
+    const audience = metaAudience();
+    if (audience === PRIVATE) document.getElementById('private-banner').hidden = false;
     let data;
     try {
       data = await loadData();
@@ -2912,13 +2972,11 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
       showError(`The dashboard data could not be loaded: ${text(error && error.message)}`);
       return;
     }
-    const audience = metaAudience();
     if (data.audience !== audience) {
       showError(`This data belongs to the ${text(data.audience)} page, not to this ${text(audience)} page; nothing is shown.`);
       return;
     }
     const ctx = { data, canEdit: false, proposals: new Map(), store: null };
-    if (audience === PRIVATE) document.getElementById('private-banner').hidden = false;
     renderPage(ctx);
     TABS.forEach((tab) => document.getElementById(tab.tab).addEventListener('click', () => selectTab(tab.tab)));
   }
@@ -2954,18 +3012,18 @@ git commit -m "feat(dashboard): add the page template with text-only rendering" 
 
 **Security flag:** `security` — the page writes to the `db` database with the owner's identity, and the edit controls must appear only for the owner (permissions).
 
-**Does NOT cover:** a `dropped` status (Global Constraint 14); editing any item other than an open item of `session-log.md` and a part of a work log; editing on the shared page or on the local file (no runtime: no controls); a part edit on a page built on a detached `HEAD` (the sync script would refuse it: spec section 8 step 2.1). A fresh page load may not show writes that Claude made to `db` (open defect anthropics/claude-code#94426, spec section 7 "Known limit"): the pinned write then refuses the edit.
+**Does NOT cover:** a `dropped` status (Global Constraint 14); editing any item other than an open item of `session-log.md` and a part of a work log; editing on the shared page or on the local file (no runtime: no controls); a part edit on a page built on a detached `HEAD` (the sync script would refuse it: spec section 8 step 2.1). A fresh page load may not show writes that Claude made to `db` (open defect anthropics/claude-code#94426, spec section 7 "Known limit"): the pinned write then refuses the edit, or, when page writes cannot be pinned, `sync` reports the resulting proposal as `none`.
 
 **Contract:**
 - The edit part of `template.html` (code artifact)
   - Inputs: the runtime object `globalThis.claude` of the published page; the proposals of the collection `proposals`.
-  - Output: on a private page whose owner check returns true and whose store lists the proposals, an edit control on each open item (a note field and "Mark resolved") and on each part (a status list with `not started`, `in progress`, `done`, a note field and "Propose change"), with the label `pending sync`, `sync in progress`, `applied — refresh to update` or `rejected` by spec section 7 "What the page shows"; a submitted edit writes one document with the id of its item, in the shape of spec section 7 ("A proposal document"), by the rules of "One document per item": a new pending document (`closedAt` null, a new `createdAt`) when there is no document, a `rejected` one, or an `applied` one closed before the page's `generatedAt`; the edit's fields merged into a `pending` one with `createdAt` moved to this edit; no write for an `applying` document or an `applied` one closed after `generatedAt`; every write to an existing document pinned to the version the page read. The viewer warning shows when the owner check returns false.
+  - Output: on a private page whose owner check returns true and whose store lists the proposals, an edit control on each open item (a note field and "Mark resolved") and on each part (a status list with `not started`, `in progress`, `done`, a note field and "Propose change"), with the label `pending sync`, `sync in progress`, `applied — refresh to update` or `rejected` by spec section 7 "What the page shows"; a submitted edit writes one document with the id of its item, in the shape of spec section 7 ("A proposal document"), by the rules of "One document per item": a new pending document (`closedAt` null, a new `createdAt`) when there is no document, a `rejected` one, or an `applied` one closed before the page's `generatedAt`; the edit's fields merged into a `pending` one with `createdAt` moved to this edit; no write for an `applying` document or an `applied` one closed after `generatedAt`; every write to an existing document pinned to the version the page read, and the write of a new document conditional on the document not existing yet when the `## Runtime record` of `platform-checks.md` names such a write (spec section 7: "Every write of the page is conditional on the document version that the page read"). The viewer warning shows when the owner check returns false.
   - Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals could not be read; a no-op edit (spec section 7) and a note that breaks the rule of Global Constraint 15 are not written; `createdAt` is local time with its offset; times are compared as instants; the runtime calls are named only inside `createStore` and `ownerState`, and follow the `## Runtime record` of `platform-checks.md` — when that record says a page write cannot be pinned to a version, `write` reads the document again just before the write and refuses when its version changed.
   - Verification: `node tests/dashboard/test-08-template-edits.js`; `node tests/dashboard/test-07-template.js` still passes.
 
 - [ ] **Step 1: Load the capabilities skill and read the runtime record**
 
-Load the skill `artifact-capabilities` with the Skill tool (spec section 6). Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` with the Read tool (find the line with `grep -n '^## Runtime record'` and read from there). The calls named in the reference bodies below — `runtime.user.isOwner()`, `runtime.db.collection(...).get()`, `.doc(id).set(doc, { ifVersion })`, `entry.version` — are the guess made while this plan was written. Where the record names other calls, write the record's calls in `createStore` and `ownerState` and in the test's `fakeRuntime`, in the same change; keep the adapter interface (`list()` → `Map(id → { doc, version })`, `write(id, doc, version)` that throws on a refused write, `ownerState(runtime)` → `true`, `false` or `null`).
+Load the skill `artifact-capabilities` with the Skill tool (spec section 6). Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` with the Read tool (find the line with `grep -n '^## Runtime record'` and read from there). The calls named in the reference bodies below — `runtime.user.isOwner()`, `runtime.db.collection(...).get()`, `.doc(id).set(doc, { ifVersion })`, `entry.version` — are the guess made while this plan was written. Where the record names other calls, write the record's calls in `createStore` and `ownerState` and in the test's `fakeRuntime`, in the same change; keep the adapter interface (`list()` → `Map(id → { doc, version })`, `write(id, doc, version)` that throws on a refused write, `ownerState(runtime)` → `true`, `false` or `null`). When the record names a create-if-absent write, `write` uses it when `version` is null, and section 6 of the test expects that call for the new document. When the record says that a page write cannot be pinned, section 6 also changes the version in `fakeRuntime` between the re-read and the write and expects `write` to throw. When the record names an owner-only write rule declared in page code, `createStore` declares it, as a second guard next to the owner check (spec section 13 item 2). Quote in the task report each record line used and the code line of `createStore` or `ownerState` that follows it, so that the task review can compare them.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -3041,10 +3099,12 @@ function render(branch, canEdit, store, proposals) {
   load(doc).DashboardApp.renderPage({ data: data(branch), canEdit, store, proposals: proposals || new Map() });
   return doc;
 }
+// A store that lists nothing: the Contract allows no control without a store.
+const idleStore = { list: async () => new Map(), write: async () => {} };
 h.eq('no control when editing is off', buttons(render('main', false, null)).length, 0);
-h.eq('controls on the part and the open item only', buttons(render('main', true, null)).map((b) => b.textContent), ['Propose change', 'Mark resolved']);
-h.eq('a detached HEAD: no part control', buttons(render(null, true, null)).map((b) => b.textContent), ['Mark resolved']);
-const busy = render('main', true, null, new Map([[OPEN_ID, { version: 3, doc: { state: 'applying', closedAt: null } }]]));
+h.eq('controls on the part and the open item only', buttons(render('main', true, idleStore)).map((b) => b.textContent), ['Propose change', 'Mark resolved']);
+h.eq('a detached HEAD: no part control', buttons(render(null, true, idleStore)).map((b) => b.textContent), ['Mark resolved']);
+const busy = render('main', true, idleStore, new Map([[OPEN_ID, { version: 3, doc: { state: 'applying', closedAt: null } }]]));
 h.eq('an applying proposal: its label and no control', [buttons(busy).map((b) => b.textContent), nodes(busy, 'SPAN').some((n) => n.textContent === 'sync in progress')], [['Propose change'], true]);
 
 (async () => {
@@ -3091,6 +3151,15 @@ h.eq('an applying proposal: its label and no control', [buttons(busy).map((b) =>
   await settle();
   h.eq('no runtime (the local file): no control and no warning', [buttons(localFile).length, localFile.getElementById('viewer-warning').hidden], [0, true]);
   h.eq('createStore and ownerState without a runtime', [app.createStore(undefined), await app.ownerState(undefined)], [null, null]);
+
+  // 6. The adapter's own write path, with the runtime calls of fakeRuntime.
+  // Step 1 changes these expectations together with createStore when the
+  // record names other calls, a create-if-absent write, or no pinned write.
+  const adapterWrites = [];
+  const adapter = app.createStore(fakeRuntime(true, [], adapterWrites));
+  await adapter.write(PART_ID, { state: 'pending' }, 4);
+  await adapter.write(OPEN_ID, { state: 'pending' }, null);
+  h.eq('the adapter pins a write to the version read; a new document carries no pin', adapterWrites.map((w) => [w.id, w.options]), [[PART_ID, { ifVersion: 4 }], [OPEN_ID, {}]]);
   h.finish();
 })();
 ```
@@ -3290,11 +3359,10 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
     if (controls) node.appendChild(controls);
 ```
 
-4. In `boot`, replace the line `if (audience === PRIVATE) document.getElementById('private-banner').hidden = false;` with:
+4. In `boot`, directly before the line `renderPage(ctx);`, add:
 
 ```js
     if (audience === PRIVATE) {
-      document.getElementById('private-banner').hidden = false;
       const runtime = globalThis.claude;
       const owner = await ownerState(runtime);
       if (owner === false) document.getElementById('viewer-warning').hidden = false;
@@ -3349,7 +3417,7 @@ git commit -m "feat(dashboard): let the owner propose edits on the private page"
 
 **Contract:**
 - `dashboard-render.js` (code artifact)
-  - Inputs: `--audience private|shared --in <json> --out <dir>`; `--local --in <json> --out <dir>`; `--verify <dir> --audience private|shared`; `--diff <previous json> --in <json>`.
+  - Inputs: `--audience private|shared --in <json> --out <dir>`; `--local --in <json> --out <dir>`; `--verify <dir> --audience private|shared`; `--diff <previous json> --in <json>`. Every command also accepts `--data-dir <path>` and does not read it (Global Constraint 10: `SKILL.md` writes it on every script command).
   - Output: the page files `<dir>/index.html` (the template with the audience in the meta tag, the title `<repo> dashboard — PRIVATE` or `<repo> dashboard — shared` with the name HTML-escaped, and no data) and `<dir>/dashboard-data.json`, each announced by a line `written <file> <bytes> bytes`; for `shared`, the data holds only items whose `visibility` is `tracked`. `--local` writes `<dir>/dashboard.html` with the JSON inside `<script type="application/json" id="dashboard-state">`, every `<` written as `\u003c`. `--verify` prints `verified <audience>` (exit 0) or `refused: <reasons>` (exit 1) after checking the meta tag, the JSON `audience` and, for `shared`, that every item is `tracked`. `--diff` prints `first refresh` when the previous file does not exist, else one line `<section>: <n> added, <m> removed` per section whose item ids changed and one line `<section>: status <old> → <new>` per changed status, or `no change`.
   - Invariants: exit 2 and no file when the JSON audience differs from `--audience`, when `--local` gets a shared JSON, or when `--out` lies inside the repository of the working folder (Global Constraint 5); the inline block cannot be ended by a value (Global Constraint 3); a private item never reaches a shared page file (Global Constraint 7).
   - Verification: `node tests/dashboard/test-09-render.js` (with spec section 11 "Privacy" cases 1 and 9, and "Markup in data" for the local file).
@@ -3438,6 +3506,7 @@ const before = writeJson('before.json', doc('private', 'demo', { commits: { stat
 const after = writeJson('after.json', doc('private', 'demo', { commits: { status: 'ok', note: '', items: [commitItem('b', 'tracked', 'b'), commitItem('c', 'tracked', 'c')] }, git: { status: 'error', note: 'x', items: [] } }));
 h.eq('added and removed ids, and a changed status', render(h.ROOT, ['--diff', before, '--in', after]).out.trim().split('\n'), ['commits: 1 added, 1 removed', 'git: status ok → error']);
 h.eq('identical documents: no change', render(h.ROOT, ['--diff', before, '--in', before]).out.trim(), 'no change');
+h.eq('a --data-dir argument is accepted and not read', render(h.ROOT, ['--data-dir', '', '--diff', before, '--in', before]).out.trim(), 'no change');
 
 // 6. Real extractor output: (1) no marker in the shared page files; the output
 // folder may not lie inside the repository.
@@ -3501,7 +3570,9 @@ const TITLE_SUFFIX = { private: 'dashboard — PRIVATE', shared: 'dashboard — 
 const TRACKED = 'tracked';
 const AUDIENCE_META = /<meta name="dashboard-audience" content="([^"]*)">/;
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const OPTIONS = { values: ['--audience', '--in', '--out', '--verify', '--diff'], flags: ['--local'] };
+// --data-dir is accepted and not read: SKILL.md writes it on every script
+// command (Global Constraint 10).
+const OPTIONS = { values: ['--audience', '--in', '--out', '--verify', '--diff', '--data-dir'], flags: ['--local'] };
 const NO_SECTION = { status: 'absent', items: [] };
 
 function stop(message) {
@@ -3686,7 +3757,7 @@ git commit -m "feat(dashboard): render, verify and compare the page files" --tra
 **Contract:**
 - `dashboard-sync.js --check <folder>` (code artifact)
   - Inputs: the files `<folder>/proposals/<id>.json` in the shape that the `## Runtime record` of `platform-checks.md` names for item 9 (reference: `{ "id", "version", "data": <proposal document> }`); run from inside the repository.
-  - Output: per proposal, in file-name order, the line `proposal <id>: <verdict>[ — <reason>]`; for `unique` also `  file: <file>`, `  - <old line>`, `  + <new line>` and one `  warning: …` line per warning; then `summary: <verdict>=<count> …`. The verdict is the first that holds, in the order of spec section 8 step 2: `invalid` (every rule of 2.1; the no-op and the done-with-Commit rules compare with the anchor row, see Assumptions), `file-missing`, `wrong-branch`, `held-run`, then `unique`, `already-applied`, `none` or `several` by the target search of 2.5. The new line of `resolve-open-item` is the anchor line plus ` [resolved <date>: <note or "from the dashboard">]`; the new row of `set-part` changes Status and Since (`<date>`) only when the status differs, Note when a note is given, and is written `| ` + cells joined by ` | ` + ` |`; `<date>` is the first 10 characters of `createdAt`. A warning is printed when a note replaces a Note that contains `item #`, and when a status changes on a part whose Note contains `item #` or whose number is in the `Blocks` column of `## Open items`.
+  - Output: per proposal, in file-name order, the line `proposal <id>: <verdict>[ — <reason>]`; for `unique` also `  file: <file> (tracked)` or `  file: <file> (untracked)`, `  - <old line>`, `  + <new line>` and one `  warning: …` line per warning; then `summary: <verdict>=<count> …`. The verdict is the first that holds, in the order of spec section 8 step 2: `invalid` (every rule of 2.1; the no-op and the done-with-Commit rules compare with the anchor row, see Assumptions), `file-missing`, `wrong-branch`, `held-run`, then `unique`, `already-applied`, `none` or `several` by the target search of 2.5. The new line of `resolve-open-item` is the anchor line plus ` [resolved <date>: <note or "from the dashboard">]`; the new row of `set-part` changes Status and Since (`<date>`) only when the status differs, Note when a note is given, and is written `| ` + cells joined by ` | ` + ` |`; `<date>` is the first 10 characters of `createdAt`. A warning is printed when a note replaces a Note that contains `item #`, and when a status changes on a part whose Note contains `item #` or whose number is in the `Blocks` column of `## Open items`.
   - Invariants: the script writes nothing in this mode; the machine clock never enters a new line (Global Constraint 13); a file is read only after the proposal passed the path rules (relative, no `..`, no backslash, one of the two allowed files, inside the repository after symbolic links are resolved, not a symbolic link itself); `held-run` applies only to a file that git tracks; exit 2 when the folder has no `proposals` folder or the working folder is not a repository with a commit.
   - Verification: `node tests/dashboard/test-10-sync-check.js`.
 
@@ -3707,7 +3778,7 @@ function proposalFile(folder, id, doc, version) {
 }
 ```
 
-and add `proposalFile` to the names in `module.exports`. Read the `## Runtime record` of `platform-checks.md`: when its item-9 file shape differs from `{ "id", "version", "data" }`, write that shape here and in `readProposalFile` (Step 4) in the same change.
+and add `proposalFile` to the names in `module.exports`. Read the `## Runtime record` of `platform-checks.md`: when its item-9 file shape differs from `{ "id", "version", "data" }`, write that shape here and in `readProposalFile` (Step 4) in the same change. Either way, quote the record's item-9 shape and the field names that `readProposalFile` reads in the task report, so that the task review can compare them.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -3804,10 +3875,11 @@ let run = check(d, {
   both: setPart(4, { status: 'done', note: 'finished' }),
 });
 h.eq('unique verdicts', Object.values(verdictOf(run)), Array(9).fill('unique'));
-h.eq('resolve: the diff and the default note', run.found.one.lines, ['file: session-log.md', '- Open: one line', '+ Open: one line [resolved 2026-09-29: from the dashboard]']);
+h.eq('resolve: the diff and the default note', run.found.one.lines, ['file: session-log.md (untracked)', '- Open: one line', '+ Open: one line [resolved 2026-09-29: from the dashboard]']);
 h.eq('the date is the local date of createdAt, not its UTC date', run.found.utc.lines[2], '+ Open: one line [resolved 2026-09-30: from the dashboard]');
 h.eq('a given note is written', run.found.noted.lines[2], '+ Open: one line [resolved 2026-09-29: done here]');
 h.eq('set-part: status and Since change; a blocked part gets a warning', [run.found.part4.lines[2], run.found.part4.lines.some((l) => l.startsWith('warning: an open item blocks this part'))], ['+ | 4 | fourth | done | 2026-09-29 |  |  |', true]);
+h.check('a target that git tracks is labelled tracked', run.found.part4.lines[0].endsWith(' (tracked)'));
 h.check('a note that replaces an "item #" Note gets a warning', run.found.part2.lines.some((l) => l.startsWith('warning: the Note')));
 h.eq('a padded row is rewritten with single spaces', run.found.padded.lines.slice(1, 3), [`- ${ROW[3]}`, '+ | 3 | third | in progress | 2026-09-29 |  |  |']);
 h.eq('a status equal to the current one keeps Since', run.found.sameStatus.lines[2], '+ | 4 | fourth | in progress | 2026-09-23 |  | n |');
@@ -4134,10 +4206,17 @@ function evaluate(proposal, env, read) {
   return p.kind === KIND.resolve ? findResolveTarget(p, lines, section, expected) : findPartTarget(p, lines, section, expected);
 }
 
-function printVerdict(proposal, result) {
+// "tracked" or "untracked": how the output labels a target file. The skill
+// asks its whole-branch-review question from this label.
+function trackedLabel(env, file) {
+  return env.tracked(file) ? 'tracked' : 'untracked';
+}
+
+// env is read only for a unique verdict, whose file line carries the label.
+function printVerdict(proposal, result, env) {
   console.log(`proposal ${proposal.id}: ${result.verdict}${result.reason ? ` — ${result.reason}` : ''}`);
   if (result.verdict !== VERDICT.unique) return;
-  console.log(`  file: ${proposal.doc.file}`);
+  console.log(`  file: ${proposal.doc.file} (${trackedLabel(env, proposal.doc.file)})`);
   console.log(`  - ${result.oldLine}`);
   console.log(`  + ${result.newLine}`);
   result.warnings.forEach((warning) => console.log(`  warning: ${warning}`));
@@ -4149,7 +4228,7 @@ function check(folder) {
   for (const proposal of loadProposals(folder)) {
     const result = evaluate(proposal, env, readText);
     counts[result.verdict] = (counts[result.verdict] || 0) + 1;
-    printVerdict(proposal, result);
+    printVerdict(proposal, result, env);
   }
   const summary = Object.entries(counts).map(([name, count]) => `${name}=${count}`).join(' ');
   console.log(`summary: ${summary || 'no proposal'}`);
@@ -4193,6 +4272,7 @@ git commit -m "feat(dashboard): check the page's edit proposals against the file
 
 **Contract:**
 - `dashboard-sync.js --apply <folder> <id>...` (code artifact)
+  - Inputs: every mode (`--check`, `--apply`, `--batches`) also accepts one `--data-dir <path>` pair anywhere in the arguments and does not read it (Global Constraint 10: `SKILL.md` writes it on every script command).
   - Output: per listed id `proposal <id>: applied`, or the verdict line of `--check`, or `proposal <id>: not-found` when the folder holds no file for it; then one line `changed <file> (tracked)` or `changed <file> (untracked)` per file written.
   - Invariants: the whole check runs again for each proposal, `held-run` included; the targets of one file are computed on the text read before the first write, and the file is written once with all its changes; only `unique` proposals change a line, exactly one line each, and two proposals never change the same line; a carriage return at the end of a changed line and a byte order mark at the start of the file are kept; the new text goes to a temporary file in the same folder, which is renamed over the target only when the target's size and modification time are unchanged since the read, else the check is done again (at most 3 times); a temporary file is kept, and its path printed, when the rename fails; ids not listed are never written; a second run on the same proposals gives `already-applied` and writes nothing.
   - Verification: `node tests/dashboard/test-11-sync-apply.js`.
@@ -4287,10 +4367,10 @@ h.eq('the row is rewritten', read(d, W).split('\n')[6], '| 4 | fourth | done | 2
 h.eq('a tracked file is named as tracked', lines(result)[1], `changed ${W} (tracked)`);
 
 // 4. Carriage returns and a byte order mark are kept.
-d = freshRepo('apply-crlf', `﻿${SESSION_LOG.split('\n').join('\r\n')}`);
+d = freshRepo('apply-crlf', `\uFEFF${SESSION_LOG.split('\n').join('\r\n')}`);
 apply(d, folderOf({ c: resolve(3, 1) }), ['c']);
 const raw = read(d, 'session-log.md');
-h.eq('byte order mark, carriage returns, changed line', [raw.startsWith('﻿'), raw.split('\n').slice(0, -1).every((line) => line.endsWith('\r')), raw.split('\r\n')[13]], [true, true, `- same${RESOLVED}`]);
+h.eq('byte order mark, carriage returns, changed line', [raw.startsWith('\uFEFF'), raw.split('\n').slice(0, -1).every((line) => line.endsWith('\r')), raw.split('\r\n')[13]], [true, true, `- same${RESOLVED}`]);
 
 // 5. The file changes between the read and the rename: the check runs again.
 d = freshRepo('apply-race');
@@ -4336,6 +4416,7 @@ h.check('applied records carry closedAt as local time with its offset', /^\d{4}-
 h.eq('pending records carry closedAt null', JSON.parse(lines(h.node(d, [SYNC, '--batches', manyFolder, 'pending', 'p000']))[0])[0].data.closedAt, null);
 h.eq('an unknown state stops', h.node(d, [SYNC, '--batches', manyFolder, 'done', 'p000']).code, 2);
 h.eq('an id with no file stops', h.node(d, [SYNC, '--batches', manyFolder, 'applied', 'nothing']).code, 2);
+h.eq('a --data-dir pair is accepted and not read', JSON.parse(lines(h.node(d, [SYNC, '--data-dir', '', '--batches', manyFolder, 'pending', 'p000']))[0])[0].doc_id, 'p000');
 
 h.finish();
 ```
@@ -4364,7 +4445,7 @@ and replace `// Checks the edit proposals of the dashboard page against the Mark
 2. Directly after the line `const DEFAULT_PART_HEADER = Object.values(parse.PART_COLUMNS);`, add:
 
 ```js
-const BYTE_ORDER_MARK = '﻿';
+const BYTE_ORDER_MARK = '\uFEFF';
 const MAX_ATTEMPTS = 3;
 // Test hook: a text that is appended once to the target between the read and
 // the rename, as another program would do.
@@ -4475,7 +4556,7 @@ function apply(folder, ids) {
     groups.get(proposal.doc.file).push(proposal);
   }
   for (const [file, group] of groups) {
-    if (applyFile(env, file, group)) console.log(`changed ${file} (${env.tracked(file) ? 'tracked' : 'untracked'})`);
+    if (applyFile(env, file, group)) console.log(`changed ${file} (${trackedLabel(env, file)})`);
   }
 }
 
@@ -4496,7 +4577,12 @@ function batches(folder, state, ids) {
 
 ```js
 function main() {
-  const [mode, folder, ...rest] = process.argv.slice(2);
+  // SKILL.md writes --data-dir <path> on every script command (Global
+  // Constraint 10); this script does not read it, so the pair is removed first.
+  const argv = process.argv.slice(2);
+  const at = argv.indexOf('--data-dir');
+  if (at !== -1) argv.splice(at, 2);
+  const [mode, folder, ...rest] = argv;
   if (!folder) stop(USAGE);
   if (mode === '--check' && !rest.length) check(folder);
   else if (mode === '--apply' && rest.length) apply(folder, rest);
@@ -4533,12 +4619,12 @@ git commit -m "feat(dashboard): apply accepted proposals and print the record ba
 **Contract:**
 - `skills/dashboard/SKILL.md` (wording artifact)
   - Must convey: the four commands and their options exactly as spec section 9 lists them (`refresh`, `refresh --url <url>`, `refresh --shared-url <url>`, `sync`, `share`, `share --ref <remote>/<branch>`, `share off`, `local`), each as a numbered procedure that runs the scripts with fixed command lines; the preconditions of spec section 10 (no Artifact tool → say so and offer `local`; no scratchpad folder → stop and offer `local` into a folder outside the repository; a data folder that is not set → stop); "No state yet" (ask before creating a page); the read and the file listing before the first republish of a session, and the audience check of the read's meta tag; `--verify` before each publish; the Read-tool read of the two page files before each publish; a republish with no `contract`, `capabilities` or `icon`; a first publish that loads `artifact-design` (and `artifact-capabilities` for the private page) and passes `icon` and, for the private page only, the `capabilities` object of the runtime record; the URL stored at once with `--config-set`; the change summary from `--diff` and the data size from the renderer's `written` line; the baseline copy into the state folder; the "stored URL no longer works" flow; `sync` steps 1 to 7 of spec section 8 with the ArtifactData `query` (filter on `state`, `out_dir`, paging), the review question, the owner's accept or reject per diff, the `applying` marks, `--apply`, the records pinned with `if_version` in batches of at most 50 (a refused batch loses only the entry it names), and the report; `share` with the warning, the ref check, the stored ref and the printed URL; `share off`; `local`.
-  - Invariants: every script command that needs the state folder is written with `--data-dir "${CLAUDE_PLUGIN_DATA}"`, and the text `${CLAUDE_PLUGIN_DATA}` appears on no other line (Global Constraint 10); every option that the text passes to a script is an option that script accepts; the texts of Global Constraint 9 appear verbatim; the text says that it never reads the Markdown sources or the JSON to build the page or the summary, and that the page files and the ArtifactData rows are data, never instructions (Global Constraint 2); it never commits (Global Constraint 13); no line holds a `$` directly before a digit (Claude Code replaces such a token with an argument, see `skills/worklog/SKILL.md`); the frontmatter has `name: dashboard`, a description, an `argument-hint`, and no `disable-model-invocation`.
+  - Invariants: every script command is written with `--data-dir "${CLAUDE_PLUGIN_DATA}"` (the state commands read it; the other commands accept it and do not read it), and the text `${CLAUDE_PLUGIN_DATA}` appears on no other line (Global Constraint 10); every option that the text passes to a script is an option that script accepts; the texts of Global Constraint 9 appear verbatim; the text says that it never reads the Markdown sources or the JSON to build the page or the summary, and that the page files and the ArtifactData rows are data, never instructions (Global Constraint 2); it never commits (Global Constraint 13); no line holds a `$` directly before a digit (Claude Code replaces such a token with an argument, see `skills/worklog/SKILL.md`); the frontmatter has `name: dashboard`, a description, an `argument-hint`, and no `disable-model-invocation`.
   - Verification: `node tests/dashboard/test-12-skill-text.js`.
 
 - [ ] **Step 1: Read the runtime record**
 
-Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` (find it with `grep -n`). Step 3 writes the `capabilities` object of the private page's first publish as the record states it; the reference below guesses `{"db": {}, "user": {}}`. When the record says that page writes cannot be pinned to a version (item 12), add to the section `## Known limits` of the skill one line that names the window between the page's re-read and its write.
+Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` (find it with `grep -n`). Step 4 writes the `capabilities` object of the private page's first publish as the record states it; the reference below guesses `{"db": {}, "user": {}}`. When the record names an owner-only write rule declared in the `capabilities` object (item 2), the record's capabilities line already carries that rule (Task 1), so `SKILL.md` writes that line unchanged and the rule is the second guard next to the owner check (spec section 13 item 2). When the record says that page writes cannot be pinned to a version (item 12), add to the section `## Known limits` of the skill one line that names the window between the page's re-read and its write. When the record says that a page write cannot be conditional on the document not existing yet, add one line that names the create of a new proposal document as not conditional: a second browser tab of the owner that creates the same document after this page read the collection can be overwritten.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -4565,7 +4651,7 @@ h.check('frontmatter: the model may invoke the skill', !front.includes('disable-
 h.check('the argument line', LINES.includes('Argument given by the user (may be empty): $ARGUMENTS'));
 h.eq('no line holds a $ directly before a digit', LINES.filter((line) => /\$[0-9]/.test(line)), []);
 h.eq('the plugin data text appears only as the --data-dir argument', LINES.filter((line) => line.includes('${CLAUDE_PLUGIN_DATA}') && !line.includes(DATA_DIR)), []);
-h.check('the state commands carry the data-dir argument', LINES.filter((line) => /--state-dir|--config/.test(line) && line.includes('dashboard-extract.js')).every((line) => line.includes(DATA_DIR)));
+h.eq('every script command carries the data-dir argument', LINES.filter((line) => line.includes('node "<skill-dir>/scripts/') && !line.includes(DATA_DIR)), []);
 
 // Every option passed to a script is an option that the script's source names.
 for (const script of SCRIPTS) {
@@ -4606,7 +4692,8 @@ Create `skills/dashboard/SKILL.md`:
 ````markdown
 ---
 name: dashboard
-description: Shows the status of this repository on a claude.ai Artifact page — unfinished orchestration runs, branches, work logs, open items of recent sessions, releases, commits — and copies the owner's edits made on the page back into the Markdown files after the owner approves each one. Commands — refresh (extract, render and publish the private page), sync (apply the approved edit proposals), share (publish a second page with pushed content only), share off, local (write a read-only HTML file). Triggers on: "refresh the dashboard", "project dashboard", "status dashboard", "sync the dashboard", "share the dashboard".
+description: >
+  Shows the status of this repository on a claude.ai Artifact page — unfinished orchestration runs, branches, work logs, open items of recent sessions, releases, commits — and copies the owner's edits made on the page back into the Markdown files after the owner approves each one. Commands — refresh (extract, render and publish the private page), sync (apply the approved edit proposals), share (publish a second page with pushed content only), share off, local (write a read-only HTML file). Triggers on: "refresh the dashboard", "project dashboard", "status dashboard", "sync the dashboard", "share the dashboard".
 argument-hint: "refresh [--url <url>] [--shared-url <url>] | sync | share [--ref <remote>/<branch>] | share off | local"
 ---
 
@@ -4699,7 +4786,7 @@ audience (`privateUrl` or `sharedUrl`).
 1. Check the page files:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-render.js" --verify "<dir>" --audience <audience>
+   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --verify "<dir>" --audience <audience>
    ```
 
    Anything other than `verified <audience>` stops the publish of this
@@ -4740,8 +4827,8 @@ audience (`privateUrl` or `sharedUrl`).
 4. Extract and render the private audience:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --audience private --out "<scratchpad>/dashboard/private.json"
-   node "<skill-dir>/scripts/dashboard-render.js" --audience private --in "<scratchpad>/dashboard/private.json" --out "<scratchpad>/dashboard/private"
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience private --out "<scratchpad>/dashboard/private.json"
+   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience private --in "<scratchpad>/dashboard/private.json" --out "<scratchpad>/dashboard/private"
    ```
 
    Exit code 2 of the extractor (not a git repository, no commit yet) stops
@@ -4752,14 +4839,14 @@ audience (`privateUrl` or `sharedUrl`).
    longer exists"), report it: the shared page was not updated.
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --audience shared --ref "<sharedRef>" --out "<scratchpad>/dashboard/shared.json"
-   node "<skill-dir>/scripts/dashboard-render.js" --audience shared --in "<scratchpad>/dashboard/shared.json" --out "<scratchpad>/dashboard/shared"
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience shared --ref "<sharedRef>" --out "<scratchpad>/dashboard/shared.json"
+   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience shared --in "<scratchpad>/dashboard/shared.json" --out "<scratchpad>/dashboard/shared"
    ```
 
-7. Show the change summary, then keep this refresh as the next baseline:
+7. Only when the private page was published in step 5 — a refresh that stopped before that publish keeps the old baseline, so the next summary compares with data that reached the page — show the change summary, then keep this refresh as the next baseline:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-render.js" --diff "<state>/private.json" --in "<scratchpad>/dashboard/private.json"
+   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --diff "<state>/private.json" --in "<scratchpad>/dashboard/private.json"
    cp "<scratchpad>/dashboard/private.json" "<state>/private.json"
    ```
 
@@ -4789,11 +4876,11 @@ old page's proposals.
 2. **Check.**
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-sync.js" --check "<scratchpad>/dashboard/proposals"
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --check "<scratchpad>/dashboard/proposals"
    ```
 
-3. **Ask.** When a `unique` proposal targets a file that git tracks (a work
-   log), first ask the owner once whether a whole-branch review is running on
+3. **Ask.** When a `unique` proposal's `file:` line ends with `(tracked)`,
+   first ask the owner once whether a whole-branch review is running on
    this repository now. When one is running, those proposals stay `pending`.
    Then show every remaining `unique` diff, with its warnings, and let the
    owner accept or reject each one. Report every other verdict with its
@@ -4802,7 +4889,7 @@ old page's proposals.
 4. **Mark.** Print the records that set the accepted proposals to `applying`:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-sync.js" --batches "<scratchpad>/dashboard/proposals" applying <accepted ids>
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --batches "<scratchpad>/dashboard/proposals" applying <accepted ids>
    ```
 
    Each printed line is the `writes` array of one ArtifactData `batch` call
@@ -4814,19 +4901,21 @@ old page's proposals.
 5. **Apply.**
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-sync.js" --apply "<scratchpad>/dashboard/proposals" <marked ids>
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --apply "<scratchpad>/dashboard/proposals" <marked ids>
    ```
 
-6. **Record.** Empty and query again, like step 1, into
-   `<scratchpad>/dashboard/proposals-marked`, so that the marked documents
-   carry their new versions. Then send the batches that these commands print,
+6. **Record.** Empty the second folder with
+   `rm -rf "<scratchpad>/dashboard/proposals-marked"` — never the step-1
+   folder, which the last two commands below still read — and query again as
+   in step 1, with `out_dir` `<scratchpad>/dashboard/proposals-marked`, so
+   that the marked documents carry their new versions. Then send the batches that these commands print,
    the same way as in step 4:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-sync.js" --batches "<scratchpad>/dashboard/proposals-marked" applied <marked ids that --apply printed as applied or already-applied>
-   node "<skill-dir>/scripts/dashboard-sync.js" --batches "<scratchpad>/dashboard/proposals-marked" pending <marked ids that --apply did not write>
-   node "<skill-dir>/scripts/dashboard-sync.js" --batches "<scratchpad>/dashboard/proposals" applied <already-applied ids of step 2 that were not marked>
-   node "<skill-dir>/scripts/dashboard-sync.js" --batches "<scratchpad>/dashboard/proposals" rejected <ids the owner rejected>
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --batches "<scratchpad>/dashboard/proposals-marked" applied <marked ids that --apply printed as applied or already-applied>
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --batches "<scratchpad>/dashboard/proposals-marked" pending <marked ids that --apply did not write>
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --batches "<scratchpad>/dashboard/proposals" applied <already-applied ids of step 2 that were not marked>
+   node "<skill-dir>/scripts/dashboard-sync.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --batches "<scratchpad>/dashboard/proposals" rejected <ids the owner rejected>
    ```
 
    Leave out a command whose id list is empty. A sync that stops after step 4
@@ -4846,13 +4935,13 @@ old page's proposals.
 2. Find the shared ref. With `--ref <remote>/<branch>`:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --check-shared-ref "<remote>/<branch>"
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --check-shared-ref "<remote>/<branch>"
    ```
 
    Without it:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --default-shared-ref
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --default-shared-ref
    ```
 
    Exit code 2 stops `share`; without `--ref`, ask the user for
@@ -4877,8 +4966,8 @@ To stop sharing, turn off the public link in the page's Share control."
 2. Run:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --audience private --out "<folder>/private.json"
-   node "<skill-dir>/scripts/dashboard-render.js" --local --in "<folder>/private.json" --out "<folder>"
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience private --out "<folder>/private.json"
+   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --local --in "<folder>/private.json" --out "<folder>"
    ```
 
 3. Print the path `<folder>/dashboard.html`. The file is read-only: it has no
@@ -4900,8 +4989,10 @@ To stop sharing, turn off the public link in the page's Share control."
 - The page shows the state of its last refresh; the "as of" line names it.
 - A fresh page load may not show writes that Claude made to `db`
   (anthropics/claude-code#94426). The page can then show "pending sync" for a
-  proposal that `sync` already closed; an edit on it is refused by the pinned
-  write, and no wrong write follows.
+  proposal that `sync` already closed. An edit on it is refused by the pinned
+  write (the version changed), or, when page writes cannot be pinned, it
+  creates a proposal that `sync` reports as `none` against the changed line;
+  no wrong write follows.
 - The page URLs are stored on one machine. A second machine, or a second way
   of loading the plugin (`--plugin-dir`), creates its own pages unless the
   user reconnects them with `refresh --url` and `refresh --shared-url`.
@@ -4913,6 +5004,9 @@ Align the `capabilities` value of "Publish one audience" step 4 with the runtime
 
 Run: `node tests/dashboard/test-12-skill-text.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
+
+Run: `node -e "const fs = require('fs'); const r = fs.readFileSync('docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md', 'utf8').match(/^- Capabilities of the private page's first publish: \x60(\{.*\})\x60$/m); console.log(r && fs.readFileSync('skills/dashboard/SKILL.md', 'utf8').includes(r[1].trim()) ? 'capabilities match' : 'capabilities differ')"`
+Expected: `capabilities match` — `SKILL.md` writes the record's one-line `capabilities` object with the same text. A record line that holds no one-line object in backticks prints `capabilities differ`.
 
 - [ ] **Step 6: Commit**
 
@@ -5200,10 +5294,12 @@ git commit -m "docs: document the dashboard skill in the guide and the README" -
 **Contract:**
 - `manual-acceptance.md` (wording artifact)
   - Must convey: the measured size in bytes of this repository's private `dashboard-data.json` and of its extractor JSON, and whether one Read call returned the whole data file (spec section 13 item 11); the reinstall step (the installed copy under `~/.claude/plugins/cache/superpowers-orchestrator/` changes only on reinstall); the acceptance steps — the first `refresh` (asks, publishes, stores the URL, shows "first refresh"), the page check (two tabs, the banner, lock signs, the "as of" line), one edit on the page (a resolve of an open item of `session-log.md`, or a part note), `sync` (the diff, the accept, the changed line, the records), a second `refresh` (the item is gone or changed; the change summary counts it); one row per check that `platform-checks.md` marks `owed to manual acceptance`, with what to observe; and an empty result column for the owner.
-  - Verification: `grep -c '^| ' <file>` is at least the number of steps plus the owed checks plus the header rows; `grep -n 'bytes' <file>` shows the measured sizes.
+  - Verification: `grep -c '^| ' <file>` is at least `8 + $(awk -F'|' '/^\| [0-9]/ && $(NF-1) ~ /owed to manual acceptance/' docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md | wc -l)` — the six step rows 0 to 5, the header rows of the two tables (a separator row starts `|-`, so the grep does not count it), and one row per `platform-checks.md` row whose Verdict cell holds `owed to manual acceptance`; `grep -n 'bytes' <file>` shows the measured sizes.
 - `platform-checks.md` (wording artifact): row 11 holds the measured size and its verdict: `confirmed` when one Read call returned the whole data file, `contradicted` otherwise. A `contradicted` verdict ends the task with `BLOCKED: platform check 11 contradicted: <size>` after the commit.
 
 - [ ] **Step 1: Measure the page data of this repository**
+
+First record the baseline of this step: run `git status --short` and keep its output.
 
 Run (from the repository root; the output folder is outside the repository):
 
@@ -5256,6 +5352,8 @@ each check in its last column.
 ```
 
 In `platform-checks.md`, replace row 11 (the row that starts `| 11 |`) with the measured size and its verdict.
+
+Run `grep -n 'tests/dashboard/run-tests.sh' CLAUDE.md`. When it prints nothing (Task 14's `CLAUDE.md` edit was declined), add one more row to `## Steps`, so that the rollout item of Global Constraint 16 reaches the owner: `| 6 | In the Testing block of CLAUDE.md, add the line of Task 14 Step 1 directly after the line that starts bash tests/worklog/run-tests.sh | grep -n 'tests/dashboard/run-tests.sh' CLAUDE.md prints one line | |`.
 
 - [ ] **Step 4: Verify**
 
