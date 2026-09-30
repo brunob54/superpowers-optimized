@@ -76,3 +76,8 @@ Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
 - Task 7: complete — page template view (ruling 3)
 - Task 8: complete — page edits and proposals, re-read write fallback (ruling 7)
 - Task 9: complete — renderer: render, verify and compare the page files (ruling 4)
+
+## Phase 3 — Batch 4 (tasks 10–12) — COMPLETE — commits f26b228..7084a89
+- Task 10: complete — sync script checks and verdicts, joined with the versions file (Amendment 6)
+- Task 11: complete — sync script apply and record batches
+- Task 12: complete — the skill file, with the re-read known limits (Amendments 6, 7)
