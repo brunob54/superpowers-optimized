@@ -100,3 +100,9 @@ Items: [I1] design — (this answers the round 3 security item on the shared pag
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
 Re-dispatch: phase 4, in-run resume 1 of 3, return 1 of 6
+
+## RULING 15 — 2026-09-30 — phase 4 — Stale README release count ruled out of scope (plan governs)
+Items: [CF89] forced — plan governs: "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: none — contradiction: none
+Re-dispatch: phase 4, in-run resume 2 of 3, return 2 of 6
