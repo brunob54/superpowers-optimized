@@ -269,3 +269,10 @@ _Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — bra
 - [M1] carried — sync step 6 `applied` batch does not check that the marked document is still `applying` with the step-1 `createdAt`; the loss window is documented in SKILL.md Known limits
 - [M2] carried — template.html `planWrite` keeps the old proposal's branch fields when merging an edit made on another branch's page (part a); part (b), a pending status cannot be withdrawn, is the item decided in Invocation 1 addendum 1 [CF6] (plan governs)
 - [M3] carried — hooks/skill-rules.json refresh/update pattern scores 2 on ordinary front-end dashboard requests; same root as round 5 [CF82]
+
+## Round 7 — Security — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 2 Minor
+**Converged:** no
+### Dispositions
+- [M1] carried — the shared document's `repo.name` is the local working folder's name, which reaches the shared page's title; same root as round 5 [CF31] / Invocation 1 addendum 1 [CF4] (plan governs: `repo.name` the basename of the root)
+- [M2] carried — dashboard-sync.js accepts any non-space proposal id, and SKILL.md puts ids into single-quoted command lines guarded only by Rule 7; the page writes only 40-hex ids and only the owner can write proposals
