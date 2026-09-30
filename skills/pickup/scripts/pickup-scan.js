@@ -14,9 +14,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const {
+  DATE_PATTERN, LOG_ROOT, HEADS, NONE, GIT_OK, REFS,
+  lines, git, gitLines, gitState, defaultBranch, currentBranch, scanRuns,
+} = require('./git-runs');
 
-const DATE_PATTERN = '\\d{4}-\\d{2}-\\d{2}';
 const HANDOFF_DIR = 'tmp/docs';
 const HANDOFF_NAME = new RegExp(`^(${DATE_PATTERN})-handoff-.+\\.md$`);
 const BYTE_ORDER_MARK = /^\uFEFF/;
@@ -28,20 +30,12 @@ const OFFSET_MINUTES = { min: -12 * 60, max: 14 * 60 };
 const VALID_HEAD = /^[0-9a-f]{7,40}$/;
 const DONE_WHEN = /^Done when: (.+)$/;
 const DONE_WHEN_LINES = 5;
-const NONE = 'none';
 const NOT_LISTED = 'not-listed';
-const GIT_OK = 'ok';
-const GIT_NO_COMMITS = 'no-commits';
-const LOG_ROOT = 'docs/superpowers-orchestrator';
 // Files that /handoff itself writes after the handoff, and the work logs of
 // skills/worklog, which the same sessions update; they are not work. This list
 // covers the uncommitted-change check only: a commit made after the handoff
 // still counts, also when it touches only docs/worklogs.
 const NOT_WORK = [HANDOFF_DIR, 'state.md', 'session-log.md', 'docs/worklogs'];
-const GIT_MAX_BUFFER = 256 * 1024 * 1024;
-const FEATURE_PREFIX = 'feature/';
-const HEADS = 'refs/heads/';
-const COMPLETED = '_Completed — ';
 const MAX_COMMITS = 30;
 const STATUS = { fresh: 'FRESH', check: 'CHECK', unknown: 'UNKNOWN' };
 
@@ -53,53 +47,10 @@ function printList(items) {
   items.forEach((item) => console.log(`  ${item}`));
 }
 
-function lines(text) {
-  return text ? text.split(/\r?\n/) : [];
-}
-
-// Runs git with an argument array (no shell) and colors off, whatever the
-// user's configuration. Returns the exit state and the trimmed standard output.
-function git(args) {
-  const result = spawnSync('git', ['-c', 'color.ui=never', ...args], { encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
-  return { ok: result.status === 0, out: (result.stdout || '').trim() };
-}
-
-// The output lines of a git command, or null when the command failed.
-function gitLines(args) {
-  const result = git(args);
-  return result.ok ? lines(result.out) : null;
-}
-
-function branchExists(name) {
-  return git(['show-ref', '--verify', '--quiet', HEADS + name]).ok;
-}
-
 function localDate() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-// "ok", "none" (not a work tree, including a bare repository) or "no-commits".
-function gitState() {
-  const tree = git(['rev-parse', '--is-inside-work-tree']);
-  if (!tree.ok || tree.out !== 'true') return NONE;
-  if (!git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']).ok) return GIT_NO_COMMITS;
-  return GIT_OK;
-}
-
-// The local branch that origin/HEAD points to, else local main, else local
-// master. Merge checks use this LOCAL branch, never origin/main: a branch
-// merged locally but not pushed is merged.
-function defaultBranch() {
-  const remote = git(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  const candidates = remote.ok ? [remote.out.replace(/^refs\/remotes\/origin\//, '')] : [];
-  return candidates.concat(['main', 'master']).find(branchExists) || null;
-}
-
-function currentBranch() {
-  const ref = git(['symbolic-ref', '--quiet', 'HEAD']);
-  return ref.ok ? ref.out.slice(HEADS.length) : 'detached';
 }
 
 // A path relative to the repository top, with forward slashes.
@@ -264,10 +215,6 @@ function reportHandoff(handoff, state, top) {
   print('status', reportStaleness(handoff, state));
 }
 
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // The resume path of a run: its plan when the branch has it, else its spec.
 function resumePath(topic, slug, files) {
   const plan = `${topic}/plans/${slug}.md`;
@@ -275,45 +222,21 @@ function resumePath(topic, slug, files) {
   return [plan, spec].find((p) => files.has(p)) || NONE;
 }
 
-// The orchestration logs of one feature branch for its slug, read from the
-// branch (never from the working tree).
-function branchLogs(ref, slug, files) {
-  const slugPattern = escapeRegExp(slug);
-  const logPattern = new RegExp(`^(${LOG_ROOT}/${DATE_PATTERN}-${slugPattern})/${slugPattern}-orchestration-log\\.md$`);
-  return [...files]
-    .map((file) => file.match(logPattern))
-    .filter(Boolean)
-    .map((match) => ({ file: match[0], topic: match[1], text: gitLines(['show', `${ref}:${match[0]}`]) || [] }));
-}
-
-// A branch is a run when it carries two or more logs for its slug (ambiguous:
-// the orchestrator's Resume stops on them, completed or not) or exactly one
-// unfinished log.
-function reportRuns(base) {
-  const filter = base ? [`--no-merged=${HEADS}${base}`] : [];
-  const refs = gitLines(['for-each-ref', ...filter, '--format=%(refname)', HEADS + FEATURE_PREFIX]) || [];
-  const runs = [];
-  for (const ref of refs) {
-    const slug = ref.slice(HEADS.length + FEATURE_PREFIX.length);
-    const files = new Set(gitLines(['ls-tree', '-r', '--full-tree', '--name-only', ref, '--', LOG_ROOT]) || []);
-    const logs = branchLogs(ref, slug, files);
-    const completed = logs.length === 1 && logs[0].text.some((line) => line.startsWith(COMPLETED));
-    if (logs.length && !completed) runs.push({ ref, slug, files, logs });
-  }
+// Prints the unfinished runs of git-runs.js in this script's format: a
+// relative date for the last commit, and the resume path of a run.
+// Global Constraint 4 (dashboard spec): git-runs.js is the single definition
+// of "unfinished run", and this output does not change. The "errors" property
+// of the scan result (git failures) is not read here, so a failed git command
+// prints the same lines as before.
+function reportRuns() {
+  const runs = scanRuns({ refs: REFS.local });
   print('runs', runs.length || NONE);
   for (const run of runs) {
     print('run', run.ref.slice(HEADS.length));
     printList(run.logs.map((log) => `log: ${log.file}`));
-    const ambiguous = run.logs.length > 1;
-    const details = [];
-    if (ambiguous) {
-      details.push('ambiguous: yes');
-    } else {
-      const headings = run.logs[0].text.filter((line) => line.startsWith('## '));
-      details.push(`last: ${headings.length ? headings[headings.length - 1] : NONE}`);
-    }
+    const details = [run.ambiguous ? 'ambiguous: yes' : `last: ${run.lastHeading || NONE}`];
     details.push(`last-commit: ${git(['log', '-1', '--format=%cr', run.ref]).out}`);
-    details.push(`resume: ${ambiguous ? NONE : resumePath(run.logs[0].topic, run.slug, run.files)}`);
+    details.push(`resume: ${run.ambiguous ? NONE : resumePath(run.logs[0].topic, run.slug, new Set(run.files))}`);
     printList(details);
   }
 }
@@ -348,7 +271,7 @@ function main() {
   const handoff = newestHandoff(top);
   if (handoff) reportHandoff(handoff, state, top);
   else print('handoff', NONE);
-  if (inGit) reportRuns(base);
+  if (inGit) reportRuns();
   else print('runs', NONE);
 }
 
