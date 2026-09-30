@@ -214,6 +214,13 @@
       "priority": "high",
       "keywords": ["handoff", "hand off", "clear the context", "clear context", "fresh session", "new session", "continuation prompt", "continue in a new session"],
       "intentPatterns": ["clear\\s+(the\\s+)?context(\\s+window)?", "(prepare|write|create)\\s+(a\\s+)?(prompt|handoff)\\s+(to\\s+)?continue", "continue\\s+(the\\s+)?work\\s+in\\s+a\\s+(fresh|new)\\s+session", "use\\s+(the\\s+)?handoff"]
+    },
+    {
+      "skill": "dashboard",
+      "type": "workflow",
+      "priority": "high",
+      "keywords": ["project dashboard", "status dashboard", "dashboard page"],
+      "intentPatterns": ["(refresh|update|publish|rebuild)\\s+(the\\s+|my\\s+)?(project\\s+|status\\s+)?dashboard\\b(?!\\s+(component|widget|layout|styles?|ui|design))", "(sync|apply|copy)\\s+(the\\s+)?dashboard\\s+(edits|changes|proposals)", "share\\s+(the\\s+)?(project\\s+|status\\s+)?dashboard\\b"]
     }
   ]
 }
