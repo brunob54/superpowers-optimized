@@ -87,6 +87,7 @@ const WORKLOG_NOTE = {
   symlink: 'symbolic link, not read',
   invalidName: 'invalid file name, not read',
   malformed: 'malformed line 1: run /worklog to see why',
+  unreadable: 'could not be read',
 };
 
 function stop(message) {
@@ -533,7 +534,10 @@ function worklogs(context) {
       continue;
     }
     const text = context.source.read(file);
-    if (text === null) continue;
+    if (text === null) {
+      active.push(worklogFileItem(context, file, file, WORKLOG_NOTE.unreadable));
+      continue;
+    }
     const slug = entry.name.slice(0, -MARKDOWN.length);
     const kind = parse.worklogClass(text);
     if (kind === parse.WORKLOG_CLASS.active) {

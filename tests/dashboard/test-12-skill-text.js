@@ -41,6 +41,7 @@ const SHARE_WARNING = 'A public link can be read by anyone who has the URL. On P
 const PINNED = [
   SHARE_WARNING,
   'Make only this URL public.',
+  'say that no proposal waits and stop',
   'The public link still works and shows the last published data. To stop sharing, turn off the public link in the page\'s Share control.',
   'Commit or stash these files before you switch branches or resume a run.',
 ];

@@ -108,9 +108,12 @@ const linkDir = scratch('linked');
 const victim = scratch('victim.txt');
 fs.mkdirSync(linkDir, { recursive: true });
 fs.writeFileSync(victim, 'keep');
-fs.symlinkSync(victim, path.join(linkDir, 'dashboard-data.json'));
-const linked = render(h.ROOT, ['--audience', 'private', '--in', privateIn, '--out', linkDir]);
-h.eq('a symbolic link at an output name stops, nothing written', [linked.code, read(victim), fs.existsSync(path.join(linkDir, 'index.html'))], [2, 'keep', false]);
+let haveLink = true;
+try { fs.symlinkSync(victim, path.join(linkDir, 'dashboard-data.json')); } catch (error) { haveLink = false; console.log('  NOTE: this file system refuses a symbolic link; the link case is skipped'); }
+if (haveLink) {
+  const linked = render(h.ROOT, ['--audience', 'private', '--in', privateIn, '--out', linkDir]);
+  h.eq('a symbolic link at an output name stops, nothing written', [linked.code, read(victim), fs.existsSync(path.join(linkDir, 'index.html'))], [2, 'keep', false]);
+}
 // --verify refuses an inline state block in index.html and a non-object data file.
 const inlineDir = scratch('inline');
 render(h.ROOT, ['--audience', 'shared', '--in', writeJson('shared2.json', sharedDoc), '--out', inlineDir]);

@@ -132,4 +132,20 @@ h.commit(nm, 'base', ['RELEASE-NOTES.md']);
 const ns = extract(nm).releases;
 h.eq('a release file with no release heading gives a note', [ns.status, ns.items.length, /no release heading/.test(ns.note)], ['ok', 0, true]);
 
+// A work log whose read fails is listed with a note, never dropped.
+const u = h.repo('unreadable');
+h.write(u, 'docs/worklogs/locked.md', '<!-- Work log: status=active slug=locked created=2026-09-21 -->\n');
+h.commit(u, 'base', ['docs']);
+const lockedFile = path.join(u, 'docs', 'worklogs', 'locked.md');
+fs.chmodSync(lockedFile, 0);
+let canRead = true;
+try { fs.readFileSync(lockedFile); } catch (error) { canRead = false; }
+if (canRead) {
+  console.log('  NOTE: this account can read a file with no permission; the unreadable case is skipped');
+} else {
+  const locked = extract(u).activeWorklogs;
+  h.eq('an unreadable work log is listed with a note', [locked.status, locked.items.map((i) => [i.kind, i.path, i.note])], ['ok', [['worklog-file', 'docs/worklogs/locked.md', 'could not be read']]]);
+}
+fs.chmodSync(lockedFile, 0o644);
+
 h.finish();

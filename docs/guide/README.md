@@ -266,7 +266,8 @@ header, so reviewers and executors read it from the plan itself.
 **Facts about the repository are tested, not assumed.** Since v7.24.0 the
 plan writer runs one command for each fact about the repository that a task
 depends on, before it writes that task: whether git tracks a file
-(`git ls-files --error-unmatch <path>`), whether git ignores it
+(`git ls-files --error-unmatch <path>`; git tracks a file when the file is in
+the list of files that git versions), whether git ignores it
 (`git check-ignore -v <path>`), whether a file exists, and whether a command
 exists. A file or command that an earlier task of the same plan creates is
 not such a fact; it is a dependency between tasks. A task that must edit a
@@ -580,7 +581,7 @@ creating the PR or merging is your call, made interactively at the end via
 `finishing-a-development-branch`.
 
 What it will **never** do: merge or open a PR on its own, ask you questions
-mid-run, stash or commit unrelated changes it finds in your tree, or silently
+mid-run, stash (put aside in git's temporary storage) or commit unrelated changes it finds in your tree, or silently
 reconcile inconsistent state — anything suspicious is a stop, not a guess.
 
 ```mermaid
@@ -1320,9 +1321,11 @@ is a view of them, as of its last refresh.
 
 **Two pages.** The private page shows every source, also files that git does
 not track, and marks those items with a lock sign. The shared page shows only
-what is pushed to the remote repository: it reads one remote-tracking branch
-(the local copy of a branch of the remote repository, such as `origin/main`,
-updated by `git fetch`). By default this is the upstream of your default
+what is pushed to the remote repository. It reads only pushed content: one
+remote-tracking branch for its files, plus the names and run logs of the other
+pushed branches that have an upstream (a remote-tracking branch is the local
+copy of a branch of the remote repository, such as `origin/main`, updated by
+`git fetch`). By default this is the upstream of your default
 branch (the remote-tracking branch that your default branch is set to follow).
 It never reads your working folder. On the Pro and Max plans a public link is the only way to share a
 page, and anyone who has that link can read it; make only the shared page's
@@ -1340,7 +1343,7 @@ What you should know:
 - **A refresh is a command.** A hook cannot publish a page, so the page never
   updates by itself; it shows the state of its last refresh.
 - **Publishing needs a claude.ai login.** A session that uses an API key, a
-  gateway token (a token of an LLM gateway, which is a proxy server between
+  gateway token (a token of an LLM (large language model) gateway, which is a proxy server between
   Claude Code and the API) or a cloud provider cannot publish, and `claude -p` may not
   have the Artifact tool. Use `local` there.
 - **The page addresses are kept on one computer**, in the plugin's data
