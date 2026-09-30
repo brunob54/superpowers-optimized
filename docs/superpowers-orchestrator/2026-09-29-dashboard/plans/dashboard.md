@@ -2602,11 +2602,11 @@ git commit -m "feat(dashboard): extract the shared audience from the pushed ref 
   - Invariants: every value from the data is inserted with `textContent` or `setAttribute` (Global Constraint 3); the app script contains none of `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, `createContextualFragment`, `srcdoc`, `eval(`, `new Function`; the tab ids stay `tab-waits` and `tab-history`; colors are tokens on `:root`, redefined under `@media (prefers-color-scheme: dark)` with `:root:not([data-theme="light"])` and under `:root[data-theme="dark"]`; `body` has an explicit background; the layout has a 16px side gutter and wraps long text (no horizontal page scroll at phone width).
   - Verification: `node tests/dashboard/test-07-template.js`.
 
-- [ ] **Step 1: Load the design skill**
+- [x] **Step 1: Load the design skill**
 
 Load the skill `artifact-design` with the Skill tool (spec section 6: "the implementer loads the `artifact-design` skill before writing it"). Where its page contract asks for more than the Contract above (for example a rule about fonts or the title), follow it in Step 4 and keep every invariant of the Contract.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/dashboard/fake-page.js` (the name does not start with `test-`, so the runner does not run it as a test file):
 
@@ -2772,12 +2772,12 @@ async function boot(pageAudience, data) {
 })();
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-07-template.js`
 Expected: FAIL — exit 1 with `ENOENT` naming `skills/dashboard/template.html`.
 
-- [ ] **Step 4: Create the template**
+- [x] **Step 4: Create the template**
 
 Create `skills/dashboard/template.html`:
 
@@ -3028,12 +3028,12 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
 </html>
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-07-template.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/dashboard/template.html tests/dashboard/fake-page.js tests/dashboard/test-07-template.js
