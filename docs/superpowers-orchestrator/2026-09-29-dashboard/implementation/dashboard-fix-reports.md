@@ -68,3 +68,11 @@ Output (end): `Results: 272 passed, 0 failed`
 Finding addressed: I1.
 
 Commands: `bash tests/dashboard/run-tests.sh` (dashboard suite: every test file passed; test-06 45 passed, test-12 105 passed) and `bash tests/pickup/run-tests.sh` (Results: 207 passed, 0 failed).
+
+## Round 8
+
+Findings addressed: I1, M4, M6.
+
+Command: `bash tests/dashboard/run-tests.sh`
+
+Output: 105 passed, 0 failed (last file); "dashboard suite: every test file passed".

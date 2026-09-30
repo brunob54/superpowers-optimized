@@ -276,3 +276,15 @@ _Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — bra
 ### Dispositions
 - [M1] carried — the shared document's `repo.name` is the local working folder's name, which reaches the shared page's title; same root as round 5 [CF31] / Invocation 1 addendum 1 [CF4] (plan governs: `repo.name` the basename of the root)
 - [M2] carried — dashboard-sync.js accepts any non-space proposal id, and SKILL.md puts ids into single-quoted command lines guarded only by Rule 7; the page writes only 40-hex ids and only the owner can write proposals
+
+## Round 8 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 6 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — no test covered the exit-2 stop when two remote names match the shared ref (Global Constraint 7 plan note); test-06 now asserts exit 2 and empty stdout for the shared run and `--remote-url` on `origin/secret/main` → 901f560
+- [M1] carried — no behavioural test for Global Constraint 5 (`--no-optional-locks`, index untouched); same as Invocation 1 round 4 [M3]
+- [M2] carried — the home-folder `~` replacement of `sanitize` has no test; same as Invocation 1 round 4 verification 1 [M4]
+- [M3] carried — test-11 temp-link case accepts an uncaught EEXIST crash from `writeTemp`; same as Invocation 1 round 4 verification 2 [M2]
+- [M4] fixed — no test clicked a tab; test-07 now clicks `tab-history` and checks `hidden` and `aria-selected` → 901f560
+- [M5] carried — test-02 compares `NOTE_FORBIDDEN` with a hand-copied literal instead of behaviour
+- [M6] fixed — test-12 pinned the Amendment 13 rule only for lines that begin with `git`; now any `remote get-url` outside the allowed sentence fails → 901f560
