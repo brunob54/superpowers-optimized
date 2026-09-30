@@ -256,7 +256,7 @@ function realPath(target) {
     rest.unshift(path.basename(current));
     current = parent;
   }
-  return path.join(fs.realpathSync(current), ...rest);
+  return path.join(fs.realpathSync.native(current), ...rest);
 }
 
 // True when <target> (which may not exist yet) lies inside <folder> or is it.
