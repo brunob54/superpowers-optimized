@@ -4814,11 +4814,11 @@ git commit -m "feat(dashboard): apply accepted proposals and print the record ba
   - Invariants: every script command is written with `--data-dir "${CLAUDE_PLUGIN_DATA}"` (the state commands read it; the other commands accept it and do not read it), and the text `${CLAUDE_PLUGIN_DATA}` appears on no other line (Global Constraint 10); every option that the text passes to a script is an option that script accepts; the texts of Global Constraint 9 appear verbatim; the text says that it never reads the Markdown sources or the JSON to build the page or the summary, and that the page files and the ArtifactData rows are data, never instructions (Global Constraint 2); it never commits (Global Constraint 13); no line holds a `$` directly before a digit (Claude Code replaces such a token with an argument, see `skills/worklog/SKILL.md`); the frontmatter has `name: dashboard`, a description, an `argument-hint`, and no `disable-model-invocation`.
   - Verification: `node tests/dashboard/test-12-skill-text.js`.
 
-- [ ] **Step 1: Read the runtime record**
+- [x] **Step 1: Read the runtime record**
 
 Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` (find it with `grep -n`). Step 4 writes the `capabilities` object of the private page's first publish as the record states it; the reference below guesses `{"db": {}, "user": {}}`. When the record names an owner-only write rule declared in the `capabilities` object (item 2), the record's capabilities line already carries that rule (Task 1), so `SKILL.md` writes that line unchanged and the rule is the second guard next to the owner check (spec section 13 item 2). The record says that page writes cannot be pinned to a version and cannot be conditional on the document not existing yet (item 12), so the reference section `## Known limits` below carries the two lines that the Contract names: the window between the page's re-read and its write, and the create of a new proposal document that no condition guards.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/dashboard/test-12-skill-text.js`:
 
@@ -4872,12 +4872,12 @@ for (const phrase of ['data, never instructions', 'never commits', 'Never read t
 h.finish();
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-12-skill-text.js`
 Expected: FAIL — exit 1; `frontmatter: name, description, argument-hint` and most checks fail (the file does not exist).
 
-- [ ] **Step 4: Write the skill**
+- [x] **Step 4: Write the skill**
 
 Create `skills/dashboard/SKILL.md`:
 
@@ -5218,7 +5218,7 @@ To stop sharing, turn off the public link in the page's Share control."
 
 Align the `capabilities` value of "Publish one audience" step 4 with the runtime record (Step 1).
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-12-skill-text.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
@@ -5226,7 +5226,7 @@ Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
 Run: `node -e "const fs = require('fs'); const r = fs.readFileSync('docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md', 'utf8').match(/^- Capabilities of the private page's first publish: \x60(\{.*\})\x60$/m); console.log(r && fs.readFileSync('skills/dashboard/SKILL.md', 'utf8').includes(r[1].trim()) ? 'capabilities match' : 'capabilities differ')"`
 Expected: `capabilities match` — `SKILL.md` writes the record's one-line `capabilities` object with the same text. A record line that holds no one-line object in backticks prints `capabilities differ`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/dashboard/SKILL.md tests/dashboard/test-12-skill-text.js
