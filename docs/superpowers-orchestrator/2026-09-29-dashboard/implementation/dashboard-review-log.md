@@ -146,3 +146,6 @@ _Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — bra
 - [M7] carried — several test-10 error-path cases assert only the verdict or exit code (`nothing`, `indexFail`, `scanFail`)
 - [M8] carried — the test-only hook `DASHBOARD_SYNC_TEST_CHANGE_ONCE` ships in dashboard-sync.js; same as verification 1 [M2]
 - [M9] carried — test-12 single-quote check does not cover `--remote-url '<remote>'`
+
+_Completed — 2026-09-30 — cap reached — HEAD e1b13dab77e823b173a8d2c8512c6cd1731e4074_
+Secrets found: none
