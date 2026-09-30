@@ -65,7 +65,7 @@ See [Installation](#installation) for install, update, and uninstall commands on
 ---
 
 > [!IMPORTANT]
-> **Compatibility note:** this plugin ships a workflow router and 31 skills covering debugging, planning, code review, TDD, and execution.
+> **Compatibility note:** this plugin ships a workflow router and 32 skills covering debugging, planning, code review, TDD, and execution.
 >
 > Other plugins or custom skills/agents in your `.claude/skills/` and `.claude/agents/` folders can interfere when they cover the same domains: duplicate skills cause trigger conflicts and contradictory instructions, and every extra skill adds text to the model's context. If you see conflicting behavior, disable the overlapping plugins or skill files.
 
@@ -217,12 +217,12 @@ Generate once with "map this project". After that, the session-start hook inject
 _Generated: 2026-03-20 14:32 | Git: a4b9c2d_
 
 ## Directory Structure
-skills/ — 31 skills, each in skills/<name>/SKILL.md
+skills/ — 32 skills, each in skills/<name>/SKILL.md
 hooks/ — 10 hooks (JS) + hooks.json registry + skill-rules.json
 
 ## Key Files
 hooks/skill-activator.js — UserPromptSubmit: context pressure gate (blocks plan execution at ≥60% context; reads the statusline bridge cache when configured, else session JSONL); skill hints via skill-rules.json; memory recall from session-log.md + known-issues.md. Micro-task detection skips all enrichment.
-hooks/skill-rules.json — 28 rules covering 27 skills (context-management has two: map-project and save-state): skill name, keywords, intentPatterns, priority.
+hooks/skill-rules.json — 29 rules covering 28 skills (context-management has two: map-project and save-state): skill name, keywords, intentPatterns, priority.
 
 ## Critical Constraints
 - hooks.json uses \" not ' around ${CLAUDE_PLUGIN_ROOT} (single quotes break Linux)
@@ -327,7 +327,7 @@ With this stack, sessions start with full context and zero re-discovery overhead
 ---
 
 
-## Skills Library (31 skills)
+## Skills Library (32 skills)
 
 ### Core Workflow
 - **using-superpowers** — Mandatory workflow router with 3-tier complexity classification (micro/lightweight/full) and instruction priority hierarchy
@@ -337,6 +337,7 @@ With this stack, sessions start with full context and zero re-discovery overhead
 - **handoff** — `/handoff [slug]`: writes a continuation prompt for a fresh session into `tmp/docs/<date>-handoff-<slug>.md` (what is already known, how to proceed, the conventions that cost time), saves state through `context-management`, and prints the prompt to copy; manual invocation only
 - **pickup** — `/pickup [handoff path]`: resumes work in a fresh session from the newest or a named handoff, after a scan lists the commits and uncommitted changes made since the handoff was written (FRESH, CHECK or UNKNOWN), or from an unfinished orchestration run on a local feature branch, which it offers only after asking, with the bare `Resume orchestration for <path>` line; manual invocation only
 - **worklog** — `/worklog [new|update|close] [<slug>]`: creates, fully updates and closes a work log, one Markdown document per piece of multi-part work at `docs/worklogs/<slug>.md` (parts, open items, accepted limits, decisions) that carries its own update rules; the session-start hook names the active work logs; never commits
+- **dashboard** — `/superpowers-orchestrator:dashboard refresh | sync | share | share off | local`: publishes the repository's status (unfinished runs, branches, work logs, open items, releases, commits) as a claude.ai Artifact page, copies the owner's page edits back into the Markdown files after approval, shares a second page with pushed content only, or writes a local read-only file; never commits
 - **premise-check** — Validates whether proposed work should exist before investing in it; triggers reassessment when new evidence changes the original motivation
 
 ### Design & Planning
