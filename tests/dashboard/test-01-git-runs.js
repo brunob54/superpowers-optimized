@@ -65,7 +65,9 @@ h.git(d, 'commit', '-q', '-m', 'linked log');
 h.git(d, 'push', '-q', '-u', 'origin', 'feature/linked');
 h.git(d, 'checkout', '-q', 'main');
 
-const upstream = byBranch(h.scan(d, { refs: 'upstream', base: 'refs/remotes/origin/main' }));
+const upstreamRuns = h.scan(d, { refs: 'upstream', base: 'refs/remotes/origin/main' });
+const upstream = byBranch(upstreamRuns);
+h.eq('a clean upstream scan (an upstream not merged into the base) records no error', upstreamRuns.errors, []);
 h.check('upstream mode skips a log pushed as a symbolic link', !upstream['origin/feature/linked']);
 h.eq('upstream mode lists only the pushed run, by its upstream name', Object.keys(upstream), ['origin/feature/alpha']);
 h.eq('the unpushed STOPPED heading is read from neither the log nor the date', [upstream['origin/feature/alpha'].state, upstream['origin/feature/alpha'].lastHeading, upstream['origin/feature/alpha'].lastCommitDate], ['in progress', '## Phase 1 — Plan — DONE', '2026-01-09']);

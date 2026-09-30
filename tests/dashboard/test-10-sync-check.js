@@ -199,10 +199,10 @@ const hiddenInNote = {
   escapeNote: oneLine({ note: 'a\u001b(0b' }),
   deleteNote: setPart(4, { note: 'a\u007fb' }),
   nextLineNote: oneLine({ note: 'a\u0085b' }),
-  lineSeparatorNote: oneLine({ note: 'a b' }),
-  paragraphSeparatorNote: setPart(4, { note: 'a b' }),
-  rightToLeftNote: oneLine({ note: 'a‮b' }),
-  isolateNote: oneLine({ note: 'a⁦b' }),
+  lineSeparatorNote: oneLine({ note: 'a\u2028b' }),
+  paragraphSeparatorNote: setPart(4, { note: 'a\u2029b' }),
+  rightToLeftNote: oneLine({ note: 'a\u202eb' }),
+  isolateNote: oneLine({ note: 'a\u2066b' }),
 };
 // 7b. The anchor fields and the branch hold no line break or control
 // character, so one proposal cannot print a forged verdict block (finding 2).

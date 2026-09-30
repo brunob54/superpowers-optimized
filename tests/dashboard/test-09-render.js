@@ -102,6 +102,8 @@ const upper = path.join(path.dirname(d), path.basename(d).toUpperCase(), 'page-c
 if (fs.existsSync(upper.replace('page-case', ''))) {
   const cased = render(d, ['--audience', 'shared', '--in', scratch('real-shared.json'), '--out', upper]);
   h.eq('--out in another letter case stops, no file', [cased.code, fs.existsSync(path.join(d, 'page-case'))], [2, false]);
+} else {
+  console.log('  NOTE: this file system is case-sensitive; the letter-case case is skipped');
 }
 // An output file name that is a symbolic link stops the command, no file.
 const linkDir = scratch('linked');

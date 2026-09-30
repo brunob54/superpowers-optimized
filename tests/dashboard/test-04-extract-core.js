@@ -100,8 +100,9 @@ h.check('--out outside the repository writes the file and names it', written.cod
 const linkTarget = path.join(h.ROOT, 'scratch', 'link-target.json');
 const linkOut = path.join(h.ROOT, 'scratch', 'link-out.json');
 fs.writeFileSync(linkTarget, 'keep');
-fs.symlinkSync(linkTarget, linkOut);
-h.eq('--out at a symbolic link stops, the target is untouched', [run(d, ['--audience', 'private', '--out', linkOut]).code, fs.readFileSync(linkTarget, 'utf8')], [2, 'keep']);
+let haveLink = true;
+try { fs.symlinkSync(linkTarget, linkOut); } catch (error) { haveLink = false; console.log('  NOTE: this file system refuses a symbolic link; the --out link case is skipped'); }
+if (haveLink) h.eq('--out at a symbolic link stops, the target is untouched', [run(d, ['--audience', 'private', '--out', linkOut]).code, fs.readFileSync(linkTarget, 'utf8')], [2, 'keep']);
 
 // 7. The state folder and config.json.
 const data = path.join(h.ROOT, 'plugin-data');

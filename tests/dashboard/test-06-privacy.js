@@ -67,6 +67,7 @@ h.check('(2-6, 8) no marker in the shared JSON', !result.out.includes(MARKER), r
 const doc = JSON.parse(result.out);
 const s = doc.sections;
 h.eq('the document names the shared ref', [doc.audience, doc.commit.branch, doc.commit.ref, doc.commit.defaultBranch], ['shared', 'origin/main', 'refs/remotes/origin/main', null]);
+h.eq('the clean shared run records no scan error', [s.unfinishedRuns.status, s.unfinishedRuns.note], ['ok', '']);
 h.eq('(5) the run is read from its upstream', s.unfinishedRuns.items.map((i) => [i.branch, i.lastHeading, i.state]), [['origin/feature/run', '## Phase 1', 'in progress']]);
 h.eq('(6, 8) git lists only counted upstreams', s.git.items.map((i) => i.name), ['origin/feature/run']);
 h.eq('git has no unpushed count and no uncommitted count', [s.git.ahead, s.git.dirty], [null, null]);

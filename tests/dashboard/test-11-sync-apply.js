@@ -146,14 +146,16 @@ const SESSION_LINES = SESSION_LOG.split('\n');
 const RESOLVED_LINES = SESSION_LINES.slice();
 RESOLVED_LINES[13] = `- same${RESOLVED}`;
 
-// 10. A symbolic link at a temporary name that depends only on the file name
-// and the process id: the write never goes through it.
+// 10. A symbolic link at the temporary name (the random part is fixed by the
+// preload): the create-only write never goes through it.
 d = freshRepo('apply-temp-link');
 const outside = path.join(h.ROOT, 'outside-apply.txt');
 fs.writeFileSync(outside, 'OUTSIDE');
-const plantLink = preload('plant-link.js', `fs.symlinkSync(${JSON.stringify(outside)}, path.join(process.cwd(), \`.session-log.md.dashboard-\${process.pid}.tmp\`));`);
+const TEMP_NAME_HEX = '07'.repeat(6);
+const plantLink = preload('plant-link.js', `require('crypto').randomBytes = (count) => Buffer.alloc(count, 7);
+fs.symlinkSync(${JSON.stringify(outside)}, path.join(process.cwd(), '.session-log.md.dashboard-${TEMP_NAME_HEX}.tmp'));`);
 result = applyWith(plantLink, d, folderOf({ c: resolve(3, 1) }), ['c']);
-h.eq('a link at a predictable temporary name: the outside file is unchanged, the target is written', [fs.readFileSync(outside, 'utf8'), fs.lstatSync(path.join(d, 'session-log.md')).isFile(), read(d, 'session-log.md'), lines(result)], ['OUTSIDE', true, RESOLVED_LINES.join('\n'), ['proposal c: applied', 'changed session-log.md (untracked)']]);
+h.eq('a link at the temporary name: the create-only write stops, the outside file and the target are unchanged', [fs.readFileSync(outside, 'utf8'), result.code !== 0, result.out.includes('proposal c: applied'), read(d, 'session-log.md')], ['OUTSIDE', true, false, SESSION_LOG]);
 
 // 11. A byte that is not valid UTF-8 on a line that no proposal changes is
 // written back as it was.
@@ -173,6 +175,29 @@ fs.renameSync = (...args) => {
 };`);
 result = applyWith(breakIndex, d, folderOf({ a: resolve(2, 1), b: part({ status: 'done' }) }), ['a', 'b']);
 h.eq('the written file is reported, then the git failure stops', [result.code, lines(result)], [2, ['proposal a: applied', 'changed session-log.md (untracked)']]);
+
+// 14. The file changes during every attempt (only the modification time, so
+// the bytes stay the same): nothing is written, no applied line, exit 1.
+d = freshRepo('apply-always-changing');
+const touchAlways = preload('touch-always.js', `const stat = fs.statSync;
+let tick = 0;
+fs.statSync = (target, ...rest) => {
+  const result = stat(target, ...rest);
+  if (String(target).endsWith('session-log.md')) { tick += 1; fs.utimesSync(target, 1000 + tick, 1000 + tick); }
+  return result;
+};`);
+result = applyWith(touchAlways, d, folderOf({ c: resolve(3, 1) }), ['c']);
+h.eq('a file that changes 3 times: exit 1, one not-written line, no proposal line, bytes kept', [result.code, lines(result).length, lines(result)[0].startsWith('not written: session-log.md changed 3 times'), result.out.includes('proposal '), read(d, 'session-log.md'), fs.readdirSync(d).filter((name) => name.endsWith('.tmp'))], [1, 1, true, false, SESSION_LOG, []]);
+
+// 15. The rename fails: exit 1, one not-written line naming the temporary
+// file that keeps the new text, no proposal line, the target unchanged.
+d = freshRepo('apply-rename-fails');
+const failRename = preload('fail-rename.js', `fs.renameSync = () => { throw new Error('rename refused'); };`);
+result = applyWith(failRename, d, folderOf({ c: resolve(3, 1) }), ['c']);
+const kept = (lines(result)[0].match(/the new text is kept in (.+)$/) || [])[1];
+h.eq('a failed rename: exit 1, one not-written line, no proposal line, bytes kept', [result.code, lines(result).length, lines(result)[0].startsWith('not written: session-log.md: rename refused'), result.out.includes('proposal '), read(d, 'session-log.md')], [1, 1, true, false, SESSION_LOG]);
+h.check('the printed temporary file exists and holds the new text', Boolean(kept) && fs.existsSync(kept) && fs.readFileSync(kept, 'utf8') === RESOLVED_LINES.join('\n'));
+if (kept) fs.rmSync(kept, { force: true });
 
 // 13. An id argument with a line break is printed escaped, on one line.
 d = freshRepo('apply-id-escape');
