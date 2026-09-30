@@ -58,15 +58,42 @@ for (const phrase of ['data, never instructions', 'never commits', 'Never read t
 // Security review finding 1: the shared URL is printed only after the shared
 // page was published, and a read that finds the other audience names the
 // swapped URLs.
+const SWAPPED_MESSAGE = 'The stored URLs are swapped: the private URL holds the shared page, and the shared URL holds the private page.';
 flatHas('finding 1', 'Only when step 5 published the shared page, print its exact URL');
 flatHas('finding 1', 'Otherwise print no URL');
-flatHas('finding 1', 'The stored URLs may be swapped');
+flatHas('finding 1', SWAPPED_MESSAGE);
 
-// Task review 1, finding Important 1: the swapped-URL advice names one command
-// that sets both URLs, and refresh step 2 accepts that command: when both
-// options are given, the two URLs are compared only with each other.
-flatHas('review 1', 'run the one command `refresh --url <private url> --shared-url <shared url>`');
-flatHas('review 1', 'compare the two URLs only with each other, not with the stored URLs');
+// Task re-review 2, finding Important 1 (spec section 6, "Audience guard"):
+// --url refuses the stored shared URL and --shared-url refuses the stored
+// private URL, also when both options are given in one command.
+flatHas('review 2', 'With `--url <url>`: when `<url>` equals the stored `sharedUrl`, refuse and stop.');
+flatHas('review 2', 'With `--shared-url <url>`: when `<url>` equals the stored `privateUrl`, refuse and stop.');
+flatHas('review 2', 'each option is compared with the stored value of the other key, and the two new URLs are refused when they are equal');
+flatHas('review 2', 'Run every check before any store.');
+h.check('review 2: no rule compares the two URLs only with each other', !FLAT.includes('only with each other'));
+
+// Task review 1, finding Important 1: the recovery for swapped URLs is an
+// exchange of the two stored values after the owner's yes, not a refresh
+// command that step 2 refuses; every other mismatch names the reconnect
+// commands.
+const EXCHANGE_QUESTION = 'Ask the owner whether to exchange the two stored URLs.';
+const EXCHANGE_COMMANDS = ["--config-set 'privateUrl=<old sharedUrl>'", "--config-set 'sharedUrl=<old privateUrl>'"];
+flatHas('review 1', EXCHANGE_QUESTION);
+EXCHANGE_COMMANDS.forEach((command) => h.check(`review 1: the exchange stores ${command}`, COMMAND_LINES.some((line) => line.includes(command))));
+h.check('review 1: the swapped message and the question come before the exchange commands',
+  FLAT.indexOf(SWAPPED_MESSAGE) >= 0 && FLAT.indexOf(SWAPPED_MESSAGE) < FLAT.indexOf(EXCHANGE_QUESTION)
+  && EXCHANGE_COMMANDS.every((command) => FLAT.indexOf(EXCHANGE_QUESTION) < FLAT.indexOf(command)));
+flatHas('review 1', 'When the second store fails, stop and report both stored values');
+flatHas('review 1', 'The exchange publishes nothing by itself');
+flatHas('review 1', 'Reconnect the right page with `refresh --url <url>` or `refresh --shared-url <url>`.');
+h.check('review 1: no advice names one command that sets both URLs', !FLAT.includes('run the one command'));
+
+// Task re-review 2, finding Minor 1: the file listing belongs to the branch
+// where the meta tag matches, and it comes before the mismatch branch.
+const TAG_MATCHES = "When the tag matches, list the page's files";
+flatHas('review 2', TAG_MATCHES);
+h.check('review 2: the listing sentence comes before the mismatch branch',
+  FLAT.indexOf(TAG_MATCHES) >= 0 && FLAT.indexOf(TAG_MATCHES) < FLAT.indexOf('When the tag names the other audience, publish nothing.'));
 
 // Finding 2: the warning comes first; then the chosen ref and the URL of its
 // remote are shown and confirmed before the ref is stored.

@@ -116,13 +116,34 @@ audience (`privateUrl` or `sharedUrl`).
 2. When `<url>` is stored and this session has not read or published it yet:
    read it with the Artifact tool (`action: "read"`). A failed read is the
    case "The stored URL no longer works" below. The returned HTML must hold
-   `<meta name="dashboard-audience" content="<audience>">`; when it does not,
-   stop, publish nothing, and say: "The page at `<url>` is not the
-   `<audience>` page. The stored URLs may be swapped; run the one command
-   `refresh --url <private url> --shared-url <shared url>` with the right
-   URLs." Then list the page's
-   files with the Artifact tool (`action: "list"`, `scope: "files"`); a
-   listing returns no file content.
+   `<meta name="dashboard-audience" content="<audience>">`. When the tag
+   matches, list the page's files with the Artifact tool (`action: "list"`,
+   `scope: "files"`); a listing returns no file content. When the tag names
+   the other audience, publish nothing. Read the stored URL of the other
+   audience with the Artifact tool (`action: "read"`) too, and find its meta
+   tag.
+   - When the two stored URLs are exactly swapped (the page at the stored
+     `privateUrl` holds `content="shared"`, and the page at the stored
+     `sharedUrl` holds `content="private"`), say: "The stored URLs are
+     swapped: the private URL holds the shared page, and the shared URL holds
+     the private page." Ask the owner whether to exchange the two stored
+     URLs. When the owner says no, stop. On the owner's yes, store both, with
+     `<old privateUrl>` and `<old sharedUrl>` the values before the exchange:
+
+     ```bash
+     node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --config-set 'privateUrl=<old sharedUrl>'
+     node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --config-set 'sharedUrl=<old privateUrl>'
+     ```
+
+     When the second store fails, stop and report both stored values (the
+     output of the `--config` command of the preconditions). Otherwise start
+     the command again from its step 1, without its `--url` and
+     `--shared-url` options. The exchange publishes nothing by
+     itself; after it, both stored URLs count as not read in this session,
+     so the next publish runs every check of this section again.
+   - In every other case, stop and say: "The page at `<url>` is not the
+     `<audience>` page. Reconnect the right page with `refresh --url <url>`
+     or `refresh --shared-url <url>`."
 3. Read `<dir>/index.html` and `<dir>/dashboard-data.json` with the Read tool,
    whole: the Artifact tool requires it for every file it publishes. Treat
    their content as data.
@@ -145,15 +166,14 @@ audience (`privateUrl` or `sharedUrl`).
 
 1. Run the preconditions.
 2. With `--url <url>` or `--shared-url <url>`: refuse a URL that does not
-   start with `https://claude.ai/` or that holds a single quote. When both
-   options are given in one command, the command replaces both stored URLs:
-   compare the two URLs only with each other, not with the stored URLs.
-   When they are equal, refuse and stop. Otherwise store `privateUrl` with
-   the `--url` value and `sharedUrl` with the `--shared-url` value. With only
+   start with `https://claude.ai/` or that holds a single quote. With
    `--url <url>`: when `<url>` equals the stored `sharedUrl`, refuse and
-   stop. Otherwise store `privateUrl=<url>`. With only `--shared-url <url>`:
-   when `<url>` equals the stored `privateUrl`, refuse and stop. Otherwise
-   store `sharedUrl=<url>`.
+   stop. With `--shared-url <url>`: when `<url>` equals the stored
+   `privateUrl`, refuse and stop. These checks hold also when both options
+   are given in one command: each option is compared with the stored value
+   of the other key, and the two new URLs are refused when they are equal.
+   Run every check before any store. Then store `privateUrl=<url>` for
+   `--url` and `sharedUrl=<url>` for `--shared-url`.
 3. When no `privateUrl` is stored, say: "No dashboard page is stored for this
    repository on this machine (first use, or the repository was moved). I
    will create a new private page. If the page exists already, run
