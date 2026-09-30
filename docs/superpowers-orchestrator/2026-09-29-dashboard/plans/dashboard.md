@@ -1796,7 +1796,7 @@ git commit -m "feat(dashboard): extract runs, git state and commits for the priv
   - Invariants: a missing source gives its sections `status` `not-found` with a note, and the other sections still build; an item whose source file (or folder) is not committed at `HEAD` is `private`, every other item `tracked`; a byte order mark and carriage returns never reach the JSON; a symbolic link is never followed; an item that the sync script can target (an open item, a part) carries the anchor that `dashboard-sync.js` searches with the same `dashboard-parse.js` functions.
   - Verification: `node tests/dashboard/test-05-extract-files.js`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/dashboard/test-05-extract-files.js`:
 
@@ -1938,12 +1938,12 @@ h.eq('a release file with no release heading gives a note', [ns.status, ns.items
 h.finish();
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-05-extract-files.js`
 Expected: FAIL — exit 1; it throws `TypeError: Cannot read properties of undefined (reading 'items')` at the first assertion (the section `sessionOpenItems` does not exist yet).
 
-- [ ] **Step 3: Add the file sections**
+- [x] **Step 3: Add the file sections**
 
 In `skills/dashboard/scripts/dashboard-extract.js`:
 
@@ -2170,12 +2170,12 @@ const BUILDERS = [
 ];
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-05-extract-files.js; node tests/dashboard/test-04-extract-core.js | tail -1; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — both files end with `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-extract.js tests/dashboard/test-05-extract-files.js
