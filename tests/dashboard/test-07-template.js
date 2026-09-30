@@ -2,6 +2,8 @@
 // skills/dashboard/template.html, the view: placeholders, the page contract,
 // text-only insertion (the fake document throws on innerHTML), tabs, the
 // as-of line, the lock sign, the audience check of the inline data.
+const fs = require('fs');
+const path = require('path');
 const h = require('./helpers');
 const { TEMPLATE, APP, fakeDocument, load, settle } = require('./fake-page');
 
@@ -71,5 +73,26 @@ async function boot(pageAudience, data) {
   h.eq('data of another audience: an error line and no section', [wrong.getElementById('load-error').hidden, wrong.getElementById('panel-waits').children.length], [false, 0]);
   const wrongPrivate = await boot('private', sample('shared', 'origin/main'));
   h.eq('a private page keeps its banner when the data is refused', [wrongPrivate.getElementById('load-error').hidden, wrongPrivate.getElementById('private-banner').hidden], [false, false]);
+  // 4. Boot with no inline block: the data file is fetched from the page's own origin.
+  const renderSource = fs.readFileSync(path.join(h.SCRIPTS, 'dashboard-render.js'), 'utf8');
+  const dataFile = renderSource.match(/^const DATA_FILE = '([^']+)';/m)[1];
+  async function bootFetch(pageAudience, fakeFetch) {
+    const fetchDoc = fakeDocument(pageAudience);
+    load(fetchDoc, { DASHBOARD_NO_BOOT: false, fetch: fakeFetch });
+    await settle();
+    return fetchDoc;
+  }
+  const requested = [];
+  const fetched = await bootFetch('private', async (url) => {
+    requested.push(url);
+    return { ok: true, status: 200, json: async () => sample('private', 'main') };
+  });
+  h.eq('the page requests the data file that the renderer publishes', requested, [dataFile]);
+  h.eq('the fetched data renders its sections', fetched.getElementById('panel-waits').children.length, 5);
+  const notFound = await bootFetch('private', async () => ({ ok: false, status: 404, json: async () => ({}) }));
+  h.eq('an HTTP error shows the banner with the status and no section', [notFound.getElementById('load-error').hidden, notFound.getElementById('load-error').textContent.includes('The dashboard data could not be loaded') && notFound.getElementById('load-error').textContent.includes('HTTP 404'), notFound.getElementById('panel-waits').children.length], [false, true, 0]);
+  h.eq('a private page keeps its banner on an HTTP error', notFound.getElementById('private-banner').hidden, false);
+  const badJson = await bootFetch('private', async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad json'); } }));
+  h.eq('a JSON parse failure shows the banner', [badJson.getElementById('load-error').hidden, badJson.getElementById('load-error').textContent.includes('The dashboard data could not be loaded'), badJson.getElementById('panel-waits').children.length], [false, true, 0]);
   h.finish();
 })();

@@ -107,7 +107,16 @@ result = apply(d, folderOf({ a: resolve(2, 1), b: resolve(2, 2) }), ['a', 'zzz']
 log = read(d, 'session-log.md').split('\n');
 h.eq('an id that was not marked is not written', [log[8], log[9]], [`- same${RESOLVED}`, '- same']);
 h.check('an unknown id is reported', lines(result)[0] === 'proposal zzz: not-found — no file for this id in the folder');
-h.check('an invalid proposal is reported and nothing is read', lines(apply(d, folderOf({ x: resolve(2, 1, { file: '../session-log.md' }) }), ['x']))[0].startsWith('proposal x: invalid'));
+const beforeInvalid = fs.readFileSync(path.join(d, 'session-log.md'));
+const invalidRun = apply(d, folderOf({ x: resolve(2, 1, { file: '../session-log.md' }) }), ['x']);
+h.check('an invalid proposal is reported and nothing is written', lines(invalidRun)[0].startsWith('proposal x: invalid') && fs.readFileSync(path.join(d, 'session-log.md')).equals(beforeInvalid));
+
+// 7b. Two proposals whose anchors resolve to the same line: one is applied,
+// the other is refused, and the file holds one change.
+d = freshRepo('apply-same-line');
+result = apply(d, folderOf({ a: resolve(2, 1), b: resolve(2, 1) }), ['a', 'b']);
+h.eq('one applied, one refused for the same line', lines(result).slice(0, 2), ['proposal a: applied', 'proposal b: none — another proposal of this sync changes the same line']);
+h.eq('the file holds exactly one change', read(d, 'session-log.md').split('[resolved').length - 1, 1);
 
 // 8. A held run: nothing is written.
 d = freshRepo('apply-held');

@@ -55,9 +55,9 @@ function check(dir, docs) {
   const found = {};
   let current = null;
   for (const line of result.out.split('\n')) {
-    const match = line.match(/^proposal (\S+): (\S+)/);
+    const match = line.match(/^proposal (\S+): (\S+)(?: — (.*))?$/);
     if (match) {
-      current = { verdict: match[2], lines: [] };
+      current = { verdict: match[2], reason: match[3] || '', lines: [] };
       found[match[1]] = current;
     } else if (current && line.startsWith('  ')) {
       current.lines.push(line.trim());
@@ -65,6 +65,7 @@ function check(dir, docs) {
   }
   return { found, out: result.out, code: result.code };
 }
+const reasonOf = (run) => Object.fromEntries(Object.entries(run.found).map(([id, value]) => [id, value.reason]));
 const verdictOf = (run) => Object.fromEntries(Object.entries(run.found).map(([id, value]) => [id, value.verdict]));
 
 const d = h.repo('sync-check');
@@ -136,6 +137,33 @@ const invalid = {
 };
 run = check(d, Object.assign({ broken: '{' }, invalid));
 h.eq('every rule gives invalid', verdictOf(run), Object.fromEntries(Object.keys(invalid).concat('broken').sort().map((id) => [id, 'invalid'])));
+
+const PATH_REASON = 'file is not a relative path inside the repository';
+const reasons = reasonOf(run);
+h.eq('the path rules give their own reason', [reasons.dotdot, reasons.absolute, reasons.backslash], [PATH_REASON, PATH_REASON, PATH_REASON]);
+h.eq('the allow-list rules give their own reason', [reasons.resolveOther, reasons.setPartOther], ['resolve-open-item allows only session-log.md', 'set-part allows only docs/worklogs/<slug>.md']);
+h.eq('the symbolic link target gives its reason', reasons.symlink, 'the target file is a symbolic link');
+
+// 3b. A folder link that leaves the repository: the file resolves outside.
+const outer = h.repo('sync-outside');
+const outsideDir = path.join(h.ROOT, 'outside-worklogs');
+h.write(outer, 'file.txt', 'x\n');
+h.commit(outer, 'base', ['file.txt']);
+fs.mkdirSync(outsideDir, { recursive: true });
+const OUTSIDE_TEXT = WORKLOG;
+fs.writeFileSync(path.join(outsideDir, 'w.md'), OUTSIDE_TEXT);
+let haveFolderLink = true;
+try { fs.mkdirSync(path.join(outer, 'docs')); fs.symlinkSync(outsideDir, path.join(outer, 'docs', 'worklogs')); } catch (error) { haveFolderLink = false; console.log('  NOTE: this file system refuses a symbolic link; the outside-folder case is skipped'); }
+if (haveFolderLink) {
+  const outsideProposal = setPart(4, { status: 'done' });
+  const outsideRun = check(outer, { out: outsideProposal });
+  h.eq('a work log folder that links outside the repository: invalid, with its reason', [outsideRun.found.out.verdict, outsideRun.found.out.reason], ['invalid', 'the file lies outside the repository']);
+  const applyFolder = path.join(h.ROOT, 'outside-apply');
+  h.proposalFile(applyFolder, 'out', outsideProposal, 1);
+  const applied = h.node(outer, [SYNC, '--apply', applyFolder, 'out', '--versions', h.versionsFile(applyFolder)]);
+  h.check('apply reports invalid for it', applied.out.startsWith('proposal out: invalid'), applied.out);
+  h.eq('apply leaves the outside file unchanged', fs.readFileSync(path.join(outsideDir, 'w.md'), 'utf8'), OUTSIDE_TEXT);
+}
 
 // 4. file-missing and wrong-branch.
 run = check(d, {
