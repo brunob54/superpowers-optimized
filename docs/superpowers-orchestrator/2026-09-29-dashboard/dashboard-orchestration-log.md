@@ -81,3 +81,8 @@ Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
 - Task 10: complete — sync script checks and verdicts, joined with the versions file (Amendment 6)
 - Task 11: complete — sync script apply and record batches
 - Task 12: complete — the skill file, with the re-read known limits (Amendments 6, 7)
+
+## Phase 3 — Batch 5 (tasks 13–15) — COMPLETE — commits 78d4fdf..d931e97
+- Task 13: complete — routing rule, triggering case, Routing Guide
+- Task 14: complete — user documentation
+- Task 15: complete — page data measured (62892 bytes, row 11 confirmed); acceptance checklist
