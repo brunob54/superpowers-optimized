@@ -4467,7 +4467,7 @@ git commit -m "feat(dashboard): check the page's edit proposals against the file
   - Invariants: exit 2, and no line, when `<state>` is not `pending`, `applying`, `applied` or `rejected`, or when an id has no file or no version.
   - Verification: `node tests/dashboard/test-11-sync-apply.js`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/dashboard/test-11-sync-apply.js`:
 
@@ -4609,12 +4609,12 @@ h.eq('a --data-dir pair is accepted and not read', JSON.parse(lines(h.node(d, [S
 h.finish();
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-11-sync-apply.js`
 Expected: FAIL — exit 1; the first case fails (`expected ["- same [resolved …", …], got ["- same","- same"]`: `--apply` stops with the usage message).
 
-- [ ] **Step 3: Add `--apply` and `--batches`**
+- [x] **Step 3: Add `--apply` and `--batches`**
 
 In `skills/dashboard/scripts/dashboard-sync.js`:
 
@@ -4779,12 +4779,12 @@ function main() {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-11-sync-apply.js; node tests/dashboard/test-10-sync-check.js | tail -1; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — both files end with `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-sync.js tests/dashboard/test-11-sync-apply.js
