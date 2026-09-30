@@ -71,3 +71,8 @@ Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
 - Task 4: complete — extractor command line, state folder, runs, git and commits
 - Task 5: complete — extractor file sections
 - Task 6: complete — shared audience read from the pushed ref only (ruling 8)
+
+## Phase 3 — Batch 3 (tasks 7–9) — COMPLETE — commits 2eda373..4aac563
+- Task 7: complete — page template view (ruling 3)
+- Task 8: complete — page edits and proposals, re-read write fallback (ruling 7)
+- Task 9: complete — renderer: render, verify and compare the page files (ruling 4)
