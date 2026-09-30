@@ -2204,7 +2204,7 @@ git commit -m "feat(dashboard): extract the session log, work logs, releases and
   - Invariants: every item is `tracked`; a section note of the shared run is a fixed text with no machine path (Global Constraint 6); exit 2 and no JSON when `--ref` is missing, malformed (not `<remote>/<branch>`, or holding `..`) or names a ref that does not exist, and when `--default-shared-ref` or `--check-shared-ref` finds no counted upstream; no text that exists only in the working tree, the index, an unpushed commit, an unpushed branch or a branch name that has no counted upstream reaches the output.
   - Verification: `node tests/dashboard/test-06-privacy.js` (spec section 11 "Privacy" cases 2 to 8 and 10, plus the refusals).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/dashboard/test-06-privacy.js`:
 
@@ -2347,12 +2347,12 @@ h.eq('(10) a failed git command of the shared run: the fixed note', [lostCommits
 h.finish();
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-06-privacy.js`
 Expected: FAIL — exit 1; `the shared run succeeds (expected 0, got 2)`, then a `SyntaxError` from `JSON.parse` of the empty output.
 
-- [ ] **Step 3: Add the shared audience**
+- [x] **Step 3: Add the shared audience**
 
 In `skills/dashboard/scripts/dashboard-extract.js`:
 
@@ -2570,12 +2570,12 @@ and in `sharedBranches` replace `mustLines(['for-each-ref', '--format=%(refname:
 
 and replace `writeDocument(extract(audience), out);` with `writeDocument(extract(audience, args['--ref']), out);`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-06-privacy.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-extract.js tests/dashboard/test-06-privacy.js
