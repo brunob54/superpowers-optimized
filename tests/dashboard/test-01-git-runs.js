@@ -118,4 +118,13 @@ h.check('the failed command and its message are in errors', Boolean(brokenRuns) 
   && brokenRuns.errors.every((entry) => typeof entry.command === 'string' && entry.command.includes('show') && entry.command.includes(brokenLog) && entry.message.length > 0),
 JSON.stringify(brokenRuns && brokenRuns.errors));
 
+// A base that does not resolve: git merge-base exits with status 128, which is
+// an error and not "not an ancestor". The scan must not throw, must record the
+// failure and must leave the run out (it fails closed).
+const badBaseRuns = h.scan(d, { refs: 'upstream', base: 'refs/remotes/origin/does-not-exist' });
+h.eq('an unresolvable base leaves the run out', badBaseRuns.length, 0);
+h.check('an unresolvable base is recorded as a merge-base failure', badBaseRuns.errors.length >= 1
+  && badBaseRuns.errors.every((entry) => entry.command.includes('merge-base') && entry.message.length > 0),
+JSON.stringify(badBaseRuns.errors));
+
 h.finish();

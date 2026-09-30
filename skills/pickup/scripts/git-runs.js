@@ -31,16 +31,17 @@ function lines(text) {
 
 // Runs git with an argument array (no shell), colors off and no optional
 // locks, whatever the user's configuration. Returns the exit state, the
-// untrimmed standard output and the trimmed standard error.
+// exit status (null when git did not start), the untrimmed standard output and
+// the trimmed standard error.
 function gitRaw(args) {
   const result = spawnSync('git', ['--no-optional-locks', '-c', 'color.ui=never', ...args], { encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
-  return { ok: result.status === 0, raw: result.stdout || '', err: (result.stderr || result.error?.message || '').trim() };
+  return { ok: result.status === 0, status: result.status, raw: result.stdout || '', err: (result.stderr || result.error?.message || '').trim() };
 }
 
 // The same, with the standard output trimmed.
 function git(args) {
   const result = gitRaw(args);
-  return { ok: result.ok, out: result.raw.trim(), err: result.err };
+  return { ok: result.ok, status: result.status, out: result.raw.trim(), err: result.err };
 }
 
 // The output lines of a git command, or null when the command failed.
@@ -56,9 +57,11 @@ let scanErrors = [];
 
 // Runs a git command whose failure is a real error of the scan: the failure
 // is recorded as { command, message } and the result is returned as usual.
-function scanGit(args) {
+// The optional isFailure function decides what counts as a failure; by
+// default, every non-zero exit status.
+function scanGit(args, isFailure = (result) => !result.ok) {
   const result = git(args);
-  if (!result.ok) scanErrors.push({ command: `git ${args.join(' ')}`, message: result.err });
+  if (isFailure(result)) scanErrors.push({ command: `git ${args.join(' ')}`, message: result.err });
   return result;
 }
 
@@ -98,8 +101,18 @@ function countedUpstream(branch) {
   return upstream.out === `${REMOTES}${remote.out}/${branch}` ? upstream.out : null;
 }
 
+const EXIT_ANCESTOR = 0;
+const EXIT_NOT_ANCESTOR = 1;
+
+// True when ref is an ancestor of base, false when it is not, and null when
+// git failed (for example, base does not resolve). Git exits with status 1 for
+// "not an ancestor"; any other non-zero status is an error, which is recorded
+// in the scan errors.
 function isAncestor(ref, base) {
-  return git(['merge-base', '--is-ancestor', ref, base]).ok;
+  const result = scanGit(['merge-base', '--is-ancestor', ref, base], (r) => r.status !== EXIT_ANCESTOR && r.status !== EXIT_NOT_ANCESTOR);
+  if (result.status === EXIT_ANCESTOR) return true;
+  if (result.status === EXIT_NOT_ANCESTOR) return false;
+  return null;
 }
 
 function escapeRegExp(text) {
@@ -169,7 +182,9 @@ function scanRuns(options) {
     let ref = localRef;
     if (upstreamMode) {
       ref = countedUpstream(localName);
-      if (!ref || (options.base && isAncestor(ref, options.base))) continue;
+      if (!ref) continue;
+      // A merged upstream is left out; a failed check (null) also leaves the run out.
+      if (options.base && isAncestor(ref, options.base) !== false) continue;
     }
     const files = runFiles(ref, upstreamMode);
     const logs = branchLogs(ref, slug, files);
