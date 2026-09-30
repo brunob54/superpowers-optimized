@@ -18,7 +18,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  HEADS, DETACHED, GIT_OK, GIT_NO_COMMITS, RUN_STATE, REFS,
+  HEADS, DETACHED, GIT_OK, GIT_NO_COMMITS, RUN_STATE, REFS, LOG_ROOT, HEADING_PREFIX, STOPPED_HEADING,
   git, gitState, defaultBranch, currentBranch, scanRuns,
 } = require('../../pickup/scripts/git-runs');
 const parse = require('./dashboard-parse');
@@ -61,6 +61,25 @@ const KIND = {
   topic: 'topic', session: 'session', knownIssue: 'known-issue',
 };
 const ENTRY = { file: 'file', dir: 'dir', symlink: 'symlink', other: 'other' };
+const FILES = { state: 'state.md', knownIssues: 'known-issues.md', version: 'VERSION', packageJson: 'package.json' };
+const RELEASE_FILES = ['RELEASE-NOTES.md', 'CHANGELOG.md'];
+const RELEASE_HEADING = /^## (v\S+|\[[^\]]+\])/;
+const RELEASE_LIMIT = 15;
+const SESSION_ENTRIES = 10;
+const GOAL_LIMIT = 300;
+const GOAL_PREFIX = 'Goal: ';
+const CURRENT_GOAL = '## Current Goal';
+const OPEN_PART_STATUSES = ['in progress', 'not started'];
+const TOPIC_NAME = /^(\d{4}-\d{2}-\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const STAGES = ['specs', 'plans', 'implementation'];
+const RULING_HEADING = '## RULING';
+const MARKDOWN = '.md';
+const CLOSED_DATE = / closed=(\d{4}-\d{2}-\d{2}) -->$/;
+const WORKLOG_NOTE = {
+  symlink: 'symbolic link, not read',
+  invalidName: 'invalid file name, not read',
+  malformed: 'malformed line 1: run /worklog to see why',
+};
 
 function stop(message) {
   process.stderr.write(`dashboard-extract: ${message}\n`);
@@ -282,12 +301,196 @@ function commits(context) {
   return { [SECTION.commits]: okSection(items) };
 }
 
+function sessionLog(context) {
+  const text = context.source.read(parse.SESSION_LOG);
+  if (text === null) {
+    const missing = notFound(parse.SESSION_LOG);
+    return { [SECTION.sessionOpenItems]: missing, [SECTION.sessions]: missing };
+  }
+  const lines = parse.splitLines(text);
+  const entries = parse.headings(lines).filter((entry) => !entry.raw.includes(parse.SUPERSEDED_MARK));
+  const split = Math.max(0, entries.length - SESSION_ENTRIES);
+  const itemsOf = (entry) => parse.openItems(lines, entry.index + 1, entry.end);
+  const open = [];
+  const sessions = [];
+  for (const entry of entries.slice(split)) {
+    for (const item of itemsOf(entry)) {
+      if (item.resolved) continue;
+      const fields = item.raw
+        ? { kind: KIND.raw, text: item.line }
+        : { kind: KIND.openItem, entry: entry.raw, text: parse.openItemText(item.line), continuation: item.continuation };
+      open.push(lineItem(context, parse.SESSION_LOG, lines, entry, item.index, fields));
+    }
+    const goal = lines.slice(entry.index + 1, entry.end).findIndex((line) => line.startsWith(GOAL_PREFIX));
+    if (goal !== -1) {
+      const index = entry.index + 1 + goal;
+      sessions.push(lineItem(context, parse.SESSION_LOG, lines, entry, index, { kind: KIND.session, entry: entry.raw, goal: lines[index].slice(GOAL_PREFIX.length) }));
+    }
+  }
+  const olderUnresolved = entries.slice(0, split)
+    .reduce((count, entry) => count + itemsOf(entry).filter((item) => !item.raw && !item.resolved).length, 0);
+  return { [SECTION.sessionOpenItems]: okSection(open, { olderUnresolved }), [SECTION.sessions]: okSection(sessions) };
+}
+
+function currentGoal(context) {
+  const text = context.source.read(FILES.state);
+  if (text === null) return { [SECTION.currentGoal]: notFound(FILES.state) };
+  const lines = parse.splitLines(text);
+  const section = parse.findSection(lines, CURRENT_GOAL, 1);
+  const body = section ? lines.slice(section.index + 1, section.end) : [];
+  const first = body.findIndex((line) => line.trim());
+  if (first === -1) return { [SECTION.currentGoal]: okSection([], { note: `no text under "${CURRENT_GOAL}" in ${FILES.state}` }) };
+  const goal = body.join('\n').trim().slice(0, GOAL_LIMIT);
+  return { [SECTION.currentGoal]: okSection([lineItem(context, FILES.state, lines, section, section.index + 1 + first, { kind: KIND.goal, text: goal })]) };
+}
+
+function readVersion(context) {
+  const plain = context.source.read(FILES.version);
+  if (plain !== null && plain.trim()) return parse.splitLines(plain)[0].trim();
+  const manifest = context.source.read(FILES.packageJson);
+  if (manifest === null) return null;
+  try {
+    const { version } = JSON.parse(manifest);
+    return typeof version === 'string' ? version : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function releases(context) {
+  const version = readVersion(context);
+  for (const file of RELEASE_FILES) {
+    const text = context.source.read(file);
+    if (text === null) continue;
+    const found = parse.headings(parse.splitLines(text)).filter((section) => RELEASE_HEADING.test(section.raw)).slice(0, RELEASE_LIMIT);
+    const items = found.map((section) => keyItem(context, SECTION.releases, section.raw, file, { kind: KIND.release, heading: section.raw }));
+    const note = found.length ? '' : `no release heading (## v<version> or ## [<version>]) in ${file}`;
+    return { [SECTION.releases]: okSection(items, { note, version, file }) };
+  }
+  return { [SECTION.releases]: Object.assign(notFound(RELEASE_FILES.join(' or ')), { version, file: null }) };
+}
+
+function knownIssues(context) {
+  const text = context.source.read(FILES.knownIssues);
+  if (text === null) return { [SECTION.knownIssues]: notFound(FILES.knownIssues) };
+  const lines = parse.splitLines(text);
+  const items = parse.headings(lines).map((section) => lineItem(context, FILES.knownIssues, lines, section, section.index, {
+    kind: KIND.knownIssue,
+    title: section.raw.slice(HEADING_PREFIX.length),
+  }));
+  return { [SECTION.knownIssues]: okSection(items) };
+}
+
+function runHistory(context) {
+  const entries = context.source.entries(LOG_ROOT);
+  if (entries === null) return { [SECTION.runHistory]: notFound(LOG_ROOT) };
+  const items = [];
+  for (const entry of entries) {
+    const match = entry.kind === ENTRY.dir ? entry.name.match(TOPIC_NAME) : null;
+    if (!match) continue;
+    const folder = `${LOG_ROOT}/${entry.name}`;
+    const inner = context.source.entries(folder) || [];
+    const logText = context.source.read(`${folder}/${match[2]}-orchestration-log.md`);
+    const heads = logText === null ? [] : parse.splitLines(logText).filter((line) => line.startsWith(HEADING_PREFIX));
+    items.push(keyItem(context, SECTION.runHistory, entry.name, folder, {
+      kind: KIND.topic,
+      date: match[1],
+      slug: match[2],
+      stages: STAGES.filter((stage) => inner.some((child) => child.kind === ENTRY.dir && child.name === stage)),
+      lastHeading: heads.length ? heads[heads.length - 1] : null,
+      rulings: heads.filter((line) => line.startsWith(RULING_HEADING)).length,
+      stops: heads.filter((line) => line.startsWith(STOPPED_HEADING)).length,
+    }));
+  }
+  return { [SECTION.runHistory]: okSection(items) };
+}
+
+// The items of the first table of <section>: <describe>(cells, columns)
+// returns the fields of a row, or null to leave the row out. A row whose cell
+// count differs from the header, or a table whose header lacks a column,
+// gives a raw item.
+function tableItems(context, file, slug, lines, section, columns, describe) {
+  const table = parse.sectionTable(lines, section);
+  const col = parse.columnIndex(table.header, columns);
+  const items = [];
+  for (const row of table.rows) {
+    const fields = row.raw || !col ? { kind: KIND.raw, text: row.line } : describe(row.cells, col);
+    if (fields) items.push(lineItem(context, file, lines, section, row.index, Object.assign({ worklog: slug }, fields)));
+  }
+  return items;
+}
+
+function activeWorklog(context, file, slug, text) {
+  const lines = parse.splitLines(text);
+  const items = [keyItem(context, SECTION.activeWorklogs, file, file, { kind: KIND.worklog, slug, path: file })];
+  const parts = parse.findSection(lines, parse.PARTS_HEADING, 1);
+  if (parts) {
+    items.push(...tableItems(context, file, slug, lines, parts, parse.PART_COLUMNS, (cells, col) => (
+      OPEN_PART_STATUSES.includes(cells[col.status])
+        ? { kind: KIND.part, number: cells[col.number], part: cells[col.part], status: cells[col.status], since: cells[col.since], commit: cells[col.commit], note: cells[col.note] }
+        : null
+    )));
+  }
+  const open = parse.findSection(lines, parse.OPEN_ITEMS_HEADING, 1);
+  if (open) {
+    items.push(...tableItems(context, file, slug, lines, open, parse.OPEN_ITEM_COLUMNS, (cells, col) => (
+      { kind: KIND.worklogOpenItem, number: cells[col.number], item: cells[col.item], part: cells[col.part], found: cells[col.found], blocks: cells[col.blocks] }
+    )));
+  }
+  return items;
+}
+
+function worklogFileItem(context, shown, file, note) {
+  return keyItem(context, SECTION.activeWorklogs, shown, file, { kind: KIND.worklogFile, path: shown, note });
+}
+
+function worklogs(context) {
+  const entries = context.source.entries(parse.WORKLOG_DIR);
+  if (entries === null) {
+    const missing = notFound(parse.WORKLOG_DIR);
+    return { [SECTION.activeWorklogs]: missing, [SECTION.closedWorklogs]: missing };
+  }
+  const active = [];
+  const closed = [];
+  for (const entry of entries) {
+    if (!entry.name.endsWith(MARKDOWN) || (entry.kind !== ENTRY.file && entry.kind !== ENTRY.symlink)) continue;
+    const file = `${parse.WORKLOG_DIR}/${entry.name}`;
+    if (entry.kind === ENTRY.symlink) {
+      active.push(worklogFileItem(context, file, file, WORKLOG_NOTE.symlink));
+      continue;
+    }
+    if (!parse.worklogNameValid(entry.name)) {
+      active.push(worklogFileItem(context, `${parse.WORKLOG_DIR}/${parse.listingName(entry.name)}`, file, WORKLOG_NOTE.invalidName));
+      continue;
+    }
+    const text = context.source.read(file);
+    if (text === null) continue;
+    const slug = entry.name.slice(0, -MARKDOWN.length);
+    const kind = parse.worklogClass(text);
+    if (kind === parse.WORKLOG_CLASS.active) {
+      active.push(...activeWorklog(context, file, slug, text));
+    } else if (kind === parse.WORKLOG_CLASS.closed) {
+      const date = parse.worklogLine1(text).match(CLOSED_DATE);
+      closed.push(keyItem(context, SECTION.closedWorklogs, file, file, { kind: KIND.worklog, slug, path: file, closed: date ? date[1] : null }));
+    } else {
+      active.push(worklogFileItem(context, file, file, WORKLOG_NOTE.malformed));
+    }
+  }
+  return { [SECTION.activeWorklogs]: okSection(active), [SECTION.closedWorklogs]: okSection(closed) };
+}
+
 // Each builder fills the sections it names; a builder that throws gives every
 // one of its sections the status "error".
 const BUILDERS = [
   { ids: [SECTION.unfinishedRuns], build: unfinishedRuns },
   { ids: [SECTION.git], build: gitSection },
+  { ids: [SECTION.activeWorklogs, SECTION.closedWorklogs], build: worklogs },
+  { ids: [SECTION.sessionOpenItems, SECTION.sessions], build: sessionLog },
+  { ids: [SECTION.currentGoal], build: currentGoal },
+  { ids: [SECTION.releases], build: releases },
+  { ids: [SECTION.runHistory], build: runHistory },
   { ids: [SECTION.commits], build: commits },
+  { ids: [SECTION.knownIssues], build: knownIssues },
 ];
 
 // ---- the document ----
