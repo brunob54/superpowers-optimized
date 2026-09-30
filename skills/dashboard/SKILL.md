@@ -356,16 +356,19 @@ old page's proposals.
 
    Exit code 2 stops `share`; without `--ref`, ask the user for
    `--ref <remote>/<branch>`.
-3. Show the ref and its remote. `<remote>` is the part of the ref before its
-   first `/`. Run:
+3. Show the ref and its remote. Run:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --remote-url '<remote>'
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --remote-url '<ref>'
    ```
 
-   The script prints the remote's URL with a user name and a password (or a
-   token) already removed. Never run `git remote get-url` yourself: its output
-   can hold a token. Call the printed text `<URL>`. Print this line:
+   The script prints two lines. The first line is `remote <remote>`: the
+   remote of the ref, which the script finds by an exact match against the
+   remote names of this repository (a remote name may hold `/`, so do not split
+   the ref yourself). The second line is the remote's URL with a user name and
+   a password (or a token) already removed. Never run `git remote get-url`
+   yourself: its output can hold a token. Call the printed remote name
+   `<remote>` and the printed URL `<URL>`. Print this line:
    `Shared ref: <remote>/<branch>; remote <remote> is <URL>`. When `<URL>` is
    a folder path (it starts with `/`, `./`, `../`, `~` or a drive letter such
    as `C:/`) or starts with `file://`, also say: "This remote is a folder on

@@ -166,8 +166,8 @@ function runFiles(ref, upstreamMode) {
 // branch. refs "upstream": the same local branches whose upstream counts
 // (countedUpstream), read from that upstream only; an upstream that is an
 // ancestor of options.base is merged and left out. In that mode the optional
-// options.acceptUpstream(ref) function leaves out every upstream it rejects,
-// before any git command reads that upstream.
+// options.acceptUpstream(ref, branch) function (branch: the local branch name)
+// leaves out every upstream it rejects, before any git command reads that upstream.
 // The result is an array of run objects. Its "errors" property lists every
 // git command of the scan that failed, as { command, message }; it is an
 // empty array when nothing failed. The scan never throws and prints nothing.
@@ -184,7 +184,7 @@ function scanRuns(options) {
     let ref = localRef;
     if (upstreamMode) {
       ref = countedUpstream(localName);
-      if (!ref || (options.acceptUpstream && !options.acceptUpstream(ref))) continue;
+      if (!ref || (options.acceptUpstream && !options.acceptUpstream(ref, localName))) continue;
       // A merged upstream is left out; a failed check (null) also leaves the run out.
       if (options.base && isAncestor(ref, options.base) !== false) continue;
     }

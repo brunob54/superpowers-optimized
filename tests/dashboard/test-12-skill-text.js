@@ -107,7 +107,9 @@ flatHas(EXCHANGE, 'Reconnect the right page with `refresh --url <url>` or `refre
 // shown and confirmed before the ref is stored.
 const SHARED_REF = 'shared ref and its remote shown before the store';
 const SHARED_REF_LINE = 'Shared ref: <remote>/<branch>; remote <remote> is <URL>';
-flatHas(SHARED_REF, '--remote-url');
+flatHas(SHARED_REF, "--remote-url '<ref>'");
+flatHas(SHARED_REF, 'a remote name may hold `/`, so do not split the ref yourself');
+h.check(`${SHARED_REF}: SKILL.md never splits the ref at its first slash`, !FLAT.includes('before its first'));
 h.check(`${SHARED_REF}: SKILL.md never runs git remote get-url itself`, !/^\s*git .*remote get-url/m.test(TEXT));
 flatHas(SHARED_REF, SHARED_REF_LINE);
 flatHas(SHARED_REF, 'This remote is a folder on this machine');

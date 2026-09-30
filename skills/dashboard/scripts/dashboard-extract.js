@@ -6,7 +6,7 @@
 //   node dashboard-extract.js --audience shared --ref <remote>/<branch> [--out <file>]
 //   node dashboard-extract.js --default-shared-ref
 //   node dashboard-extract.js --check-shared-ref <remote>/<branch>
-//   node dashboard-extract.js --remote-url <remote>
+//   node dashboard-extract.js --remote-url <remote>/<branch>
 //   node dashboard-extract.js --data-dir <path> --state-dir
 //   node dashboard-extract.js --data-dir <path> --config
 //   node dashboard-extract.js --data-dir <path> --config-set <key>=<value>
@@ -55,8 +55,6 @@ const OPTIONS = {
 };
 // <remote>/<branch>: letters, digits, ".", "_", "-" and "/" only, and no "..".
 const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
-// A remote name: the part of a shared ref before its first "/".
-const REMOTE_NAME = /^[A-Za-z0-9._-]+$/;
 // The scheme and the user information (user name, password or token) of a
 // URL that has an authority part. The authority ends at the first "/", "?"
 // or "#"; its user information ends at the last "@" inside it.
@@ -323,7 +321,7 @@ function runMark(context, run) {
 
 function unfinishedRuns(context) {
   const runs = scanRuns(context.shared
-    ? { refs: REFS.upstream, base: context.base, acceptUpstream: (upstream) => onSharedRemote(context, upstream) }
+    ? { refs: REFS.upstream, base: context.base, acceptUpstream: (upstream, branch) => onSharedRemote(context, upstream, branch) }
     : { refs: REFS.local });
   const items = runs.map((run) => keyItem(context, SECTION.unfinishedRuns, run.branch, null, {
     kind: KIND.run,
@@ -360,11 +358,14 @@ function localBranches(context) {
   return okSection(items, { note: notes.join('; '), ahead: ahead.ok ? Number(ahead.out) : null, dirty });
 }
 
-// true when <upstream> (refs/remotes/<remote>/<branch>) lies on the remote of
-// the shared ref: the shared run never shows a branch pushed only to another
-// remote.
-function onSharedRemote(context, upstream) {
-  return upstream.startsWith(`${remoteRef(context.remote)}/`);
+// true when the counted upstream of the local branch <branch> lies on the
+// remote of the shared ref: the shared run never shows a branch pushed only to
+// another remote. A counted upstream is refs/remotes/<remote>/<branch> with
+// the remote read from the branch's own configuration, so an exact comparison
+// with the path built from context.remote cannot match a remote whose name
+// only begins with the shared remote's name and a "/".
+function onSharedRemote(context, upstream, branch) {
+  return upstream === `${remoteRef(context.remote)}/${branch}`;
 }
 
 // The remote of the shared ref <name> (<remote>/<branch>): the one name in
@@ -384,7 +385,7 @@ function sharedBranches(context) {
   const items = [];
   for (const name of localBranchNames()) {
     const upstream = countedUpstream(name);
-    if (!upstream || upstream === context.ref || !onSharedRemote(context, upstream)) continue;
+    if (!upstream || upstream === context.ref || !onSharedRemote(context, upstream, name)) continue;
     const merged = context.base ? isAncestor(upstream, context.base) : false;
     if (merged === null) throw new Error('git merge-base failed');
     if (merged) continue;
@@ -696,13 +697,16 @@ function checkSharedRef(name) {
   console.log(`ok ${name}`);
 }
 
-// Prints the URL of a remote with its user information removed, so that a
+// Prints the remote of the shared ref <name> (<remote>/<branch>, resolved by
+// sharedRemote) and its URL with the user information removed, so that a
 // token inside the URL never reaches the model. Git's own message is not
 // printed: it is not needed and could name the URL.
-function printRemoteUrl(remote) {
-  if (!REMOTE_NAME.test(remote)) stop(`--remote-url ${remote} is not a remote name`);
+function printRemoteUrl(name) {
+  requireSharedRefForm(name, `--remote-url ${name}`);
+  const remote = sharedRemote(name);
   const result = git(['remote', 'get-url', remote]);
   if (!result.ok) stop(`the remote ${remote} has no URL`);
+  console.log(`remote ${remote}`);
   console.log(result.out.replace(URL_USER_INFO, '$1'));
 }
 

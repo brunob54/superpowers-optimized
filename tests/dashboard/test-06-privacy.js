@@ -103,11 +103,31 @@ const REMOTE_URLS = {
 };
 for (const [name, [url]] of Object.entries(REMOTE_URLS)) h.git(urls, 'remote', 'add', name, url);
 for (const [name, [, cleaned]] of Object.entries(REMOTE_URLS)) {
-  const result = run(urls, ['--remote-url', name]);
-  h.eq(`--remote-url ${name}: the cleaned URL`, [result.code, result.out.trim()], [0, cleaned]);
+  const result = run(urls, ['--remote-url', `${name}/main`]);
+  h.eq(`--remote-url ${name}/main: the remote and the cleaned URL`, [result.code, result.out.trim()], [0, `remote ${name}\n${cleaned}`]);
   h.check(`--remote-url ${name}: no token in any output`, !`${result.out}${result.err}`.includes('sekrettoken'));
 }
-h.eq('--remote-url stops on a missing remote and on a bad name', [run(urls, ['--remote-url', 'nothing']).code, run(urls, ['--remote-url', "a'b"]).code], [2, 2]);
+h.eq('--remote-url stops on a missing remote and on a bad name', [run(urls, ['--remote-url', 'nothing/main']).code, run(urls, ['--remote-url', "a'b/main"]).code], [2, 2]);
+
+// A remote whose name begins with the shared remote's name and "/": a branch
+// pushed only to it is not on the shared ref's remote (exact remote match).
+const twoRemotes = h.repo('slash-remote');
+h.addRemote(twoRemotes, 'slash-remote-origin');
+const secretBare = path.join(h.ROOT, 'slash-remote-secret.git');
+h.git(twoRemotes, 'init', '-q', '--bare', secretBare);
+h.git(twoRemotes, 'remote', 'add', 'origin/secret', secretBare);
+h.write(twoRemotes, 'file.txt', 'x\n');
+h.commit(twoRemotes, 'base', ['file.txt']);
+h.git(twoRemotes, 'push', '-q', '-u', 'origin', 'main');
+h.git(twoRemotes, 'checkout', '-q', '-b', 'feature/hidden');
+const hiddenLog = h.logPath('2026-09-05', 'hidden');
+h.write(twoRemotes, hiddenLog, h.runLog('hidden', ['## Phase 1']));
+h.commit(twoRemotes, 'hidden log', [hiddenLog]);
+h.git(twoRemotes, 'push', '-q', '-u', 'origin/secret', 'feature/hidden');
+const twoResult = shared(twoRemotes, 'origin/main');
+h.eq('two remotes: the shared run succeeds', twoResult.code, 0);
+h.check('two remotes: a branch pushed only to origin/secret is in neither section', !twoResult.out.includes('hidden'), twoResult.out);
+h.eq('two remotes: --remote-url resolves the shared ref to origin', run(twoRemotes, ['--remote-url', 'origin/main']).out.split('\n')[0], 'remote origin');
 
 // A ref name with shell characters stops in --check-shared-ref.
 const oddRef = h.repo('odd-ref');
