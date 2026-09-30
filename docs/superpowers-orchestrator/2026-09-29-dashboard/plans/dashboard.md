@@ -234,7 +234,7 @@ When Step 9 counted one or more `contradicted` verdicts, report `BLOCKED: platfo
 - `pickup-scan.js` (code artifact): prints exactly what it printed before, for every fixture of `tests/pickup/run-tests.sh`. Verification: that suite passes; `git diff --stat tests/pickup` is empty.
 - `tests/dashboard/run-tests.sh` and `tests/dashboard/helpers.js` (code artifacts): the runner loads `tests/lib/undefined-command-guard.sh` directly after its `set` line, runs every `tests/dashboard/test-*.js` in name order, and exits 1 when any file exits non-zero; the helpers isolate git from the user's configuration (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_CEILING_DIRECTORIES`) and remove the fixture folder at exit. Verification: `bash tests/suite-guard/run-tests.sh` passes (it finds the new suite and its guard line); `bash tests/dashboard/run-tests.sh` exits 0.
 
-- [ ] **Step 1: Write the suite runner and the helpers**
+- [x] **Step 1: Write the suite runner and the helpers**
 
 First record the baseline of Step 6: run `bash tests/pickup/run-tests.sh | tail -1` before you change any file, and keep its `Results:` line.
 
@@ -404,7 +404,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Write the failing git-runs test**
+- [x] **Step 2: Write the failing git-runs test**
 
 Create `tests/dashboard/test-01-git-runs.js`. The two `## STOPPED — ` headings and the `_Completed — ` line copy the real shapes that Task 1 Step 3 recorded:
 
@@ -502,12 +502,12 @@ h.eq('with no default branch every feature branch is scanned', h.scan(n, { refs:
 h.finish();
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-01-git-runs.js`
 Expected: FAIL — exit 1 with `Cannot find module` naming `skills/pickup/scripts/git-runs.js` (thrown by the first `h.scan`).
 
-- [ ] **Step 4: Create the module**
+- [x] **Step 4: Create the module**
 
 Create `skills/pickup/scripts/git-runs.js`:
 
@@ -682,7 +682,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 5: Make `pickup-scan.js` require the module**
+- [x] **Step 5: Make `pickup-scan.js` require the module**
 
 In `skills/pickup/scripts/pickup-scan.js`:
 
@@ -721,7 +721,7 @@ function reportRuns() {
 5. In `main()`, replace `if (inGit) reportRuns(base);` with `if (inGit) reportRuns();`. The line that prints `default-branch` keeps using its own `defaultBranch()` call.
 6. Run `node --check skills/pickup/scripts/pickup-scan.js && grep -nE "spawnSync|escapeRegExp|branchExists|GIT_MAX_BUFFER" skills/pickup/scripts/pickup-scan.js`: the check passes and the `grep` prints nothing.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `bash tests/pickup/run-tests.sh`
 Expected: PASS — `Results: <n> passed, 0 failed`, the same count as the `Results:` line recorded at the start of Step 1.
@@ -732,7 +732,7 @@ Expected: PASS — exit 0, `0 failed`.
 Run: `bash tests/dashboard/run-tests.sh; bash tests/suite-guard/run-tests.sh | tail -2; git diff --stat -- tests/pickup`
 Expected: `dashboard suite: every test file passed`; the suite-guard suite ends with 0 failed; the `git diff` prints nothing.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add skills/pickup/scripts/git-runs.js skills/pickup/scripts/pickup-scan.js tests/dashboard/run-tests.sh tests/dashboard/helpers.js tests/dashboard/test-01-git-runs.js
