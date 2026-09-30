@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Checks the edit proposals of the dashboard page against the Markdown files
+// Checks and applies the edit proposals of the dashboard page to the Markdown files
 // (spec section 8). <folder> is the out_dir of the ArtifactData query: each
 // proposal is the file <folder>/proposals/<id>.json, which holds the document
 // body only (platform check 9). <versions file> holds one line
@@ -8,12 +8,18 @@
 // working tree, and never commits.
 // Usage:
 //   node dashboard-sync.js --check <folder> --versions <versions file>
-// Exit status: 0 when every proposal got a verdict; 2 when the command cannot
+//   node dashboard-sync.js --apply <folder> <id>... --versions <versions file>
+//   node dashboard-sync.js --batches <folder> <state> <id>... --versions <versions file>
+// --apply writes only the listed proposals whose verdict is unique; --batches
+// prints the ArtifactData batch writes that record a new state.
+// Exit status: 0 when every proposal got a verdict; 1 when --apply did not
+// write a file (it prints a "not written" line); 2 when the command cannot
 // run (not a git repository with a commit, a bad argument, no proposal
 // folder, a versions file that does not match the body files one to one, a
 // git command that failed).
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -44,6 +50,31 @@ const DATE_LENGTH = 10;
 // The header of skills/worklog/template.md, used when the file has no
 // "## Parts" table to read the columns from.
 const DEFAULT_PART_HEADER = Object.values(parse.PART_COLUMNS);
+const MAX_ATTEMPTS = 3;
+// Test hook: a text that is appended once to the target between the read and
+// the rename, as another program would do.
+const TEST_CHANGE = 'DASHBOARD_SYNC_TEST_CHANGE_ONCE';
+const STATES = ['pending', 'applying', 'applied', 'rejected'];
+const CLOSING_STATES = ['applied', 'rejected'];
+const BATCH_LIMIT = 50;
+const UPDATE = 'update';
+const FILE_MODE_BITS = 0o777;
+const USAGE = 'usage: dashboard-sync.js --check <folder> | --apply <folder> <id>... | --batches <folder> <state> <id>..., each with --versions <versions file>';
+// --apply edits the file as a "latin1" string: one character per byte, so
+// every byte of a line that is not changed is written back as it was, also a
+// byte that is not valid UTF-8 (8-bit Unicode Transformation Format).
+const UTF8 = 'utf8';
+const BYTES = 'latin1';
+const LINE_FEED = '\n';
+const CARRIAGE_RETURN = '\r';
+const BYTE_ORDER_MARK_BYTES = Buffer.from('\uFEFF', UTF8).toString(BYTES);
+// The random part of a temporary file name: 6 bytes, printed as 12
+// hexadecimal digits, so no other program can know the name in advance.
+const TEMP_RANDOM_BYTES = 6;
+const TEMP_SUFFIX = '.tmp';
+// "Create only if absent": the open fails when the path exists, and it never
+// follows a symbolic link at that path.
+const CREATE_ONLY = 'wx';
 
 function stop(message) {
   process.stderr.write(`dashboard-sync: ${message}\n`);
@@ -279,12 +310,18 @@ function isSymlink(full) {
   }
 }
 
-function readText(full) {
+// The bytes of <full>, or null when it is not a regular file.
+function readBytes(full) {
   try {
-    return fs.lstatSync(full).isFile() ? fs.readFileSync(full, 'utf8') : null;
+    return fs.lstatSync(full).isFile() ? fs.readFileSync(full) : null;
   } catch (error) {
     return null;
   }
+}
+
+function readText(full) {
+  const bytes = readBytes(full);
+  return bytes && bytes.toString(UTF8);
 }
 
 function fullPath(env, file) {
@@ -318,12 +355,19 @@ function evaluate(proposal, env, read) {
   return Object.assign(found, { file: p.file, tracked });
 }
 
+const trackedLabel = (tracked) => (tracked ? 'tracked' : 'untracked');
+
+// An id of the command line printed on one line: an id with an unsafe
+// character (a line break included) is printed as a JSON string, so it cannot
+// print a line of its own. The ids of the folder are already checked.
+const printableId = (id) => (safeText(id) ? id : JSON.stringify(id));
+
 // The "tracked" or "untracked" label of the file line is the one the skill
 // asks its whole-branch-review question from.
 function printVerdict(proposal, result) {
   console.log(`proposal ${proposal.id}: ${result.verdict}${result.reason ? ` — ${result.reason}` : ''}`);
   if (result.verdict !== VERDICT.unique) return;
-  console.log(`  file: ${result.file} (${result.tracked ? 'tracked' : 'untracked'})`);
+  console.log(`  file: ${result.file} (${trackedLabel(result.tracked)})`);
   console.log(`  - ${result.oldLine}`);
   console.log(`  + ${result.newLine}`);
   result.warnings.forEach((warning) => console.log(`  warning: ${warning}`));
@@ -344,12 +388,147 @@ function check(folder, versionsFile) {
   console.log(`summary: ${summary || 'no proposal'}`);
 }
 
+function statOf(full) {
+  try {
+    const stat = fs.statSync(full);
+    return { size: stat.size, mtimeMs: stat.mtimeMs, mode: stat.mode & FILE_MODE_BITS };
+  } catch (error) {
+    return null;
+  }
+}
+
+function sameStat(a, b) {
+  return Boolean(a && b) && a.size === b.size && a.mtimeMs === b.mtimeMs;
+}
+
+// Replaces line <index> of <byteLines> (the lines of the file, one character
+// per byte) with <line>, keeping the line's carriage return and a byte order
+// mark at the start of the file.
+function replaceLine(byteLines, index, line) {
+  const old = byteLines[index];
+  const mark = index === 0 && old.startsWith(BYTE_ORDER_MARK_BYTES) ? BYTE_ORDER_MARK_BYTES : '';
+  const end = old.endsWith(CARRIAGE_RETURN) ? CARRIAGE_RETURN : '';
+  byteLines[index] = `${mark}${Buffer.from(line, UTF8).toString(BYTES)}${end}`;
+}
+
+let testChangeDone = false;
+function testChangeOnce(full) {
+  const text = process.env[TEST_CHANGE];
+  if (!text || testChangeDone) return;
+  testChangeDone = true;
+  fs.appendFileSync(full, text);
+}
+
+// A new temporary file next to <full>, holding <bytes>. The name has a random
+// part and the file is created only if the name is absent, so a file or a
+// symbolic link that is already at a name never receives the text.
+function writeTemp(full, bytes, mode) {
+  const random = crypto.randomBytes(TEMP_RANDOM_BYTES).toString('hex');
+  const temp = path.join(path.dirname(full), `.${path.basename(full)}.dashboard-${random}${TEMP_SUFFIX}`);
+  fs.writeFileSync(temp, bytes, { mode, flag: CREATE_ONLY });
+  return temp;
+}
+
+function printApplied(entry) {
+  if (entry.result.verdict === VERDICT.unique) console.log(`proposal ${entry.proposal.id}: applied`);
+  else printVerdict(entry.proposal, entry.result);
+}
+
+// Writes every unique proposal of one file in one write (spec section 8 step
+// 5). Returns { written, tracked }: whether the file was written, and whether
+// git tracks it. The tracked flag comes from the check that ran before the
+// write, so no git command runs after a write and a git failure cannot hide a
+// written file.
+function applyFile(env, file, group) {
+  const full = fullPath(env, file);
+  const safe = parse.isInside(full, env.top) && !isSymlink(full);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const before = statOf(full);
+    const bytes = safe ? readBytes(full) : null;
+    const raw = bytes && bytes.toString(UTF8);
+    const results = group.map((proposal) => ({ proposal, result: evaluate(proposal, env, () => raw) }));
+    const taken = new Set();
+    results.forEach((entry) => {
+      if (entry.result.verdict !== VERDICT.unique) return;
+      if (taken.has(entry.result.index)) entry.result = verdict(VERDICT.none, 'another proposal of this sync changes the same line');
+      else taken.add(entry.result.index);
+    });
+    const writes = results.filter((entry) => entry.result.verdict === VERDICT.unique);
+    if (!writes.length) {
+      results.forEach(printApplied);
+      return { written: false };
+    }
+    const byteLines = bytes.toString(BYTES).split(LINE_FEED);
+    writes.forEach((entry) => replaceLine(byteLines, entry.result.index, entry.result.newLine));
+    const temp = writeTemp(full, Buffer.from(byteLines.join(LINE_FEED), BYTES), before.mode);
+    testChangeOnce(full);
+    if (!sameStat(before, statOf(full))) {
+      fs.unlinkSync(temp);
+      continue;
+    }
+    try {
+      fs.renameSync(temp, full);
+    } catch (error) {
+      console.log(`not written: ${file}: ${error.message}; the new text is kept in ${temp}`);
+      process.exitCode = 1;
+      return { written: false };
+    }
+    results.forEach(printApplied);
+    return { written: true, tracked: writes[0].result.tracked };
+  }
+  console.log(`not written: ${file} changed ${MAX_ATTEMPTS} times while the sync read it`);
+  process.exitCode = 1;
+  return { written: false };
+}
+
+// The report of each file is printed as soon as the file is written, before
+// the next file is checked: a stop on a later file cannot hide it.
+function apply(folder, versionsFile, ids) {
+  const env = environment();
+  const wanted = new Set(ids);
+  const proposals = loadProposals(folder, versionsFile).filter((proposal) => wanted.has(proposal.id));
+  const known = new Set(proposals.map((proposal) => proposal.id));
+  ids.filter((id) => !known.has(id)).forEach((id) => console.log(`proposal ${printableId(id)}: not-found — no file for this id in the folder`));
+  const groups = new Map();
+  for (const proposal of proposals) {
+    const reason = proposal.doc ? basicInvalid(normalized(proposal.doc)) : proposal.error;
+    if (reason) {
+      printVerdict(proposal, verdict(VERDICT.invalid, reason));
+      continue;
+    }
+    if (!groups.has(proposal.doc.file)) groups.set(proposal.doc.file, []);
+    groups.get(proposal.doc.file).push(proposal);
+  }
+  for (const [file, group] of groups) {
+    const outcome = applyFile(env, file, group);
+    if (outcome.written) console.log(`changed ${file} (${trackedLabel(outcome.tracked)})`);
+  }
+}
+
+function batches(folder, versionsFile, state, ids) {
+  if (!STATES.includes(state)) stop(`the state must be one of: ${STATES.join(', ')}`);
+  const byId = new Map(loadProposals(folder, versionsFile).map((proposal) => [proposal.id, proposal]));
+  const closedAt = CLOSING_STATES.includes(state) ? parse.localIso(new Date()) : null;
+  const writes = ids.map((id) => {
+    const proposal = byId.get(id);
+    if (!proposal || proposal.version === null) stop(`no version for proposal ${printableId(id)} in ${folder}`);
+    return { op: UPDATE, collection: COLLECTION, doc_id: id, data: { state, closedAt }, if_version: proposal.version };
+  });
+  for (let i = 0; i < writes.length; i += BATCH_LIMIT) console.log(JSON.stringify(writes.slice(i, i + BATCH_LIMIT)));
+}
+
 function main() {
+  // SKILL.md writes --data-dir <path> on every script command (Global
+  // Constraint 10); this script does not read it, so the pair is removed first.
   const argv = process.argv.slice(2);
+  takeOption(argv, '--data-dir');
   const versionsFile = takeOption(argv, VERSIONS_OPTION);
-  const [mode, folder] = argv;
-  if (mode !== '--check' || !folder || !versionsFile) stop('usage: dashboard-sync.js --check <folder> --versions <versions file>');
-  check(folder, versionsFile);
+  const [mode, folder, ...rest] = argv;
+  if (!folder || !versionsFile) stop(USAGE);
+  if (mode === '--check' && !rest.length) check(folder, versionsFile);
+  else if (mode === '--apply' && rest.length) apply(folder, versionsFile, rest);
+  else if (mode === '--batches' && rest.length >= 2) batches(folder, versionsFile, rest[0], rest.slice(1));
+  else stop(USAGE);
 }
 
 main();
