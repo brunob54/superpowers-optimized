@@ -288,3 +288,18 @@ _Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — bra
 - [M4] fixed — no test clicked a tab; test-07 now clicks `tab-history` and checks `hidden` and `aria-selected` → 901f560
 - [M5] carried — test-02 compares `NOTE_FORBIDDEN` with a hand-copied literal instead of behaviour
 - [M6] fixed — test-12 pinned the Amendment 13 rule only for lines that begin with `git`; now any `remote get-url` outside the allowed sentence fails → 901f560
+
+## Round 8 verification 1 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 8 Minor
+### Dispositions
+- [M1] carried — test-11 temp-link case: unguarded `fs.symlinkSync` in the preload and an assertion that accepts the uncaught EEXIST crash; same root as round 8 [M3]
+- [M2] carried — test-10 "every rule gives invalid" pins reasons for 6 of 19 cases; the `nothing` rule can be removed without a failure
+- [M3] carried — test-09 never tests the `--verify` meta-tag check alone
+- [M4] carried — test-03 link parity row compares the test's own classification; same as Invocation 1 round 4 verification 2 [M4]
+- [M5] carried — test-02 compares `NOTE_FORBIDDEN` with a literal; same as round 8 [M5]
+- [M6] carried — test-08 has no case for "the view must not wait for the runtime" (`use` that never settles)
+- [M7] carried — no test checks Global Constraint 5 (`--no-optional-locks`); same as round 8 [M1]
+- [M8] carried — test-06 does not check that a scan error of another remote's ref leaves `unfinishedRuns.status` `ok` (Amendment 14 clause)
+
+_Completed — 2026-09-30 — cap reached — HEAD 901f5607ee2fe0460c6332648882311f4eb3174e_
+Secrets found: none
