@@ -110,6 +110,28 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
     runHistory: 'Orchestration topics', closedWorklogs: 'Closed work logs', commits: 'Recent commits',
     sessions: 'Recent sessions', knownIssues: 'Known issues',
   };
+  const PROPOSALS = 'proposals';
+  // The part statuses and the note rule. skills/dashboard/scripts/
+  // dashboard-parse.js holds the only other copy of these three values (the
+  // page cannot load shared code); tests/dashboard/test-08-template-edits.js
+  // checks that the two copies are equal.
+  const PART_STATUSES = ['not started', 'in progress', 'done'];
+  const NOTE_LIMIT = 200;
+  const NOTE_FORBIDDEN = /[|[\]\r\n]/;
+  const NOTE_HINT = 'note (optional, one line)';
+  const STATE = { pending: 'pending', applying: 'applying', applied: 'applied', rejected: 'rejected' };
+  const EDIT_KIND = { resolve: 'resolve-open-item', setPart: 'set-part' };
+  const ITEM_KIND = { openItem: 'open-item', part: 'part' };
+  const ACTION = { write: 'write', refuse: 'refuse' };
+  // The value of the "(current)" option of the status list: no status change.
+  const NO_STATUS_CHANGE = '';
+  // The fields of a proposal whose change since the page listed it stops a
+  // write (the page sees no version: platform check 12).
+  const REREAD_FIELDS = ['state', 'closedAt', 'createdAt'];
+  const REFUSED = {
+    blocked: 'a sync is applying this item, or applied it after the page was built',
+    changed: 'changed since the page read it',
+  };
 
   const text = (value) => (value === null || value === undefined ? '' : String(value));
 
@@ -164,10 +186,243 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
     return `as of commit ${text(commit.short)} on branch ${text(commit.branch)}, built ${built}`;
   }
 
+  // A local time with its UTC offset, for example 2026-09-30T00:30:00+02:00
+  // (the form of localIso in dashboard-parse.js, which the page cannot load;
+  // tests/dashboard/test-08-template-edits.js checks that the two agree).
+  function localIso(date) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const offset = -date.getTimezoneOffset();
+    const sign = offset >= 0 ? '+' : '-';
+    const abs = Math.abs(offset);
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+  }
+
+  // Times are compared as instants, never as text.
+  function instant(value) {
+    const time = Date.parse(text(value));
+    return Number.isNaN(time) ? null : time;
+  }
+
+  // Closed at or after the page was built; an unknown time counts as recent.
+  function closedSinceBuilt(doc, generatedAt) {
+    const closed = instant(doc.closedAt);
+    const built = instant(generatedAt);
+    return closed === null || built === null || closed >= built;
+  }
+
+  // The list-path write rules: no edit may write a proposal that a sync is
+  // applying, or one that a sync applied at or after the time the page was
+  // built.
+  function blocksWrite(doc, generatedAt) {
+    return doc.state === STATE.applying || (doc.state === STATE.applied && closedSinceBuilt(doc, generatedAt));
+  }
+
+  // true when the re-read document differs from the listed one: one of them
+  // exists and the other does not, or a field of REREAD_FIELDS differs.
+  // <listed> is { doc } or undefined; <current> is a document or undefined.
+  function changedSinceListed(listed, current) {
+    if (!listed || !current) return Boolean(listed) !== Boolean(current);
+    return REREAD_FIELDS.some((field) => listed.doc[field] !== current[field]);
+  }
+
+  // The write that an edit makes on the proposal document of its item
+  // (spec section 7, "One document per item"). <existing> is { doc } or
+  // undefined; <edit> is { base, fields }.
+  function planWrite(existing, edit, generatedAt, now) {
+    const doc = existing && existing.doc;
+    if (doc && blocksWrite(doc, generatedAt)) return { action: ACTION.refuse };
+    if (doc && doc.state === STATE.pending) {
+      return { action: ACTION.write, doc: Object.assign({}, doc, edit.fields, { createdAt: now }) };
+    }
+    return {
+      action: ACTION.write,
+      doc: Object.assign({}, edit.base, edit.fields, { createdAt: now, state: STATE.pending, closedAt: null }),
+    };
+  }
+
+  function proposalLabel(existing, generatedAt) {
+    if (!existing) return '';
+    const doc = existing.doc;
+    if (doc.state === STATE.pending) return 'pending sync';
+    if (doc.state === STATE.applying) return 'sync in progress';
+    if (doc.state === STATE.applied && closedSinceBuilt(doc, generatedAt)) return 'applied — refresh to update';
+    if (doc.state === STATE.rejected && instant(doc.closedAt) !== null && closedSinceBuilt(doc, generatedAt)) return 'rejected';
+    return '';
+  }
+
+  // An open item always changes; a part changes when a given status or note
+  // differs from the current cell.
+  function changesSomething(item, fields) {
+    if (item.kind !== ITEM_KIND.part) return true;
+    return (fields.status !== undefined && fields.status !== item.status) || (fields.note !== undefined && fields.note !== item.note);
+  }
+
+  function noteProblem(note) {
+    if (note.length > NOTE_LIMIT) return `a note has at most ${NOTE_LIMIT} characters`;
+    if (NOTE_FORBIDDEN.test(note)) return 'a note is one line without the characters | [ ]';
+    return null;
+  }
+
+  function proposalBase(item, data) {
+    const anchor = { heading: item.source.heading, headingOrdinal: item.source.headingOrdinal, line: item.source.line, occurrence: item.source.occurrence };
+    if (item.kind === ITEM_KIND.part) anchor.part = item.number;
+    return {
+      kind: item.kind === ITEM_KIND.part ? EDIT_KIND.setPart : EDIT_KIND.resolve,
+      file: item.source.file,
+      branch: data.commit.branch,
+      baseCommit: data.commit.sha,
+      anchor,
+    };
+  }
+
+  function canEditItem(item, ctx) {
+    if (!ctx.canEdit) return false;
+    if (item.kind === ITEM_KIND.openItem) return true;
+    return item.kind === ITEM_KIND.part && ctx.data.commit.branch !== null;
+  }
+
+  // Validates and writes one edit. <form> is { status, noteText, message,
+  // inputs }: <status> is the new status or undefined for no status change;
+  // <inputs> are the item's controls, disabled while the write runs.
+  async function submitEdit(item, ctx, form) {
+    const note = form.noteText.trim();
+    const fields = {};
+    if (form.status !== undefined) fields.status = form.status;
+    if (note) fields.note = note;
+    const problem = note ? noteProblem(note) : null;
+    if (problem) {
+      form.message.textContent = problem;
+      return;
+    }
+    if (!changesSomething(item, fields)) {
+      form.message.textContent = 'nothing to change';
+      return;
+    }
+    const existing = ctx.proposals.get(item.id);
+    const plan = planWrite(existing, { base: proposalBase(item, ctx.data), fields }, ctx.data.generatedAt, localIso(new Date()));
+    if (plan.action === ACTION.refuse) {
+      form.message.textContent = 'this item cannot be edited now';
+      return;
+    }
+    const setDisabled = (disabled) => form.inputs.forEach((node) => {
+      node.disabled = disabled;
+    });
+    setDisabled(true);
+    let saved = false;
+    try {
+      await ctx.store.write(item.id, plan.doc, existing, ctx.data.generatedAt);
+      saved = true;
+      ctx.proposals = await ctx.store.list();
+      renderPage(ctx);
+    } catch (error) {
+      const reason = text(error && error.message);
+      form.message.textContent = saved
+        ? `saved, but the proposals could not be read again: ${reason} — reload the page`
+        : `not saved: ${reason} — reload the page and try again`;
+    } finally {
+      setDisabled(false);
+    }
+  }
+
+  // The status that the status list starts at: the status of a pending
+  // proposal, else the status of the cell.
+  function startStatus(item, existing) {
+    const doc = existing && existing.doc;
+    return text(doc && doc.state === STATE.pending && doc.status !== undefined ? doc.status : item.status);
+  }
+
+  // The status list of a part. A start status that the page cannot set (for
+  // example "dropped") gets a first option "<status> (current)" whose value
+  // means no status change.
+  function statusList(start) {
+    const options = PART_STATUSES.map((value) => el('option', { value, text: value, selected: value === start }));
+    if (!PART_STATUSES.includes(start)) options.unshift(el('option', { value: NO_STATUS_CHANGE, text: `${start} (current)`, selected: true }));
+    return el('select', { 'aria-label': 'status' }, options);
+  }
+
+  function editControls(item, ctx) {
+    if (!canEditItem(item, ctx)) return null;
+    const existing = ctx.proposals.get(item.id);
+    const box = el('div', { className: 'edit' });
+    const label = proposalLabel(existing, ctx.data.generatedAt);
+    if (label) box.appendChild(el('span', { className: 'badge', text: label }));
+    if (existing && blocksWrite(existing.doc, ctx.data.generatedAt)) return box;
+    const start = item.kind === ITEM_KIND.part ? startStatus(item, existing) : null;
+    const status = start === null ? null : statusList(start);
+    const note = el('input', { type: 'text', maxlength: NOTE_LIMIT, placeholder: NOTE_HINT, 'aria-label': 'note' });
+    const message = el('span', { className: 'muted', role: 'status' });
+    const button = el('button', { type: 'button', text: status ? 'Propose change' : 'Mark resolved' });
+    const inputs = [status, note, button].filter(Boolean);
+    button.addEventListener('click', () => {
+      // A browser list always has a value: only a chosen status that differs
+      // from the start status is a status change.
+      const chosen = status ? status.value : NO_STATUS_CHANGE;
+      const change = chosen !== NO_STATUS_CHANGE && chosen !== start ? chosen : undefined;
+      submitEdit(item, ctx, { status: change, noteText: note.value || '', message, inputs });
+    });
+    inputs.concat(message).forEach((node) => box.appendChild(node));
+    return box;
+  }
+
+  // The runtime calls of the Artifact page. Only createStore and ownerState
+  // name them; they follow the `## Runtime record` of platform-checks.md
+  // (runtime contract 0.2.66). list() gives Map(id -> { doc }): a page
+  // snapshot carries no version (platform check 12).
+  // write(id, doc, listed, generatedAt) writes one document of the collection
+  // "proposals" and throws when the write is refused. <listed> is the entry
+  // that list() gave for <id>, or undefined; the snapshot it holds stands for
+  // the version that the page read. The record names no pinned page write and
+  // no create-if-absent write, so every write re-reads the document first,
+  // and no value in the data can select a write without that re-read.
+  // createStore stays synchronous: list() and write() obtain the db namespace
+  // themselves, so that a failure to obtain it reaches their callers.
+  function createStore(runtime) {
+    if (!runtime || typeof runtime.use !== 'function') return null;
+    async function proposals() {
+      // Record: const db = await claude.use("db"); const snap = await db.collection("proposals").get();
+      const db = await runtime.use('db');
+      if (!db) throw new Error('the page has no database');
+      return db.collection(PROPOSALS);
+    }
+    return {
+      async list() {
+        const snapshot = await (await proposals()).get();
+        const found = new Map();
+        snapshot.docs.forEach((entry) => found.set(entry.id, { doc: entry.data() }));
+        return found;
+      },
+      async write(id, doc, listed, generatedAt) {
+        // Record: re-read just before each write (db.collection("proposals").doc(id).get(), then .set(body)).
+        const target = (await proposals()).doc(id);
+        const again = await target.get();
+        const current = again.exists ? again.data() : undefined;
+        if (current && blocksWrite(current, generatedAt)) throw new Error(REFUSED.blocked);
+        if (changedSinceListed(listed, current)) throw new Error(REFUSED.changed);
+        await target.set(doc);
+      },
+    };
+  }
+
+  // true: the viewer owns the page; false: another viewer, or a view without
+  // the user namespace (the record's form); null: unknown (no runtime, for
+  // example the local file, or a runtime call that failed).
+  async function ownerState(runtime) {
+    if (!runtime || typeof runtime.use !== 'function') return null;
+    try {
+      // Record: const user = await claude.use("user"); const isOwner = user ? await user.isOwner() : false;
+      const user = await runtime.use('user');
+      return user ? (await user.isOwner()) === true : false;
+    } catch (error) {
+      return null;
+    }
+  }
+
   function renderItem(item, ctx) {
     const node = el('li', { className: 'item', 'data-id': item.id });
     itemLines(item).filter(Boolean).forEach((line, index) => node.appendChild(el('div', { className: index === 0 ? 'line' : 'line sub', text: line })));
     if (item.visibility === PRIVATE) node.appendChild(el('span', { className: 'lock', title: 'only in your working tree: not committed', text: '🔒 not committed' }));
+    const controls = editControls(item, ctx);
+    if (controls) node.appendChild(controls);
     return node;
   }
 
@@ -242,9 +497,34 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
     const ctx = { data, canEdit: false, proposals: new Map(), store: null };
     renderPage(ctx);
     TABS.forEach((tab) => document.getElementById(tab.tab).addEventListener('click', () => selectTab(tab.tab)));
+    if (audience === PRIVATE && (await enableEditing(ctx))) renderPage(ctx);
   }
 
-  globalThis.DashboardApp = { itemLines, asOfLine, renderPage, renderSection, renderItem };
+  // Turns editing on for the owner of the private page; gives true when it
+  // did. The page is already shown before this runs: the runtime answers
+  // later (or with nothing after 10 s), and the view must not wait for it.
+  async function enableEditing(ctx) {
+    const runtime = globalThis.claude;
+    const owner = await ownerState(runtime);
+    if (owner === false) document.getElementById('viewer-warning').hidden = false;
+    if (owner !== true) return false;
+    try {
+      const store = createStore(runtime);
+      ctx.proposals = await store.list();
+      ctx.store = store;
+      ctx.canEdit = true;
+      return true;
+    } catch (error) {
+      showError(`The edit proposals could not be read, so editing is off: ${text(error && error.message)}`);
+      return false;
+    }
+  }
+
+  globalThis.DashboardApp = {
+    itemLines, asOfLine, renderPage, renderSection, renderItem,
+    planWrite, proposalLabel, changesSomething, noteProblem, proposalBase, createStore, ownerState, localIso,
+    PART_STATUSES, NOTE_LIMIT, NOTE_FORBIDDEN,
+  };
   if (!globalThis.DASHBOARD_NO_BOOT) boot();
 })();
 </script>
