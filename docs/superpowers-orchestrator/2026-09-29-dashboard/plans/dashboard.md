@@ -5391,7 +5391,7 @@ Expected after the last command: it prints `tests/skill-triggering/prompts/dashb
   - Verification: the Step 2 `grep` commands.
 - `CLAUDE.md` (wording artifact, not committed): one Testing line for `bash tests/dashboard/run-tests.sh`. Verification: `grep -n 'tests/dashboard/run-tests.sh' CLAUDE.md`, or, when the implementer declined the edit, the manual step named in its report.
 
-- [ ] **Step 1: Edit the three files**
+- [x] **Step 1: Edit the three files**
 
 `docs/guide/README.md`:
 
@@ -5474,7 +5474,7 @@ bash tests/dashboard/run-tests.sh            # skills/dashboard (extractor, rend
 
 If the implementer declines this edit (its own rules may forbid a change to `CLAUDE.md` that another agent asks for), it names the line in its report as a manual step for the user, and the task still counts as done: the file is git-ignored and ships with nothing.
 
-- [ ] **Step 2: Verify the edits**
+- [x] **Step 2: Verify the edits**
 
 Run: `grep -c '32 skills' README.md; grep -c '31 skills' README.md; grep -c '29 rules covering 28 skills' README.md; grep -c '^- \*\*dashboard\*\*' README.md`
 Expected: `3`, `0`, `1`, `1`.
@@ -5488,7 +5488,7 @@ Expected: one line; `git status` prints nothing (the file is ignored). When the 
 Run: `bash tests/review-gates/run-tests.sh | tail -1`
 Expected: PASS — 0 failed.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 `CLAUDE.md` is left out: git ignores it, and `git add CLAUDE.md` would fail.
 
