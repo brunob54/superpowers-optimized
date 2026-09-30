@@ -128,6 +128,15 @@ const twoResult = shared(twoRemotes, 'origin/main');
 h.eq('two remotes: the shared run succeeds', twoResult.code, 0);
 h.check('two remotes: a branch pushed only to origin/secret is in neither section', !twoResult.out.includes('hidden'), twoResult.out);
 h.eq('two remotes: --remote-url resolves the shared ref to origin', run(twoRemotes, ['--remote-url', 'origin/main']).out.split('\n')[0], 'remote origin');
+// Two remotes match one ref: the remote origin holds a branch secret/main, and
+// the remote origin/secret holds a branch main. Both give origin/secret/main.
+h.git(twoRemotes, 'push', '-q', 'origin', 'main:secret/main');
+h.git(twoRemotes, 'push', '-q', 'origin/secret', 'main');
+const AMBIGUOUS_REF = 'origin/secret/main';
+const ambiguousShared = shared(twoRemotes, AMBIGUOUS_REF);
+const ambiguousUrl = run(twoRemotes, ['--remote-url', AMBIGUOUS_REF]);
+h.eq('two remotes match the ref: the shared run and --remote-url both stop with exit 2', [ambiguousShared.code, ambiguousUrl.code], [2, 2]);
+h.eq('two remotes match the ref: nothing on stdout', [ambiguousShared.out, ambiguousUrl.out], ['', '']);
 
 // A ref name with shell characters stops in --check-shared-ref.
 const oddRef = h.repo('odd-ref');

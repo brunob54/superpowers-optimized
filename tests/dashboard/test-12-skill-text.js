@@ -110,7 +110,8 @@ const SHARED_REF_LINE = 'Shared ref: <remote>/<branch>; remote <remote> is <URL>
 flatHas(SHARED_REF, "--remote-url '<ref>'");
 flatHas(SHARED_REF, 'a remote name may hold `/`, so do not split the ref yourself');
 h.check(`${SHARED_REF}: SKILL.md never splits the ref at its first slash`, !FLAT.includes('before its first'));
-h.check(`${SHARED_REF}: SKILL.md never runs git remote get-url itself`, !/^\s*git .*remote get-url/m.test(TEXT));
+const GET_URL_SENTENCE = 'Never run `git remote get-url` yourself';
+h.eq(`${SHARED_REF}: SKILL.md names remote get-url once, only in the sentence that forbids it`, [FLAT.split('remote get-url').length - 1, FLAT.split(GET_URL_SENTENCE).length - 1], [1, 1]);
 flatHas(SHARED_REF, SHARED_REF_LINE);
 flatHas(SHARED_REF, 'This remote is a folder on this machine');
 h.check(`${SHARED_REF}: the warning comes before the ref line, and the ref line before the store of sharedRef`,

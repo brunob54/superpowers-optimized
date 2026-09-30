@@ -67,6 +67,9 @@ async function boot(pageAudience, data) {
 (async () => {
   const own = await boot('private', sample('private', 'main'));
   h.eq('a private page shows the banner and its sections', [own.getElementById('private-banner').hidden, own.getElementById('panel-waits').children.length], [false, 5]);
+  // A click on the History tab shows its panel and hides the other one.
+  own.getElementById('tab-history').listeners.click();
+  h.eq('a click on the History tab selects it', [own.getElementById('panel-history').hidden, own.getElementById('panel-waits').hidden, own.getElementById('tab-history').getAttribute('aria-selected'), own.getElementById('tab-waits').getAttribute('aria-selected')], [false, true, 'true', 'false']);
   const shared = await boot('shared', sample('shared', 'origin/main'));
   h.eq('a shared page hides the banner', shared.getElementById('private-banner').hidden, true);
   const wrong = await boot('shared', sample('private', 'main'));
