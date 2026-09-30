@@ -88,12 +88,12 @@
   - Invariants: a `contradicted` verdict is written only when the observed result contradicts the design statement of that item; a negative result for which this plan names a fallback is `confirmed`, with the result `not available — fallback of Task 8/12`: item 2 with no owner-only write rule (spec section 13 item 2 says "If they can"), item 5 when the owner check exists under another name (the adapters use the record's call, Assumptions), and item 12 with no pinned or no create-if-absent page write (the re-read and the `## Known limits` lines of Tasks 8 and 12) — item 5 with no owner check at all stays `contradicted`; a permission refusal inside a `claude -p` sub-probe is `owed to manual acceptance`; a stale `if_version` update that Step 6 sees accepted is `contradicted`, on row 9; a `contradicted` verdict ends the task with the report `BLOCKED: platform check <n> contradicted: <one line>` after the commit.
   - Verification: `grep -c '^| [0-9]' docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` prints `12`; `grep -n '^## Runtime record' <same file>` prints one line.
 
-- [ ] **Step 1: Item 8 — does `claude -p` have the Artifact tool**
+- [x] **Step 1: Item 8 — does `claude -p` have the Artifact tool**
 
 Run: `D=$(mktemp -d) && (cd "$D" && claude -p --output-format stream-json --verbose --max-turns 1 "Reply with the word ok." 2>/dev/null) | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const init=s.split("\n").filter(Boolean).map(l=>JSON.parse(l)).find(m=>m.type==="system"&&m.subtype==="init");console.log(init?("artifact-in-p: "+(init.tools.includes("Artifact")?"yes":"no")):"no init message")})'`
 Expected: one line, `artifact-in-p: yes` or `artifact-in-p: no`. Record it as item 8 (`confirmed`, with the answer). Run it with a Bash tool timeout of at least 180000 ms.
 
-- [ ] **Step 2: Item 1 — `${CLAUDE_PLUGIN_DATA}` in plugin skill text with `--plugin-dir`**
+- [x] **Step 2: Item 1 — `${CLAUDE_PLUGIN_DATA}` in plugin skill text with `--plugin-dir`**
 
 Create a throwaway plugin outside the repository and ask its skill to print the substituted text:
 
@@ -115,12 +115,12 @@ W=$(mktemp -d) && (cd "$W" && claude -p --plugin-dir "$P" --max-turns 3 "/datapr
 
 Expected: a line `DATA=[<path>]` where `<path>` is not empty and does not contain the text `${`. When the output holds no `DATA=[` line at all (the slash command did not load the skill), run the last command again with the prompt `"Invoke the skill dataprobe:probe with the Skill tool and follow it."` and judge that output. Verdict: `confirmed` for the `--plugin-dir` half; `contradicted` when the literal text or an empty value comes back (the design then needs the user). The installed-plugin half is `owed to manual acceptance` (Task 15). Run with a Bash tool timeout of at least 240000 ms.
 
-- [ ] **Step 3: Item 10 — the markers of the existing orchestration logs**
+- [x] **Step 3: Item 10 — the markers of the existing orchestration logs**
 
 Run: `for f in docs/superpowers-orchestrator/*/*-orchestration-log.md; do printf '%s completed=%s stopped=%s\n' "$(basename "$f")" "$(grep -c '^_Completed — ' "$f")" "$(grep -c '^## STOPPED' "$f")"; done`
 Expected: 14 lines (13 earlier logs and this run's own log); 11 earlier logs show `completed=1`; `researching-prior-art` and `autonomous-in-run-decisions` show `completed=0` (finished by hand, merged into `main`, so the scan never reads them); at least five logs show `stopped=` above 0. Verdict: `confirmed`. Copy two real `## STOPPED — ` headings and one real `_Completed — ` line into the record: Tasks 2 and 4 use the same shapes in their fixtures.
 
-- [ ] **Step 4: Load the two skills and publish the probe page (items 2, 3, 5, 6, 12)**
+- [x] **Step 4: Load the two skills and publish the probe page (items 2, 3, 5, 6, 12)**
 
 Load the skills `artifact-design` and `artifact-capabilities` with the Skill tool. From `artifact-capabilities`, write into the `## Runtime record` draft: the owner-check call; the `db` calls to read every document of a collection with its version and to write one document pinned to a version; whether a pinned write from the page exists (item 12); whether a page write can be conditional on the document not existing yet — a create-if-absent write, for the new document of spec section 7 "One document per item" (item 12); whether the access rules can restrict writes to the owner, and how (item 2); the path of the shared level where a collection named `proposals` lives, and that `data/users/<id>/` is private to its viewer (item 3); whether `user.isOwner()` exists under this name (item 5); the `capabilities` object that a page with `db` and the owner check declares.
 
@@ -146,21 +146,21 @@ Write the probe page into the session scratchpad folder, `<scratchpad>/dashboard
 
 Publish it with the Artifact tool: `file_path` the probe `index.html`, `files` `{"probe-data.json": "<scratchpad>/dashboard-probe/probe-data.json"}`, the `capabilities` object from the record, `icon` `code`. Record the URL. If the publish is refused by the permission system, record items 2, 3, 5, 6 and 12 from the skill text alone, mark the live part `owed to manual acceptance`, and continue with Step 8: Steps 5, 6 and 7 need the probe page, so items 4 and 9 are `owed to manual acceptance` too, and the item-9 line of the `## Runtime record` reads `not observed — reference shape { "id", "version", "data" } used`, which Task 10 then keeps.
 
-- [ ] **Step 5: Item 6 — read and list**
+- [x] **Step 5: Item 6 — read and list**
 
 Read the probe URL with the Artifact tool (`action: "read"`) and list its files (`action: "list"`, `scope: "files"`).
 Expected: the read returns the probe `index.html`, and its content does not contain `fetched-marker-7d1f`; the listing names `probe-data.json` and returns no file content. When Step 1 printed `artifact-in-p: yes`, also run from a new folder `claude -p` with the prompt "List the published files of <URL> with the Artifact tool (action list, scope files), then publish the file <scratchpad>/dashboard-probe/probe-data.json to that URL as probe-data.json, and print PUBLISHED or the refusal." and record whether a listing was enough to replace the file in a new session; otherwise that half is `owed to manual acceptance`.
 
-- [ ] **Step 6: Items 4 and 9 — ArtifactData from Claude's side**
+- [x] **Step 6: Items 4 and 9 — ArtifactData from Claude's side**
 
 Load ArtifactData with ToolSearch (`select:ArtifactData`). Write two documents into the collection `proposals` of the probe page: `set` `doc_id` `p1` with `{ "state": "pending" }` and `doc_id` `p2` with `{ "state": "applied" }`. Then `query` the collection `proposals` with `query` `{ "where": [["state", "in", ["pending", "applying"]]], "limit": 1000 }` and `out_dir` `<scratchpad>/dashboard-probe/query`.
 Expected: the result lists one file, `<scratchpad>/dashboard-probe/query/proposals/p1.json`. Read that file with the Read tool and copy its whole JSON shape into the record: the field that holds the version is item 9. Also run one `update` of `p1` pinned to the version read (its version then rises), then a second `update` pinned to that same, now stale, version, and record whether the second one is refused as a version conflict; when it is accepted, row 9 is `contradicted` (sync relies on `if_version`, spec section 8 step 4). Item 4 asks for the query from a later session: when Step 1 printed `artifact-in-p: yes`, also run from a new folder `claude -p` with the prompt "Load the ArtifactData tool with ToolSearch, query the collection proposals of <URL> with a filter on state in pending and applying, and print the document ids, or the refusal." and record whether it printed `p1`; otherwise the later-session half of item 4 is `owed to manual acceptance`.
 
-- [ ] **Step 7: Open the probe page and wait for the page's own result (items 5, 6, 12)**
+- [x] **Step 7: Open the probe page and wait for the page's own result (items 5, 6, 12)**
 
 Open the probe URL with the Artifact tool (`action: "open"`). Then read the document `result` of the collection `probe` with ArtifactData `get`: once right after `open`, and at most twice more, each after you have drafted a part of the Step 8 file (a foreground `sleep` may be refused by the harness, so do not wait with one). When it appears, record `fetchOk` (item 6: the page can fetch its supporting file), `owner` (item 5 observed), `pinnedWriteRefused` (item 12 observed). When it never appears, the page was not loaded by a person: keep the verdicts that the skill text gives, and mark the live observation `owed to manual acceptance`.
 
-- [ ] **Step 8: Write the findings file**
+- [x] **Step 8: Write the findings file**
 
 Create `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` in this shape (the rows hold the results of Steps 1–7):
 
@@ -197,12 +197,12 @@ Checked on <date> by Task 1 of the plan. Probe page: <URL> (private; the owner m
       <the JSON shape, with values replaced by their types>
 ```
 
-- [ ] **Step 9: Verify the findings file**
+- [x] **Step 9: Verify the findings file**
 
 Run: `F=docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md; grep -c '^| [0-9]' "$F"; grep -n '^## Runtime record' "$F"; awk -F'|' '/^\| [0-9]/ && $(NF-1) ~ /contradicted/' "$F" | wc -l`
 Expected: `12`; one line; the number of table rows whose Verdict cell (the last cell) holds `contradicted` — a Result cell that holds the word is not counted.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md
