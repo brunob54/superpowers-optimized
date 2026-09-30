@@ -54,9 +54,10 @@ Argument given by the user (may be empty): $ARGUMENTS
    `icon` fields.
 6. Write each new page URL into `config.json` at once, before the next
    publish starts.
-7. Write every proposal id, ref, URL and configuration value that goes into a
-   command line inside single quotes, as the commands below show: single
-   quotes stop the shell from running any part of the value. Refuse a value
+7. Write every proposal id, ref, URL, `local` folder and configuration value
+   that goes into a command line inside single quotes, as the commands below
+   show: single quotes stop the shell from running any part of the value.
+   Refuse a value
    that holds a single quote. Pass only proposal ids that the `--check` output
    of this sync printed in a line `proposal <id>: …`.
 
@@ -117,8 +118,9 @@ audience (`privateUrl` or `sharedUrl`).
    case "The stored URL no longer works" below. The returned HTML must hold
    `<meta name="dashboard-audience" content="<audience>">`; when it does not,
    stop, publish nothing, and say: "The page at `<url>` is not the
-   `<audience>` page. The stored URLs may be swapped; run `refresh --url <url>`
-   and `refresh --shared-url <url>` with the right URLs." Then list the page's
+   `<audience>` page. The stored URLs may be swapped; run the one command
+   `refresh --url <private url> --shared-url <shared url>` with the right
+   URLs." Then list the page's
    files with the Artifact tool (`action: "list"`, `scope: "files"`); a
    listing returns no file content.
 3. Read `<dir>/index.html` and `<dir>/dashboard-data.json` with the Read tool,
@@ -143,11 +145,15 @@ audience (`privateUrl` or `sharedUrl`).
 
 1. Run the preconditions.
 2. With `--url <url>` or `--shared-url <url>`: refuse a URL that does not
-   start with `https://claude.ai/` or that holds a single quote. With
+   start with `https://claude.ai/` or that holds a single quote. When both
+   options are given in one command, the command replaces both stored URLs:
+   compare the two URLs only with each other, not with the stored URLs.
+   When they are equal, refuse and stop. Otherwise store `privateUrl` with
+   the `--url` value and `sharedUrl` with the `--shared-url` value. With only
    `--url <url>`: when `<url>` equals the stored `sharedUrl`, refuse and
-   stop. Otherwise store `privateUrl=<url>`. With `--shared-url <url>`: when
-   `<url>` equals the stored `privateUrl`, refuse and stop. Otherwise store
-   `sharedUrl=<url>`.
+   stop. Otherwise store `privateUrl=<url>`. With only `--shared-url <url>`:
+   when `<url>` equals the stored `privateUrl`, refuse and stop. Otherwise
+   store `sharedUrl=<url>`.
 3. When no `privateUrl` is stored, say: "No dashboard page is stored for this
    repository on this machine (first use, or the repository was moved). I
    will create a new private page. If the page exists already, run
@@ -353,8 +359,8 @@ To stop sharing, turn off the public link in the page's Share control."
 2. Run:
 
    ```bash
-   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience private --out "<folder>/private.json"
-   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --local --in "<folder>/private.json" --out "<folder>"
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --audience private --out '<folder>/private.json'
+   node "<skill-dir>/scripts/dashboard-render.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --local --in '<folder>/private.json' --out '<folder>'
    ```
 
 3. Print the path `<folder>/dashboard.html`. The file is read-only: it has no

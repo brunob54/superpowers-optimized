@@ -62,6 +62,12 @@ flatHas('finding 1', 'Only when step 5 published the shared page, print its exac
 flatHas('finding 1', 'Otherwise print no URL');
 flatHas('finding 1', 'The stored URLs may be swapped');
 
+// Task review 1, finding Important 1: the swapped-URL advice names one command
+// that sets both URLs, and refresh step 2 accepts that command: when both
+// options are given, the two URLs are compared only with each other.
+flatHas('review 1', 'run the one command `refresh --url <private url> --shared-url <shared url>`');
+flatHas('review 1', 'compare the two URLs only with each other, not with the stored URLs');
+
 // Finding 2: the warning comes first; then the chosen ref and the URL of its
 // remote are shown and confirmed before the ref is stored.
 const SHARED_REF_LINE = 'Shared ref: <remote>/<branch>; remote <remote> is <URL>';
@@ -97,6 +103,14 @@ h.eq('finding 6: every id list of --apply and --batches is in single quotes',
   COMMAND_LINES.filter((line) => /--(apply|batches) /.test(line) && !line.includes('each in single quotes>')), []);
 h.eq('finding 6: every --ref, --check-shared-ref and --config-set value is in single quotes',
   COMMAND_LINES.filter((line) => /--(ref|check-shared-ref|config-set) [^']/.test(line)), []);
+// Task review 1, finding Minor 2: the folder that the user names for `local`
+// is in single quotes too.
+const LOCAL_FOLDER = '<folder>';
+const folderLines = COMMAND_LINES.filter((line) => line.includes(LOCAL_FOLDER));
+h.check('review 1: the local commands name the folder', folderLines.length > 0);
+h.eq('review 1: every folder value of local is in single quotes',
+  folderLines.filter((line) => line.includes(`"${LOCAL_FOLDER}`)), []);
+flatHas('finding 6', '`local` folder and configuration value');
 flatHas('finding 6', 'Refuse a value that holds a single quote');
 flatHas('finding 6', 'does not start with `https://claude.ai/`');
 
