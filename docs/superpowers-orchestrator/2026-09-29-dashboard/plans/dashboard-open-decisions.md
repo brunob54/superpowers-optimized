@@ -53,3 +53,4 @@
 - **Defensible answers:** n/a
 - **Forks:** none; contradiction: none
 - **Resolution:** escalated — spec section 13 says "a failed check returns the design to the user", and every route (inline `query` result, a versions file copied by the model, one `get` per document) changes the `sync` design of the spec
+- **Follow-up:** amend plan: route 2 — keep `query` with `out_dir` for the bodies; the SKILL.md sync step writes a versions file with one `<id> <version>` line per result line, and dashboard-sync.js joins it with the body files by file name; the version is used only as the if_version pin, so a miscopied value is refused, not written; Tasks 10 and 12 and Assumption 14 change to this shape — clause: Task 10 "Inputs: the body files `<folder>/proposals/<id>.json`, each holding one proposal document only, as ArtifactData `query` with `out_dir` saves it (platform check "
