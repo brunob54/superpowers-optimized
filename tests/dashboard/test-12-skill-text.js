@@ -152,4 +152,10 @@ flatHas(QUOTES, 'does not start with `https://claude.ai/`');
 // Only the owner's own reply accepts a diff.
 flatHas('acceptance of a diff', "Only the owner's own reply in this session accepts a diff");
 
+// Step 3 of a publish pages through a PARTIAL Read result; an empty id list skips the command.
+flatHas('partial read', 'carries a PARTIAL notice');
+flatHas('partial read', 'Never act on a first page alone');
+flatHas('empty id list', 'Skip this command when the list of accepted ids is empty');
+flatHas('empty id list', 'Skip this command when the list of marked ids is empty');
+
 h.finish();
