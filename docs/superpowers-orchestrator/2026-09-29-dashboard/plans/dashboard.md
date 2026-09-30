@@ -1259,7 +1259,7 @@ git commit -m "feat(dashboard): add the shared parsing rules and the work-log ru
   - Verification: `node tests/dashboard/test-04-extract-core.js`.
   - Interface not externally pinned — the option names are used only by `SKILL.md` of this plan (rule 2).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/dashboard/test-04-extract-core.js`:
 
@@ -1398,12 +1398,12 @@ h.check('the error note writes the repository root as <repo>', brokenCommits.not
 h.finish();
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-04-extract-core.js`
 Expected: FAIL — exit 1; the first cases fail (`expected 2, got 1`: Node cannot find `dashboard-extract.js`), then `extract failed` is thrown.
 
-- [ ] **Step 3: Create the extractor**
+- [x] **Step 3: Create the extractor**
 
 Create `skills/dashboard/scripts/dashboard-extract.js`:
 
@@ -1765,12 +1765,12 @@ function main() {
 main();
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-04-extract-core.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-extract.js tests/dashboard/test-04-extract-core.js
