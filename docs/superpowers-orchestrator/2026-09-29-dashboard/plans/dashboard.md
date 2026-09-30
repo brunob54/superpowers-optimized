@@ -5607,7 +5607,7 @@ When row 11 reads `contradicted`, report `BLOCKED: platform check 11 contradicte
   - Verification: Step 2's word count prints a number at most 120; a reader finds each summary statement in the prose.
 - The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` — are covered in`. Verification: `node tests/codex/test-version-files.js`.
 
-- [ ] **Step 1: Bump the version and write the entry**
+- [x] **Step 1: Bump the version and write the entry**
 
 Change `7.54.0` to `7.55.0` in: `VERSION` (the only line), `.claude-plugin/plugin.json` (`"version"`), `.claude-plugin/marketplace.json` (`"version"` of the first plugin), `plugin.universal.yaml` (`  version: "7.54.0"` under meta), the README badge (`badge/version-7.54.0-white`), and the two README ranges `v6.7.0–v7.54.0` (lines 22 and 24).
 
@@ -5679,7 +5679,7 @@ repository — is the owner's step before the merge; its steps and results are
 in `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/manual-acceptance.md`.
 ```
 
-- [ ] **Step 2: Verify the entry and the version places**
+- [x] **Step 2: Verify the entry and the version places**
 
 Run: `awk '/^## v7.55.0/ { f = 1; next } f && /^\*\*Problem\.\*\*/ { s = 1 } s && /^The status of a repository/ { exit } s { print }' RELEASE-NOTES.md | wc -w`
 Expected: a number at most 120.
@@ -5687,12 +5687,12 @@ Expected: a number at most 120.
 Run: `node tests/codex/test-version-files.js`
 Expected: PASS — exit 0.
 
-- [ ] **Step 3: Run every fast suite**
+- [x] **Step 3: Run every fast suite**
 
 Run: `for s in tests/codex/run-unit-tests.sh tests/smart-compress/run-tests.sh tests/reviewer-templates/run-tests.sh tests/writing-plans/run-tests.sh tests/in-run-rulings/run-tests.sh tests/fill-prompt/run-tests.sh tests/orchestrating-development/run-tests.sh tests/review-gates/run-tests.sh tests/measure-context/run-tests.sh tests/pickup/run-tests.sh tests/analyze-compaction/run-tests.sh tests/sdd-scripts/run-tests.sh tests/suite-guard/run-tests.sh tests/worklog/run-tests.sh tests/dashboard/run-tests.sh; do bash "$s" > /dev/null 2>&1 && echo "PASS $s" || echo "FAIL $s"; done`
 Expected: 15 lines, each starting `PASS`. Run it with a Bash tool timeout of at least 600000 ms.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.universal.yaml README.md RELEASE-NOTES.md
