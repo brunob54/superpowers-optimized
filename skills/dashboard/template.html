@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dashboard-audience" content="__DASHBOARD_AUDIENCE__">
+<title>__DASHBOARD_TITLE__</title>
+<style>
+:root {
+  --bg: #f6f5f2; --surface: #ffffff; --text: #1f1e1c; --muted: #605d57; --border: #dedbd4;
+  --accent: #2d5bd0; --lock: #7a5a00; --warn-bg: #fff3d4; --warn-text: #5c4300;
+  --danger-bg: #fde7e7; --danger-text: #8a1d1d; --badge-bg: #e8eefc; --badge-text: #203f8f;
+  color-scheme: light;
+
+  /* The dark palette: each dark color value is written once, here. */
+  --dark-bg: #151514; --dark-surface: #1f1e1c; --dark-text: #ecebe8; --dark-muted: #a9a59d; --dark-border: #3a3834;
+  --dark-accent: #8fb0ff; --dark-lock: #e3c46a; --dark-warn-bg: #3b3218; --dark-warn-text: #f1dc9a;
+  --dark-danger-bg: #3d1f1f; --dark-danger-text: #f3b4b4; --dark-badge-bg: #22304f; --dark-badge-text: #c7d6ff;
+}
+/* The Artifact page contract asks for the dark tokens under both selectors:
+   the media query (system setting) and [data-theme="dark"] (explicit choice).
+   Both blocks map the color tokens to the same --dark-* values above. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--dark-bg); --surface: var(--dark-surface); --text: var(--dark-text); --muted: var(--dark-muted); --border: var(--dark-border);
+    --accent: var(--dark-accent); --lock: var(--dark-lock); --warn-bg: var(--dark-warn-bg); --warn-text: var(--dark-warn-text);
+    --danger-bg: var(--dark-danger-bg); --danger-text: var(--dark-danger-text); --badge-bg: var(--dark-badge-bg); --badge-text: var(--dark-badge-text);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: var(--dark-bg); --surface: var(--dark-surface); --text: var(--dark-text); --muted: var(--dark-muted); --border: var(--dark-border);
+  --accent: var(--dark-accent); --lock: var(--dark-lock); --warn-bg: var(--dark-warn-bg); --warn-text: var(--dark-warn-text);
+  --danger-bg: var(--dark-danger-bg); --danger-text: var(--dark-danger-text); --badge-bg: var(--dark-badge-bg); --badge-text: var(--dark-badge-text);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-wrap: anywhere;
+}
+main { max-width: 960px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 0 0 4px; }
+h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+.banner { padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
+.banner.danger { background: var(--danger-bg); color: var(--danger-text); }
+.banner.warn { background: var(--warn-bg); color: var(--warn-text); }
+.tabs { display: flex; gap: 12px; margin: 16px 0 12px; border-bottom: 1px solid var(--border); }
+.tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 2px;
+  color: var(--muted); font: inherit; cursor: pointer;
+}
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; }
+.items { list-style: none; margin: 0; padding: 0; }
+.item { padding: 6px 0; border-top: 1px solid var(--border); }
+.item:first-child { border-top: 0; }
+.line.sub { color: var(--muted); font-size: 0.92em; }
+.lock { color: var(--lock); font-size: 0.85em; }
+.status.error { color: var(--danger-text); }
+.badge {
+  display: inline-block; background: var(--badge-bg); color: var(--badge-text);
+  border-radius: 999px; padding: 0 8px; font-size: 0.85em; margin-right: 6px;
+}
+.edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.edit input { flex: 1 1 180px; min-width: 0; }
+.edit input, .edit select, .edit button {
+  font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text);
+}
+.edit button { cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="page-title">Dashboard</h1>
+    <p id="as-of" class="muted"></p>
+    <p id="private-banner" class="banner danger" hidden>Private page — do not make it public</p>
+    <p id="viewer-warning" class="banner warn" hidden>This page is not meant to be shared: it belongs to its owner and holds private data.</p>
+    <p id="load-error" class="banner danger" hidden></p>
+  </header>
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-waits" aria-controls="panel-waits" aria-selected="true">Waits for me</button>
+    <button type="button" role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false">History</button>
+  </nav>
+  <section id="panel-waits" role="tabpanel" aria-labelledby="tab-waits"></section>
+  <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden></section>
+</main>
+<!--__DASHBOARD_STATE__-->
+<script id="dashboard-app">
+(function () {
+  'use strict';
+
+  const AUDIENCE_META = 'meta[name="dashboard-audience"]';
+  const STATE_BLOCK = 'dashboard-state';
+  const DATA_FILE = 'dashboard-data.json';
+  const PRIVATE = 'private';
+  const STATUS_OK = 'ok';
+  const TABS = [
+    { tab: 'tab-waits', panel: 'panel-waits', sections: ['unfinishedRuns', 'git', 'activeWorklogs', 'sessionOpenItems', 'currentGoal'] },
+    { tab: 'tab-history', panel: 'panel-history', sections: ['releases', 'runHistory', 'closedWorklogs', 'commits', 'sessions', 'knownIssues'] },
+  ];
+  const TITLES = {
+    unfinishedRuns: 'Unfinished orchestration runs', git: 'Git', activeWorklogs: 'Active work logs',
+    sessionOpenItems: 'Open items of recent sessions', currentGoal: 'Current goal', releases: 'Releases',
+    runHistory: 'Orchestration topics', closedWorklogs: 'Closed work logs', commits: 'Recent commits',
+    sessions: 'Recent sessions', knownIssues: 'Known issues',
+  };
+
+  const text = (value) => (value === null || value === undefined ? '' : String(value));
+
+  // Creates an element. Every value is set with textContent, a property or
+  // setAttribute: nothing is ever parsed as HTML.
+  function el(tag, props, children) {
+    const node = document.createElement(tag);
+    Object.keys(props || {}).forEach((key) => {
+      const value = props[key];
+      if (key === 'text') node.textContent = text(value);
+      else if (key === 'hidden' || key === 'selected' || key === 'value') node[key] = value;
+      else node.setAttribute(key === 'className' ? 'class' : key, text(value));
+    });
+    (children || []).forEach((child) => {
+      if (child) node.appendChild(child);
+    });
+    return node;
+  }
+
+  function itemLines(item) {
+    switch (item.kind) {
+      case 'run': return [`${text(item.branch)} — ${text(item.mark)}`, `${text(item.lastHeading) || 'no ## heading'} · last commit ${text(item.lastCommitDate)}`];
+      case 'branch': return [`${text(item.name)} · last commit ${text(item.date)}`];
+      case 'worklog': return [item.closed ? `${text(item.slug)} · closed ${text(item.closed)}` : `${text(item.slug)} · ${text(item.path)}`];
+      case 'worklog-file': return [`${text(item.path)} — ${text(item.note)}`];
+      case 'part': return [`${text(item.worklog)} · part ${text(item.number)}: ${text(item.part)} — ${text(item.status)}`, text(item.note)];
+      case 'worklog-open-item': return [`${text(item.worklog)} · item #${text(item.number)}: ${text(item.item)}`, `part ${text(item.part) || '—'} · blocks ${text(item.blocks) || '—'}`];
+      case 'open-item': return [text(item.text)].concat((item.continuation || []).map(text));
+      case 'goal': return [text(item.text)];
+      case 'release': return [text(item.heading)];
+      case 'topic': return [`${text(item.date)} ${text(item.slug)} · ${(item.stages || []).map(text).join(', ') || 'no stage folder'}`, `${text(item.lastHeading) || 'no orchestration log'} · ${text(item.rulings)} rulings, ${text(item.stops)} stops`];
+      case 'commit': return [`${text(item.short)} ${text(item.date)} ${text(item.subject)}`];
+      case 'session': return [text(item.goal)];
+      case 'known-issue': return [text(item.title)];
+      default: return [text(item.text)];
+    }
+  }
+
+  function sectionExtras(id, section) {
+    const lines = [];
+    if (id === 'git' && typeof section.ahead === 'number') lines.push(`${section.ahead} commits not pushed`);
+    if (id === 'git' && typeof section.dirty === 'number') lines.push(`${section.dirty} tracked files with uncommitted changes`);
+    if (id === 'sessionOpenItems' && section.olderUnresolved) lines.push(`${section.olderUnresolved} more unresolved open items in older entries`);
+    if (id === 'releases' && section.version) lines.push(`version ${text(section.version)}`);
+    return lines;
+  }
+
+  function asOfLine(data) {
+    const commit = data.commit;
+    if (commit.branch === null) return `as of commit ${text(commit.short)} (detached HEAD)`;
+    const built = `${text(data.generatedAt).slice(0, 10)} ${text(data.generatedAt).slice(11, 16)}`;
+    return `as of commit ${text(commit.short)} on branch ${text(commit.branch)}, built ${built}`;
+  }
+
+  function renderItem(item, ctx) {
+    const node = el('li', { className: 'item', 'data-id': item.id });
+    itemLines(item).filter(Boolean).forEach((line, index) => node.appendChild(el('div', { className: index === 0 ? 'line' : 'line sub', text: line })));
+    if (item.visibility === PRIVATE) node.appendChild(el('span', { className: 'lock', title: 'only in your working tree: not committed', text: '🔒 not committed' }));
+    return node;
+  }
+
+  function renderSection(id, section, ctx) {
+    const card = el('article', { className: 'card', 'data-section': id }, [el('h2', { text: TITLES[id] || id })]);
+    if (!section) {
+      card.appendChild(el('p', { className: 'muted', text: 'not in this data' }));
+      return card;
+    }
+    if (section.status !== STATUS_OK) card.appendChild(el('p', { className: `status ${text(section.status)}`, text: section.note ? `${text(section.status)}: ${text(section.note)}` : section.status }));
+    else if (section.note) card.appendChild(el('p', { className: 'muted', text: section.note }));
+    sectionExtras(id, section).forEach((line) => card.appendChild(el('p', { className: 'muted', text: line })));
+    if (section.status === STATUS_OK && !section.items.length) card.appendChild(el('p', { className: 'muted', text: 'nothing here' }));
+    if (section.items.length) card.appendChild(el('ul', { className: 'items' }, section.items.map((item) => renderItem(item, ctx))));
+    return card;
+  }
+
+  function renderPage(ctx) {
+    const data = ctx.data;
+    document.getElementById('page-title').textContent = `${text(data.repo && data.repo.name)} dashboard`;
+    document.getElementById('as-of').textContent = asOfLine(data);
+    TABS.forEach((tab) => {
+      document.getElementById(tab.panel).replaceChildren(...tab.sections.map((id) => renderSection(id, data.sections[id], ctx)));
+    });
+  }
+
+  function selectTab(selected) {
+    TABS.forEach((tab) => {
+      const active = tab.tab === selected;
+      document.getElementById(tab.tab).setAttribute('aria-selected', String(active));
+      document.getElementById(tab.panel).hidden = !active;
+    });
+  }
+
+  function metaAudience() {
+    const meta = document.querySelector(AUDIENCE_META);
+    return meta ? meta.getAttribute('content') : null;
+  }
+
+  // The inline block of the local file, else the data file published with
+  // the page (fetched from the page's own origin).
+  async function loadData() {
+    const inline = document.getElementById(STATE_BLOCK);
+    if (inline) return JSON.parse(inline.textContent);
+    const response = await fetch(DATA_FILE, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`${DATA_FILE}: HTTP ${response.status}`);
+    return response.json();
+  }
+
+  function showError(message) {
+    const node = document.getElementById('load-error');
+    node.textContent = message;
+    node.hidden = false;
+  }
+
+  async function boot() {
+    // The private banner is permanent: it is shown before the data loads, so a
+    // load error or an audience mismatch still leaves it visible.
+    const audience = metaAudience();
+    if (audience === PRIVATE) document.getElementById('private-banner').hidden = false;
+    let data;
+    try {
+      data = await loadData();
+    } catch (error) {
+      showError(`The dashboard data could not be loaded: ${text(error && error.message)}`);
+      return;
+    }
+    if (data.audience !== audience) {
+      showError(`This data belongs to the ${text(data.audience)} page, not to this ${text(audience)} page; nothing is shown.`);
+      return;
+    }
+    const ctx = { data, canEdit: false, proposals: new Map(), store: null };
+    renderPage(ctx);
+    TABS.forEach((tab) => document.getElementById(tab.tab).addEventListener('click', () => selectTab(tab.tab)));
+  }
+
+  globalThis.DashboardApp = { itemLines, asOfLine, renderPage, renderSection, renderItem };
+  if (!globalThis.DASHBOARD_NO_BOOT) boot();
+})();
+</script>
+</body>
+</html>
