@@ -303,3 +303,7 @@ _Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — bra
 
 _Completed — 2026-09-30 — cap reached — HEAD 901f5607ee2fe0460c6332648882311f4eb3174e_
 Secrets found: none
+
+### Post-loop addendum 1 — 2026-09-30
+Effective HEAD unchanged (901f560, the completion marker's HEAD); no code change follows from the answer, so no new invocation runs and the marker stands.
+- [CF89] decided (orchestrator): plan governs: "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
