@@ -1323,7 +1323,7 @@ is a view of them, as of its last refresh.
 not track, and marks those items with a lock sign. The shared page shows only
 what is pushed to the remote repository. It reads only pushed content: one
 remote-tracking branch for its files, plus the names and run logs of the other
-pushed branches that have an upstream (a remote-tracking branch is the local
+pushed branches that have an upstream on the same remote as the shared branch (a remote-tracking branch is the local
 copy of a branch of the remote repository, such as `origin/main`, updated by
 `git fetch`). By default this is the upstream of your default
 branch (the remote-tracking branch that your default branch is set to follow).

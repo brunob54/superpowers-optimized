@@ -65,7 +65,9 @@ flatHas(SHARED_URL, 'Otherwise print no URL');
 // The audience check of a read page: a page with no audience tag is not a
 // dashboard page, and the check stops before any publish.
 const AUDIENCE_CHECK = 'audience check of a read page';
-const NO_TAG = 'When the page holds no such tag, stop, publish nothing, and say that the page at `<url>` is not a dashboard page.';
+const NO_TAG = 'When the page holds no `dashboard-audience` meta tag at all, stop, publish nothing, and say that the page at `<url>` is not a dashboard page.';
+const UNCHANGED = 'Publish the files that `--verify` checked unchanged';
+flatHas('publish step 4', UNCHANGED);
 const TAG_MATCHES = "When the tag matches, list the page's files";
 const OTHER_AUDIENCE = 'When the tag names the other audience, publish nothing.';
 flatHas(AUDIENCE_CHECK, NO_TAG);

@@ -11,8 +11,8 @@
 ## v7.55.0 — the dashboard skill: the repository's status on a claude.ai page
 
 **Problem.** What waited for the owner was spread over branches, orchestration
-logs, work logs and `session-log.md`; `/pickup` shows one run at a time, and
-no view showed them together or let the owner mark an item done.
+logs, work logs and `session-log.md`; `/pickup` lists only the unfinished runs of local branches and shows no work
+logs, open items or branch status, and no view showed them together or let the owner mark an item done.
 
 **Change.** A new `dashboard` skill publishes the status as a private
 claude.ai Artifact page (`refresh`), copies the owner's page edits back into
@@ -25,7 +25,8 @@ as before. Nothing to migrate.
 The status of a repository that uses this plugin lives in many places: the
 orchestration logs on feature branches, the work logs under `docs/worklogs/`,
 the `Open:` lists of `session-log.md`, `state.md`, the release notes and git
-itself. `/pickup` finds one unfinished run for the next session; nothing showed
+itself. `/pickup` lists only the unfinished runs of local branches and shows no work
+logs, open items or branch status; nothing showed
 all of it at once, and nothing let the owner close an item without editing the
 file by hand.
 
@@ -42,7 +43,7 @@ a diff, writes only the changes that the owner accepts, and never commits; a
 change to a tracked file is refused while an orchestrated run holds the
 repository. `share` publishes a second page that reads only pushed content: one
 remote-tracking branch for its files, plus the names and run logs of the other
-pushed branches that have an upstream, never the working folder; on Pro and Max plans such a
+pushed branches that have an upstream on the same remote as the shared branch, never the working folder; on Pro and Max plans such a
 page can be shared only by a public link, so `share` warns first. `local`
 writes a read-only HTML file for a session that cannot publish.
 

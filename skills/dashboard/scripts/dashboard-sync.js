@@ -319,9 +319,12 @@ function readBytes(full) {
   }
 }
 
-function readText(full) {
-  const bytes = readBytes(full);
+function bytesText(bytes) {
   return bytes && bytes.toString(UTF8);
+}
+
+function readText(full) {
+  return bytesText(readBytes(full));
 }
 
 function fullPath(env, file) {
@@ -434,18 +437,27 @@ function printApplied(entry) {
   else printVerdict(entry.proposal, entry.result);
 }
 
+// Prints the "not written" line for <file> (detail follows the file name),
+// sets the failure exit code and returns the applyFile result of a file that
+// was not written.
+function notWritten(file, detail) {
+  console.log(`not written: ${file}${detail}`);
+  process.exitCode = 1;
+  return { written: false };
+}
+
 // Writes every unique proposal of one file in one write (spec section 8 step
 // 5). Returns { written, tracked }: whether the file was written, and whether
 // git tracks it. The tracked flag comes from the check that ran before the
-// write, so no git command runs after a write and a git failure cannot hide a
-// written file.
+// write, so no git command runs for this file after its write and a git
+// failure cannot hide a written file.
 function applyFile(env, file, group) {
   const full = fullPath(env, file);
   const safe = parse.isInside(full, env.top) && !isSymlink(full);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const before = statOf(full);
     const bytes = safe ? readBytes(full) : null;
-    const raw = bytes && bytes.toString(UTF8);
+    const raw = bytesText(bytes);
     const results = group.map((proposal) => ({ proposal, result: evaluate(proposal, env, () => raw) }));
     const taken = new Set();
     results.forEach((entry) => {
@@ -469,16 +481,12 @@ function applyFile(env, file, group) {
     try {
       fs.renameSync(temp, full);
     } catch (error) {
-      console.log(`not written: ${file}: ${error.message}; the new text is kept in ${temp}`);
-      process.exitCode = 1;
-      return { written: false };
+      return notWritten(file, `: ${error.message}; the new text is kept in ${temp}`);
     }
     results.forEach(printApplied);
     return { written: true, tracked: writes[0].result.tracked };
   }
-  console.log(`not written: ${file} changed ${MAX_ATTEMPTS} times while the sync read it`);
-  process.exitCode = 1;
-  return { written: false };
+  return notWritten(file, ` changed ${MAX_ATTEMPTS} times while the sync read it`);
 }
 
 // The report of each file is printed as soon as the file is written, before

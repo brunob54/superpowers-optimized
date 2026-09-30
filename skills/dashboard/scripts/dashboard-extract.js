@@ -78,7 +78,7 @@ const KIND = {
 const ENTRY = { file: 'file', dir: 'dir', symlink: 'symlink', other: 'other' };
 const FILES = { state: 'state.md', knownIssues: 'known-issues.md', version: 'VERSION', packageJson: 'package.json' };
 const RELEASE_FILES = ['RELEASE-NOTES.md', 'CHANGELOG.md'];
-const RELEASE_HEADING = /^## (v\S+|\[[^\]]+\])/;
+const RELEASE_HEADING = /^## (v\d\S*|\[[^\]]+\])/;
 const RELEASE_LIMIT = 15;
 const SESSION_ENTRIES = 10;
 const GOAL_LIMIT = 300;
@@ -119,8 +119,8 @@ function repoTop() {
 
 // ---- state folder and config.json ----
 
-function stateDir(dataDir) {
-  const top = fs.realpathSync(repoTop());
+function stateDir(dataDir, repoTopDir) {
+  const top = fs.realpathSync(repoTopDir);
   const hash = crypto.createHash('sha1').update(top, 'utf8').digest('hex').slice(0, KEY_HEX_DIGITS);
   return path.join(dataDir, STATE_ROOT, `${path.basename(top)}-${hash}`);
 }
@@ -153,12 +153,12 @@ function setConfig(config, assignment) {
   config[key] = value;
 }
 
-function stateCommand(args) {
+function stateCommand(args, repoTopDir) {
   const dataDir = args['--data-dir'];
   if (!dataDir || dataDir.includes(DATA_DIR_UNSET)) {
     stop('the plugin data folder is not set (the --data-dir argument is empty or was not substituted); refresh, sync and share need it, local does not');
   }
-  const dir = stateDir(dataDir);
+  const dir = stateDir(dataDir, repoTopDir);
   if (args.flags.has('--state-dir')) {
     fs.mkdirSync(dir, { recursive: true });
     console.log(dir);
@@ -284,6 +284,18 @@ function okSection(items, extra) {
   return Object.assign({ status: STATUS.ok, note: '', items }, extra || {});
 }
 
+function notFoundSection(id, file) {
+  return { [id]: notFound(file) };
+}
+
+function remoteRef(name) {
+  return `${REMOTES}${name}`;
+}
+
+function remoteName(ref) {
+  return ref.slice(REMOTES.length);
+}
+
 function notFound(file) {
   return { status: STATUS.notFound, note: `${file} not found`, items: [] };
 }
@@ -352,7 +364,7 @@ function localBranches(context) {
 // the shared ref: the shared run never shows a branch pushed only to another
 // remote.
 function onSharedRemote(context, upstream) {
-  return upstream.startsWith(`${REMOTES}${context.remote}/`);
+  return upstream.startsWith(`${remoteRef(context.remote)}/`);
 }
 
 // The remote of the shared ref <name> (<remote>/<branch>): the one name in
@@ -376,7 +388,7 @@ function sharedBranches(context) {
     const merged = context.base ? isAncestor(upstream, context.base) : false;
     if (merged === null) throw new Error('git merge-base failed');
     if (merged) continue;
-    const shown = upstream.slice(REMOTES.length);
+    const shown = remoteName(upstream);
     const date = must(['log', '-1', '--format=%cd', '--date=short', upstream]);
     items.push(keyItem(context, SECTION.git, shown, null, { kind: KIND.branch, name: shown, date }));
   }
@@ -429,7 +441,7 @@ function sessionLog(context) {
 
 function currentGoal(context) {
   const text = context.source.read(FILES.state);
-  if (text === null) return { [SECTION.currentGoal]: notFound(FILES.state) };
+  if (text === null) return notFoundSection(SECTION.currentGoal, FILES.state);
   const lines = parse.splitLines(text);
   const section = parse.findSection(lines, CURRENT_GOAL, 1);
   const body = section ? lines.slice(section.index + 1, section.end) : [];
@@ -467,7 +479,7 @@ function releases(context) {
 
 function knownIssues(context) {
   const text = context.source.read(FILES.knownIssues);
-  if (text === null) return { [SECTION.knownIssues]: notFound(FILES.knownIssues) };
+  if (text === null) return notFoundSection(SECTION.knownIssues, FILES.knownIssues);
   const lines = parse.splitLines(text);
   const items = parse.headings(lines).map((section) => lineItem(context, FILES.knownIssues, lines, section, section.index, {
     kind: KIND.knownIssue,
@@ -478,7 +490,7 @@ function knownIssues(context) {
 
 function runHistory(context) {
   const entries = context.source.entries(LOG_ROOT);
-  if (entries === null) return { [SECTION.runHistory]: notFound(LOG_ROOT) };
+  if (entries === null) return notFoundSection(SECTION.runHistory, LOG_ROOT);
   const items = [];
   for (const entry of entries) {
     const match = entry.kind === ENTRY.dir ? entry.name.match(TOPIC_NAME) : null;
@@ -600,7 +612,7 @@ function commitMeta(context) {
   return {
     sha,
     short: sha.slice(0, 7),
-    branch: context.shared ? context.ref.slice(REMOTES.length) : (current === DETACHED ? null : current),
+    branch: context.shared ? remoteName(context.ref) : (current === DETACHED ? null : current),
     ref: context.ref,
     defaultBranch: context.shared ? null : defaultBranch(),
   };
@@ -618,10 +630,9 @@ function buildSections(context) {
   return sections;
 }
 
-function extract(audience, sharedName) {
-  const top = repoTop();
+function extract(audience, sharedName, top) {
   const shared = audience === AUDIENCE.shared;
-  const ref = shared ? `${REMOTES}${sharedName}` : HEAD_REF;
+  const ref = shared ? remoteRef(sharedName) : HEAD_REF;
   // base: the ref against which the shared run decides "merged" (null: no
   // merge exclusion). The private run does not use it.
   const context = {
@@ -668,7 +679,7 @@ function defaultUpstream() {
 function printDefaultSharedRef() {
   const upstream = defaultUpstream();
   if (!upstream) stop('the default branch has no upstream that counts (a remote-tracking ref of the same name); give --ref <remote>/<branch>');
-  const name = upstream.slice(REMOTES.length);
+  const name = remoteName(upstream);
   requireSharedRefForm(name, `the upstream ${name}`);
   console.log(name);
 }
@@ -679,7 +690,7 @@ function requireSharedRefForm(name, label) {
 
 function checkSharedRef(name) {
   requireSharedRefForm(name, `--check-shared-ref ${name}`);
-  if (!localBranchNames().some((branch) => countedUpstream(branch) === `${REMOTES}${name}`)) {
+  if (!localBranchNames().some((branch) => countedUpstream(branch) === remoteRef(name))) {
     stop(`${name} is not the upstream of a local branch of the same name`);
   }
   console.log(`ok ${name}`);
@@ -700,18 +711,19 @@ function checkSharedName(name) {
   requireSharedRefForm(name, `--ref ${name}`);
   // The exact-name check: rev-parse would also accept a local branch or tag
   // named refs/remotes/<name> (git's name guessing).
-  if (!git(['show-ref', '--verify', '--quiet', `${REMOTES}${name}`]).ok) stop(`the shared ref ${name} no longer exists; nothing is published`);
-  if (!git(['rev-parse', '--verify', '--quiet', `${REMOTES}${name}^{commit}`]).ok) stop(`the shared ref ${name} is not a commit; nothing is published`);
+  if (!git(['show-ref', '--verify', '--quiet', remoteRef(name)]).ok) stop(`the shared ref ${name} no longer exists; nothing is published`);
+  if (!git(['rev-parse', '--verify', '--quiet', `${remoteRef(name)}^{commit}`]).ok) stop(`the shared ref ${name} is not a commit; nothing is published`);
 }
 
 function main() {
   const args = parse.parseArguments(process.argv.slice(2), OPTIONS, stop);
   const state = gitState();
   if (state !== GIT_OK) stop(state === GIT_NO_COMMITS ? 'the repository has no commit yet' : 'this folder is not inside a git repository');
+  const top = repoTop();
   // SKILL.md passes --data-dir on every command (Global Constraint 10); only a
   // state option makes the command a state command.
   if (args.flags.has('--state-dir') || args.flags.has('--config') || args['--config-set'] !== undefined) {
-    stateCommand(args);
+    stateCommand(args, top);
     return;
   }
   if (args['--remote-url'] !== undefined) {
@@ -730,8 +742,8 @@ function main() {
   if (!Object.values(AUDIENCE).includes(audience)) stop('--audience must be private or shared');
   if (audience === AUDIENCE.shared) checkSharedName(args['--ref']);
   const out = args['--out'];
-  if (out && parse.isInside(out, repoTop())) stop(`--out ${out} lies inside the repository; write into the session scratchpad folder`);
-  writeDocument(extract(audience, args['--ref']), out);
+  if (out && parse.isInside(out, top)) stop(`--out ${out} lies inside the repository; write into the session scratchpad folder`);
+  writeDocument(extract(audience, args['--ref'], top), out);
 }
 
 main();

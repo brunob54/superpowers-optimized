@@ -28,7 +28,7 @@ says are owed to manual acceptance.
 
 | # | Check | What to observe | Result |
 |---|---|---|---|
-| 1 | `${CLAUDE_PLUGIN_DATA}` is substituted in skill text, for the installed plugin | After step 0, run `/superpowers-orchestrator:dashboard` and read where it says it keeps the page URL: the path is not empty and holds no `${` | |
+| 1 | `${CLAUDE_PLUGIN_DATA}` is substituted in skill text, for the installed plugin | After step 0, run the `--state-dir` command of the `refresh` precondition step 3 (the state command of `skills/dashboard/SKILL.md`) and read its output, the folder where the page URL is kept: the path is not empty and holds no `${` | |
 | 4 | The page's proposals can be queried with a filter on `state` from a later session | In a new session, ask Claude to list the proposals of the page with state `pending` or `applying` (this happens in step 4): only the pending edit is listed, not an applied one | |
 | 6 | The page fetches its `files` file (page fetch) | Load the private page as the owner: the data shown on the page comes from `dashboard-data.json` (the "as of" line and the items are filled, no load error) | |
 | 6 | A listing is enough in a new session (new session) | In a new session, `refresh` or `sync` lists the published files of the page and does not need the file text: it names `index.html` and `dashboard-data.json` with their sizes | |

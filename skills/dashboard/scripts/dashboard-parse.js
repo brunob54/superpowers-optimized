@@ -248,6 +248,7 @@ function listingName(name) {
 }
 
 // A local time with its UTC offset, for example 2026-09-29T00:30:00+02:00.
+// The page keeps a copy of this function in skills/dashboard/template.html.
 function localIso(date) {
   const pad = (n) => String(n).padStart(2, '0');
   const offset = -date.getTimezoneOffset();

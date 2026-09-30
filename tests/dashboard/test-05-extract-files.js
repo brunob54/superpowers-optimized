@@ -127,10 +127,10 @@ h.commit(c, 'base', ['package.json', 'CHANGELOG.md']);
 const cs = extract(c).releases;
 h.eq('CHANGELOG.md and package.json are the fallbacks', [cs.version, cs.file, cs.items.map((i) => i.heading)], ['2.3.4', 'CHANGELOG.md', ['## [2.3.4] - 2026-01-01', '## [2.3.3] - 2025-12-01']]);
 const nm = h.repo('no-match');
-h.write(nm, 'RELEASE-NOTES.md', '# Notes\n\n## Something else\n');
+h.write(nm, 'RELEASE-NOTES.md', '# Notes\n\n## Something else\n\n## vendor notes\n');
 h.commit(nm, 'base', ['RELEASE-NOTES.md']);
 const ns = extract(nm).releases;
-h.eq('a release file with no release heading gives a note', [ns.status, ns.items.length, /no release heading/.test(ns.note)], ['ok', 0, true]);
+h.eq('a release file with no release heading (`## vendor notes` is not one) gives a note', [ns.status, ns.items.length, /no release heading/.test(ns.note)], ['ok', 0, true]);
 
 // A work log whose read fails is listed with a note, never dropped.
 const u = h.repo('unreadable');

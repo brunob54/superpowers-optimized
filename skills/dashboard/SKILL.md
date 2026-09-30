@@ -117,7 +117,7 @@ audience (`privateUrl` or `sharedUrl`).
    read it with the Artifact tool (`action: "read"`). A failed read is the
    case "The stored URL no longer works" below. The returned HTML must hold
    `<meta name="dashboard-audience" content="<audience>">`. When the page
-   holds no such tag, stop, publish nothing, and say that the page at
+   holds no `dashboard-audience` meta tag at all, stop, publish nothing, and say that the page at
    `<url>` is not a dashboard page. When the tag matches, list the page's
    files with the Artifact tool (`action: "list"`, `scope: "files"`); a
    listing returns no file content. When the tag names
@@ -154,7 +154,8 @@ audience (`privateUrl` or `sharedUrl`).
    carries a PARTIAL notice, Read again with the `offset` and `limit` that the
    notice names (halve the `limit` when a call is refused for its size), until
    a result carries no PARTIAL notice. Never act on a first page alone.
-4. Publish:
+4. Publish the files that `--verify` checked unchanged: the design guidance
+   of `artifact-design` changes none of them.
    - `<url>` stored: publish with `url` `<url>`, `file_path`
      `<dir>/index.html` and `files` `{"dashboard-data.json": "<dir>/dashboard-data.json"}`.
      Pass no `contract`, no `capabilities` and no `icon`.
