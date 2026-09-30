@@ -90,3 +90,14 @@ _Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — bra
 - [CF78] carried — task 15 owed rows not in order (ship-as-is)
 - [CF79] carried — task 15 index.html size not recorded (ship-as-is)
 - [CF80] carried — task 16 "Eighteen releases" stale (ship-as-is)
+
+## Round 2 — Adversarial red-team — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 5 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — SKILL.md "Publish one audience" step 3 assumed one Read returns the whole data file (about 23,734 of 25,000 tokens on this repository); added the PARTIAL-notice paging rule → e79e72c
+- [M1] carried — the `dashboard` rule of hooks/skill-rules.json matches ordinary application requests ("update the dashboard to show weekly revenue per region"); same root as round 1 [CF74]
+- [M2] rejected: duplicate of round 1 [CF6] (user-decision) — a pending part change cannot be undone from the page (template.html `changesSomething`)
+- [M3] fixed — a proposal left `applying` by an interrupted sync was never reset when the new check did not apply it; SKILL.md sync step 6 now returns it to `pending` → e79e72c
+- [M4] fixed — `--batches … applying` and `--apply` exit 2 on an empty id list and step 5 stopped the sync, losing rejections and applied records; steps 4 and 5 now skip an empty list → e79e72c
+- [M5] carried — a line holding a tab gets edit controls on the page but every proposal for it is `invalid` at sync; same root as round 1 [CF56]
