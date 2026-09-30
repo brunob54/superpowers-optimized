@@ -3531,7 +3531,7 @@ git commit -m "feat(dashboard): let the owner propose edits on the private page"
   - Invariants: exit 2 and no file when the JSON audience differs from `--audience`, when `--local` gets a shared JSON, or when `--out` lies inside the repository of the working folder (Global Constraint 5); the inline block cannot be ended by a value (Global Constraint 3); a private item never reaches a shared page file (Global Constraint 7).
   - Verification: `node tests/dashboard/test-09-render.js` (with spec section 11 "Privacy" cases 1 and 9, and "Markup in data" for the local file).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/dashboard/test-09-render.js`:
 
@@ -3636,12 +3636,12 @@ h.eq('--out inside the repository stops, no file', [inside.code, fs.existsSync(p
 h.finish();
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-09-render.js`
 Expected: FAIL — exit 1 with `ENOENT` naming `index.html` (the renderer does not exist, so no file was written).
 
-- [ ] **Step 3: Create the renderer**
+- [x] **Step 3: Create the renderer**
 
 Create `skills/dashboard/scripts/dashboard-render.js`:
 
@@ -3837,12 +3837,12 @@ function main() {
 main();
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-09-render.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-render.js tests/dashboard/test-09-render.js
