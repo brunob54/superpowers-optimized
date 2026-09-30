@@ -106,3 +106,7 @@ Items: [CF89] forced — plan governs: "The README release list item (wording ar
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: none — contradiction: none
 Re-dispatch: phase 4, in-run resume 2 of 3, return 2 of 6
+
+## Phase 4 — Code review — rounds 8 (invocations 1–2) — cap — fixes 9 — unresolved 0
+
+_Completed — 2026-09-30 — HEAD 952bf51_
