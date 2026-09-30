@@ -52,3 +52,13 @@ Command: bash tests/dashboard/run-tests.sh (exit code 0)
 Findings addressed: CF5, I1.
 
 Commands: `bash tests/dashboard/run-tests.sh` (exit 0, "dashboard suite: every test file passed", last file 102 passed, 0 failed) and `bash tests/pickup/run-tests.sh` (Results: 207 passed, 0 failed).
+
+## Round 5
+
+Findings addressed: CF17, CF23, CF25, CF27, CF42, CF62, CF63, CF72, CF81, M1, M2, M3.
+
+Command: `bash tests/dashboard/run-tests.sh`
+Output (end): `103 passed, 0 failed` / `dashboard suite: every test file passed`
+
+Command: `bash tests/reviewer-templates/run-tests.sh`
+Output (end): `Results: 272 passed, 0 failed`

@@ -162,3 +162,101 @@ Effective HEAD had moved past the completion marker (e1b13da → e4d5038, plan a
 - [I1] (round 3) fixed — shared run keeps a counted upstream only on the shared ref's own remote (exact match against `git remote`, ambiguous match exits 2) in `sharedBranches` and `scanRuns`; test-06 two-remote case; SKILL.md Known limits bullet → 5bceb8f91c1ef497e79a60df0b379ba956988b71
 
 _Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — branch feature/dashboard — gate: orchestration_
+
+## Round 5 — Correctness & spec alignment — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 4 Minor
+**Converged:** no
+### Dispositions
+- [M1] fixed — manual-acceptance.md owed check 1 pointed at a bare skill call that prints no path; now points at the `refresh` precondition's state-folder output → 85f69ad
+- [M2] fixed — RELEASE-NOTES.md and docs/guide/README.md did not say the shared page lists only upstreams on the shared ref's own remote (Amendment 14) → 85f69ad
+- [M3] fixed — RELEASE-NOTES.md said `/pickup` shows one run; it lists every unfinished run of local branches → 85f69ad
+- [M4] carried — dashboard-sync.js `findPartTarget` finds the row by its first cell while the extractor uses the header's `#` column; follows spec section 8 step 2.5 wording, fails safe (`none`)
+- [CF1] carried — task 1 row 5 Verdict cell lacks `owed to manual acceptance` (ship-as-is)
+- [CF2] carried — task 1 row 5 "No declaration" vs `"user":{}` (ship-as-is)
+- [CF3] carried — task 1 row 5 wrong cause for "not stored" (ship-as-is)
+- [CF4] carried — task 1 row 9 does not name its ruling (ship-as-is)
+- [CF5] carried — task 1 row 2 quotes "..." (ship-as-is)
+- [CF6] carried — task 2 module-level `scanErrors` (ship-as-is)
+- [CF7] carried — task 2 `countedUpstream` cannot tell no-upstream from error (ship-as-is)
+- [CF8] carried — task 2 `addRemote` ignores the `git init --bare` status (ship-as-is)
+- [CF9] carried — task 2 test-01 `errors.length >= 1` (ship-as-is)
+- [CF10] carried — task 2 EXIT_* constants mid-file (ship-as-is)
+- [CF11] carried — task 2 pickup-scan runs `git log -1` twice (ship-as-is)
+- [CF12] carried — task 3 `realPath` and a dangling link (ship-as-is)
+- [CF13] carried — task 3 `isInside` at the file-system root (ship-as-is)
+- [CF14] carried — task 3 test-02 time zone not pinned (ship-as-is)
+- [CF15] carried — task 3 test-02 constants restated (ship-as-is)
+- [CF16] carried — task 3 repeated value option kept silently (ship-as-is)
+- [CF17] fixed — task 4 `rev-parse --show-toplevel` computed once (fix-before-merge) → 85f69ad
+- [CF18] carried — task 4 state key vs `repo.name` basename (ship-as-is; decided in Invocation 1 addendum 1 [CF3])
+- [CF19] carried — task 4 Task 5 helpers untested until Task 5 (ship-as-is)
+- [CF20] carried — task 4 `--config-set` on a JSON array (ship-as-is)
+- [CF21] carried — task 5 BOM/CRLF tested for state.md only (ship-as-is)
+- [CF22] carried — task 5 bare `Goal:` gives no session item (ship-as-is)
+- [CF23] fixed — task 5 RELEASE_HEADING now requires a digit after `v` (fix-before-merge) → 85f69ad
+- [CF24] carried — task 5 `.slice(0, 300)` can split a surrogate pair (ship-as-is)
+- [CF25] fixed — task 5 repeated `notFound` section returns now one helper (fix-before-merge) → 85f69ad
+- [CF26] carried — task 6 symbolic-link check in `refSource.read` untested (ship-as-is)
+- [CF27] fixed — task 6 `remoteRef`/`remoteName` helpers replace the repeated `REMOTES` expressions (fix-before-merge) → 85f69ad
+- [CF28] carried — task 6 inapplicable options ignored silently (ship-as-is)
+- [CF29] carried — task 6 `isAncestor` appends to an earlier scan's errors (ship-as-is)
+- [CF30] carried — task 6 security M2 gitlink in upstream mode (ship-as-is; outside the supported environment)
+- [CF31] carried — task 6 security M3 `repo.name` is the user name when the root is the home folder; reviewer recommended user-decision, but this item was already decided in this run: Invocation 1 addendum 1 [CF4] decided (orchestrator): plan governs
+- [CF32] carried — task 6 security M4 "pushed" includes a local-folder remote (ship-as-is)
+- [CF33] carried — task 7 a renderPage throw leaves a blank page (ship-as-is)
+- [CF34] carried — task 7 test-07 fetch and load-error cases (ship-as-is)
+- [CF35] carried — task 7 test-07:30 check cannot fail (ship-as-is)
+- [CF36] carried — task 7 visible h1 lacks the audience word (ship-as-is)
+- [CF37] carried — task 7 security #1/#2/#3/#5 (ship-as-is)
+- [CF38] carried — task 8 cached re-read accepted (ship-as-is; fixed by 5bceb8f, Invocation 1 addendum 1 [CF5])
+- [CF39] carried — task 8 a pending status cannot be withdrawn from the page; reviewer recommended user-decision, but this item was already decided in this run: Invocation 1 addendum 1 [CF6] decided (orchestrator): plan governs
+- [CF40] carried — task 8 empty Status cell gives " (current)" (ship-as-is)
+- [CF41] carried — task 8 `use('user')` null shows the viewer warning (ship-as-is)
+- [CF42] fixed — task 8 `localIso` comment in dashboard-parse.js now names the page copy (fix-before-merge) → 85f69ad
+- [CF43] carried — task 8 security #5 NOTE_FORBIDDEN (ship-as-is; already fixed)
+- [CF44] carried — task 9 test-09 symbolic link skip path (ship-as-is; already fixed)
+- [CF45] carried — task 9 `trackedOnly` unguarded (ship-as-is)
+- [CF46] carried — task 9 `--diff` crash on a previous JSON without items (ship-as-is)
+- [CF47] carried — task 9 two refusal reasons for invalid JSON (ship-as-is)
+- [CF48] carried — task 9 `--local` ignores `--audience` (ship-as-is)
+- [CF49] carried — task 9 `realpathSync.native` untried on Windows (ship-as-is)
+- [CF50] carried — task 9 base test not run RED first (ship-as-is)
+- [CF51] carried — task 9 security #2/#4/#8/#7 (ship-as-is)
+- [CF52] carried — task 10 security #5 `resolve-open-item` (ship-as-is)
+- [CF53] carried — task 10 security #6 `set-part` target (ship-as-is)
+- [CF54] carried — task 10 CREATED_AT accepts impossible dates (ship-as-is)
+- [CF55] carried — task 10 tab-indented anchor gives an unclear reason (ship-as-is)
+- [CF56] carried — task 10 raw ids in the stop message (ship-as-is)
+- [CF57] carried — task 10 any run-scan error stops the check (ship-as-is)
+- [CF58] carried — task 10 test 7e guard not asserted (ship-as-is)
+- [CF59] carried — task 10 literal invisible characters in the tests (ship-as-is; already fixed)
+- [CF60] carried — task 10 two blank lines (ship-as-is)
+- [CF61] carried — task 11 no `proposal` line on a failed rename (ship-as-is)
+- [CF62] fixed — task 11 `applyFile` repeated not-written block now a `notWritten` helper (fix-before-merge) → 85f69ad
+- [CF63] fixed — task 11 `applyFile` comment made literally true (fix-before-merge) → 85f69ad
+- [CF64] carried — task 11 test-11 gaps (ship-as-is)
+- [CF65] carried — task 11 security #3 size+mtime guard (ship-as-is)
+- [CF66] carried — task 11 security #4 umask (ship-as-is)
+- [CF67] carried — task 11 security #5 uncaught file-system errors (ship-as-is)
+- [CF68] carried — task 11 security #7 folder swap race (ship-as-is)
+- [CF69] carried — task 11 security #9 duplicate `--batches` records (ship-as-is)
+- [CF70] carried — task 11 security #10 test hook variable (ship-as-is)
+- [CF71] carried — task 11 security #11 no fsync (ship-as-is)
+- [CF72] fixed — task 12 SKILL.md "no such tag" now "no `dashboard-audience` meta tag at all"; test-12 phrase updated (fix-before-merge) → 85f69ad
+- [CF73] carried — task 12 no-tag stop names no next step (ship-as-is)
+- [CF74] carried — task 12 no command clears a wrong privateUrl (ship-as-is)
+- [CF75] carried — task 12 first `share` writes no shared.json (ship-as-is)
+- [CF76] carried — task 12 remote name with `/` (ship-as-is)
+- [CF77] carried — task 12 `git remote get-url` token (ship-as-is; fixed by 474279b)
+- [CF78] carried — task 12 test-12 reads platform-checks.md (ship-as-is)
+- [CF79] carried — task 12 security #3 exact URL comparison (ship-as-is)
+- [CF80] carried — task 12 security #7 `--check-shared-ref` form (ship-as-is)
+- [CF81] fixed — task 12 "Publish one audience" step 4 now says the verified files are published unchanged (fix-before-merge) → 85f69ad
+- [CF82] carried — task 13 intent pattern matches "update the dashboard for sales data" (ship-as-is)
+- [CF83] carried — task 13 report gives no log path (ship-as-is)
+- [CF84] carried — task 14 over-long guide lines (ship-as-is)
+- [CF85] carried — task 14 "stash", "tracks", "LLM" (ship-as-is; already fixed)
+- [CF86] carried — task 14 long README bullet (ship-as-is)
+- [CF87] carried — task 15 owed rows not in order (ship-as-is)
+- [CF88] carried — task 15 index.html size not recorded (ship-as-is)
+- [CF89] user-decision — task 16 README.md "Eighteen releases beyond the REPOZY v6.6.1 baseline" was stale before this branch and is outside the plan (the release task adds one list item only) — at README.md:28 — clause: Task 16 "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`."
