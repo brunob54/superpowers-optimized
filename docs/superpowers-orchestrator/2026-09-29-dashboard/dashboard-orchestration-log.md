@@ -55,3 +55,9 @@ Items: [task 1/3] design — amend plan: Task 8 Contract — on the page side, "
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## RULING 8 — 2026-09-30 — phase 3 — The shared page decides "merged" against the default branch's counted upstream
+Items: [task 2/2] design — amend plan: Task 6 Contract — the shared run decides "merged" against the counted upstream of the default branch (a remote-tracking ref of the same name, as `--default-shared-ref` prints it), never against the shared ref: `unfinishedRuns` comes from `scanRuns({ refs: 'upstream', base: <counted upstream of the default branch> })`, and the `git` section leaves out the shared ref itself by name and the upstreams merged into that same base; when there is no default branch or it has no counted upstream, no merge exclusion applies (spec section 5, Tab 1: "When there is no default branch, `git-runs.js` scans every `feature/*` branch"); Assumption 20 and the Task 6 reference code and comments follow; test-06 gains a case that shares `origin/feature/run` with a pushed `## STOPPED` heading and expects that run in `unfinishedRuns`; the Task 2 Contract does not change
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6

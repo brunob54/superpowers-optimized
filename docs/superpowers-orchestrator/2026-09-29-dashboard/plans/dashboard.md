@@ -17,7 +17,7 @@
 - Assumes one more library file is allowed next to the spec's six units: `skills/dashboard/scripts/dashboard-parse.js` holds the parsing rules that both the extractor and the sync script need (line and heading normalization, item ids, table rows, open items, the Node copy of the work-log rules) — will NOT keep one definition of these rules otherwise (the user's DRY rule; the sync script must find exactly the line that the extractor anchored).
 - Assumes the extractor owns every access to the state folder, because the spec gives the writing of `config.json` to no unit: besides `--data-dir <path> --state-dir` it gets `--config`, `--config-set <key>=<value>`, `--default-shared-ref` and `--check-shared-ref <ref>` — will NOT need the model to write files outside the repository with the Write tool.
 - Assumes `git-runs.js` may export more than the four functions that the spec names (`git`, `gitRaw`, `gitLines`, `lines`, `countedUpstream`, `isAncestor` and shared constants), and that a run object may carry more fields than the spec lists (`topic` per log, `files`, `lastCommitTime`) — pickup needs `topic` and `files` for its `resume:` line, and the extractor needs `lastCommitTime` for the 24-hour mark.
-- Assumes the shared run decides "merged" with the shared ref (an upstream that is an ancestor of the shared ref is merged), never with the local merge state — will NOT show an unfinished run whose upstream is already merged into the pushed default branch.
+- Assumes the shared run decides "merged" against the counted upstream of the default branch (a remote-tracking ref of the same name, the ref whose `<remote>/<branch>` name `--default-shared-ref` prints: an upstream that is an ancestor of it is merged), never against the shared ref and never with the local merge state; when there is no default branch or the default branch has no counted upstream, no merge exclusion applies (spec section 5, Tab 1) — will NOT show an unfinished run whose upstream is already merged into the pushed default branch, and will NOT hide the run of a shared feature ref, whose upstream is the shared ref itself.
 - Assumes the count of "tracked files with uncommitted changes" is `git status --porcelain --untracked-files=no` — the same lines as `git status --porcelain` without those that start with `??` (spec section 5.2).
 - Assumes the page's detached-`HEAD` line is exactly `as of commit <short> (detached HEAD)`, with no "built" part, as spec section 5.2 writes it.
 - Assumes `frontend-design` keeps the keyword `dashboard` and the intent pattern `(build|create|make|design)\s+(a\s+)?(ui|frontend|website|page|dashboard|component)` in `hooks/skill-rules.json` — the new rule therefore matches only the verbs of this skill (refresh, update, publish, sync, share) plus `project dashboard` / `status dashboard`, so "build a dashboard" keeps routing to `frontend-design`.
@@ -2186,6 +2186,8 @@ git commit -m "feat(dashboard): extract the session log, work logs, releases and
 
 ### Task 6: The extractor — the shared audience
 
+> **Amendment 8 (orchestrator ruling):** opening words "Output: the document of spec section 5.1 with `audience` `shared`" — the Output clause said that `unfinishedRuns` came from `scanRuns({ refs: 'upstream', base: <ref> })`, with `<ref>` the shared ref, and that `git` left out "the shared ref itself and upstreams merged into it"; it now names `<base>`, the counted upstream of the default branch, as the merge base of both sections, keeps the name check that leaves the shared ref itself out of `git`, and makes `<base>` `null` (no merge exclusion) when there is no default branch or the default branch has no counted upstream; Task 2's `scanRuns` already skips its ancestor check when `base` is missing, so the Task 2 Contract does not change. Why: `git merge-base --is-ancestor X X` succeeds, so with the shared ref as base a page made with `share --ref origin/feature/x` left out the run of `feature/x` itself, also when that run was stopped; spec section 5 defines an unfinished run against the default branch only. Assumption 20 is reworded in the same way. Step 3 follows: `extract` puts `base` into the context from the new helper `defaultUpstream()`, which `printDefaultSharedRef` now also uses, and `unfinishedRuns` and `sharedBranches` use `context.base`; test-06 gains a repository that shares `origin/feature/run` with a pushed `## STOPPED` heading: the run is listed, is left out once it is merged into `origin/main`, and is listed again when `main` has no counted upstream. Reason: ruling 8, item [task 2/2].
+
 **Files:**
 - Modify: `skills/dashboard/scripts/dashboard-extract.js`
 - Create: `tests/dashboard/test-06-privacy.js`
@@ -2198,7 +2200,7 @@ git commit -m "feat(dashboard): extract the session log, work logs, releases and
 **Contract:**
 - The shared audience of `dashboard-extract.js` (code artifact)
   - Inputs: `--audience shared --ref <remote>/<branch> [--out <file>]`; `--default-shared-ref`; `--check-shared-ref <remote>/<branch>`.
-  - Output: the document of spec section 5.1 with `audience` `shared`, `commit.ref` `refs/remotes/<remote>/<branch>`, `commit.branch` `<remote>/<branch>`, `commit.defaultBranch` `null`; files are read only with `git show <ref>:<path>`, after `git ls-tree <ref>` names the entry as a blob that is not a symbolic link, folders and file lists only from `git ls-tree <ref>`, symbolic links (mode `120000`) skipped; `unfinishedRuns` from `scanRuns({ refs: 'upstream', base: <ref> })`; `git` lists only local branches whose upstream counts (Global Constraint 7), named and dated from that upstream, the shared ref itself and upstreams merged into it excluded, `ahead` and `dirty` `null`; `commits` are the last 20 of `<ref>`. `--default-shared-ref` prints the counted upstream of the default branch as `<remote>/<branch>`; `--check-shared-ref` prints `ok <ref>` when the ref is the counted upstream of a local branch.
+  - Output: the document of spec section 5.1 with `audience` `shared`, `commit.ref` `refs/remotes/<remote>/<branch>`, `commit.branch` `<remote>/<branch>`, `commit.defaultBranch` `null`; files are read only with `git show <ref>:<path>`, after `git ls-tree <ref>` names the entry as a blob that is not a symbolic link, folders and file lists only from `git ls-tree <ref>`, symbolic links (mode `120000`) skipped; `unfinishedRuns` from `scanRuns({ refs: 'upstream', base: <base> })`, where `<base>` is the counted upstream of the default branch (the ref whose `<remote>/<branch>` name `--default-shared-ref` prints), never the shared ref, and `<base>` is `null` (no merge exclusion) when there is no default branch or the default branch has no counted upstream; `git` lists only local branches whose upstream counts (Global Constraint 7), named and dated from that upstream, the shared ref itself (by name) and upstreams merged into `<base>` excluded, `ahead` and `dirty` `null`; `commits` are the last 20 of `<ref>`. `--default-shared-ref` prints the counted upstream of the default branch as `<remote>/<branch>`; `--check-shared-ref` prints `ok <ref>` when the ref is the counted upstream of a local branch.
   - Invariants: every item is `tracked`; a section note of the shared run is a fixed text with no machine path (Global Constraint 6); exit 2 and no JSON when `--ref` is missing, malformed (not `<remote>/<branch>`, or holding `..`) or names a ref that does not exist, and when `--default-shared-ref` or `--check-shared-ref` finds no counted upstream; no text that exists only in the working tree, the index, an unpushed commit, an unpushed branch or a branch name that has no counted upstream reaches the output.
   - Verification: `node tests/dashboard/test-06-privacy.js` (spec section 11 "Privacy" cases 2 to 8 and 10, plus the refusals).
 
@@ -2305,6 +2307,29 @@ h.git(n, 'branch', '-q', '--track', 'feature/tracker', 'holder');
 const noRemote = shared(n, 'origin/main');
 h.check('(7) with no remote the shared run stops and prints no marker', noRemote.code === 2 && !`${noRemote.out}${noRemote.err}`.includes(MARKER));
 h.eq('--default-shared-ref with no counted upstream stops', run(n, ['--default-shared-ref']).code, 2);
+
+// A shared feature ref. The shared run decides "merged" against the counted
+// upstream of the default branch, never against the shared ref (spec section
+// 5, Tab 1), so the stopped run of the shared branch itself is listed.
+const f = h.repo('share-feature');
+h.addRemote(f, 'share-feature-remote');
+h.write(f, 'file.txt', 'x\n');
+h.commit(f, 'base', ['file.txt']);
+h.git(f, 'push', '-q', '-u', 'origin', 'main');
+h.git(f, 'checkout', '-q', '-b', 'feature/run');
+h.write(f, runLog, h.runLog('run', ['## Phase 1', '## STOPPED — waits for the owner']));
+h.commit(f, 'run stopped', [runLog]);
+h.git(f, 'push', '-q', '-u', 'origin', 'feature/run');
+const FEATURE_REF = 'origin/feature/run';
+const STOPPED_FEATURE_RUN = [[FEATURE_REF, 'stopped']];
+const featureRuns = () => JSON.parse(shared(f, FEATURE_REF).out).sections.unfinishedRuns.items.map((i) => [i.branch, i.state]);
+h.eq('a shared feature ref lists the stopped run of that branch', featureRuns(), STOPPED_FEATURE_RUN);
+// The run reaches origin/main, the counted upstream of the default branch.
+h.git(f, 'push', '-q', 'origin', 'feature/run:main');
+h.eq('a run merged into the upstream of the default branch is left out', featureRuns(), []);
+// The default branch has no counted upstream: no merge exclusion applies.
+h.git(f, 'branch', '--unset-upstream', 'main');
+h.eq('with no counted upstream of the default branch the run is listed', featureRuns(), STOPPED_FEATURE_RUN);
 
 // A git command of the shared run that fails (the oldest commit object of the
 // pushed history is missing): the note is the fixed text (Global Constraint 6).
@@ -2415,7 +2440,7 @@ function refSource(ref) {
 
 ```js
 function unfinishedRuns(context) {
-  const options = context.shared ? { refs: REFS.upstream, base: context.ref } : { refs: REFS.local };
+  const options = context.shared ? { refs: REFS.upstream, base: context.base } : { refs: REFS.local };
   const items = scanRuns(options).map((run) => keyItem(context, SECTION.unfinishedRuns, run.branch, null, {
     kind: KIND.run,
     branch: run.branch,
@@ -2435,13 +2460,14 @@ function unfinishedRuns(context) {
 
 ```js
 // The shared run lists only local branches whose upstream counts, by the
-// upstream's name and date; the shared ref and upstreams merged into it are
-// left out.
+// upstream's name and date. The shared ref itself is left out by name; an
+// upstream merged into context.base (the counted upstream of the default
+// branch) is left out; with no context.base, no upstream counts as merged.
 function sharedBranches(context) {
   const items = [];
   for (const name of mustLines(['for-each-ref', '--format=%(refname:short)', HEADS])) {
     const upstream = countedUpstream(name);
-    if (!upstream || upstream === context.ref || isAncestor(upstream, context.ref)) continue;
+    if (!upstream || upstream === context.ref || (context.base && isAncestor(upstream, context.base))) continue;
     const shown = upstream.slice(REMOTES.length);
     const date = must(['log', '-1', '--format=%cd', '--date=short', upstream]);
     items.push(keyItem(context, SECTION.git, shown, null, { kind: KIND.branch, name: shown, date }));
@@ -2471,8 +2497,10 @@ function extract(audience, sharedName) {
   const top = repoTop();
   const shared = audience === AUDIENCE.shared;
   const ref = shared ? `${REMOTES}${sharedName}` : HEAD_REF;
+  // base: the ref against which the shared run decides "merged" (null: no
+  // merge exclusion). The private run does not use it.
   const context = {
-    shared, ref, top, home: os.homedir(), now: Date.now(), committed: new Map(),
+    shared, ref, base: shared ? defaultUpstream() : null, top, home: os.homedir(), now: Date.now(), committed: new Map(),
     source: shared ? refSource(ref) : workingTreeSource(top),
   };
   return {
@@ -2493,9 +2521,17 @@ function localBranchNames() {
   return mustLines(['for-each-ref', '--format=%(refname:short)', HEADS]);
 }
 
-function printDefaultSharedRef() {
+// The counted upstream of the default branch (refs/remotes/<remote>/<branch>),
+// or null when there is no default branch or the default branch has no
+// counted upstream. The shared run decides "merged" against this ref, never
+// against the shared ref (spec section 5, Tab 1).
+function defaultUpstream() {
   const base = defaultBranch();
-  const upstream = base ? countedUpstream(base) : null;
+  return base ? countedUpstream(base) : null;
+}
+
+function printDefaultSharedRef() {
+  const upstream = defaultUpstream();
   if (!upstream) stop('the default branch has no upstream that counts (a remote-tracking ref of the same name); give --ref <remote>/<branch>');
   console.log(upstream.slice(REMOTES.length));
 }
