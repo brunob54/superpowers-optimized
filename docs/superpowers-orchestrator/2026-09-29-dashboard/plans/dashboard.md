@@ -5264,7 +5264,7 @@ git commit -m "feat(dashboard): add the skill with refresh, sync, share and loca
   - Invariants: the line stands in `## Routing Guide`, below the marker line `<!-- session-start-injection-ends`; the text above the marker is unchanged.
   - Verification: `bash tests/codex/test-session-start-budget.sh` passes; the Step 4 `awk` prints `BELOW-MARKER`, and `git diff --numstat` shows one added line and none removed.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/codex/test-skill-activator.js`, insert this block directly before the line `// ── Result ────────────────────────────────────────────────────────────────────`. It reuses the helper `suggested` that the worklog block above defines:
 
@@ -5305,12 +5305,12 @@ test('a request to build a dashboard still suggests frontend-design', () => {
 
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/codex/test-skill-activator.js`
 Expected: FAIL — exit 1; `3 failed`: the three prompts that should suggest `dashboard`.
 
-- [ ] **Step 3: Add the rule, the prompt, the array entry and the guide line**
+- [x] **Step 3: Add the rule, the prompt, the array entry and the guide line**
 
 In `hooks/skill-rules.json`, replace the `}` that closes the `handoff` entry (the line directly before the line `  ]`) with `},` followed by this object:
 
@@ -5338,7 +5338,7 @@ In `skills/using-superpowers/SKILL.md`, in `## Routing Guide`, add this line dir
 - Status page of the repository on claude.ai (refresh it, sync the owner's page edits back into the Markdown files, share it): `dashboard`
 ```
 
-- [ ] **Step 4: Run the checks and the tests**
+- [x] **Step 4: Run the checks and the tests**
 
 Run: `node -e 'const r = require("./hooks/skill-rules.json").rules; console.log(r[r.length - 1].skill, r.length)'`
 Expected: `dashboard 29`.
@@ -5352,12 +5352,12 @@ Expected: `["dashboard"]`.
 Run: `bash tests/codex/test-session-start-budget.sh | tail -2; awk '/^<!-- session-start-injection-ends/ { m = NR } /^- Status page of the repository on claude.ai/ { w = NR } END { print (m > 0 && w > m) ? "BELOW-MARKER" : "NOT-BELOW" }' skills/using-superpowers/SKILL.md; git diff --numstat skills/using-superpowers/SKILL.md; grep -n '"dashboard"' tests/skill-triggering/run-all.sh`
 Expected: the budget test ends with 0 failed; `BELOW-MARKER`; one line with `1`, `0` and `skills/using-superpowers/SKILL.md`; one line that holds `"dashboard"`.
 
-- [ ] **Step 5: Run the skill-triggering test**
+- [x] **Step 5: Run the skill-triggering test**
 
 Run: `bash tests/skill-triggering/run-test.sh dashboard tests/skill-triggering/prompts/dashboard.txt 8`
 Expected: `✅ PASS: Skill 'dashboard' was triggered` (up to 5 minutes; it calls the real `claude` CLI with `--plugin-dir` set to this checkout). Run it with a Bash tool timeout of at least 360000 ms. When it prints FAIL, run it once more; when the second run also fails, stop and report BLOCKED with the log path that the script prints.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -f tests/skill-triggering/prompts/dashboard.txt
