@@ -359,11 +359,12 @@ old page's proposals.
    first `/`. Run:
 
    ```bash
-   git --no-optional-locks remote get-url '<remote>'
+   node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --remote-url '<remote>'
    ```
 
-   From its output `<URL>`, remove a user name and a password: the text
-   between `://` and `@`, when there is one. Print this line:
+   The script prints the remote's URL with a user name and a password (or a
+   token) already removed. Never run `git remote get-url` yourself: its output
+   can hold a token. Call the printed text `<URL>`. Print this line:
    `Shared ref: <remote>/<branch>; remote <remote> is <URL>`. When `<URL>` is
    a folder path (it starts with `/`, `./`, `../`, `~` or a drive letter such
    as `C:/`) or starts with `file://`, also say: "This remote is a folder on

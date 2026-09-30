@@ -6,6 +6,7 @@
 //   node dashboard-extract.js --audience shared --ref <remote>/<branch> [--out <file>]
 //   node dashboard-extract.js --default-shared-ref
 //   node dashboard-extract.js --check-shared-ref <remote>/<branch>
+//   node dashboard-extract.js --remote-url <remote>
 //   node dashboard-extract.js --data-dir <path> --state-dir
 //   node dashboard-extract.js --data-dir <path> --config
 //   node dashboard-extract.js --data-dir <path> --config-set <key>=<value>
@@ -49,11 +50,17 @@ const STALE_MS = 24 * 60 * 60 * 1000;
 const COMMIT_LIMIT = 20;
 const FIELD_SEPARATOR = '\x1f';
 const OPTIONS = {
-  values: ['--audience', '--ref', '--out', '--data-dir', '--config-set', '--check-shared-ref'],
+  values: ['--audience', '--ref', '--out', '--data-dir', '--config-set', '--check-shared-ref', '--remote-url'],
   flags: ['--state-dir', '--config', '--default-shared-ref'],
 };
 // <remote>/<branch>: letters, digits, ".", "_", "-" and "/" only, and no "..".
 const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
+// A remote name: the part of a shared ref before its first "/".
+const REMOTE_NAME = /^[A-Za-z0-9._-]+$/;
+// The scheme and the user information (user name, password or token) of a
+// URL that has an authority part. The authority ends at the first "/", "?"
+// or "#"; its user information ends at the last "@" inside it.
+const URL_USER_INFO = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
 const TREE = 'tree';
 const BLOB = 'blob';
 const NO_SOURCE = { file: null, heading: null, headingOrdinal: null, line: null, occurrence: null, lineNumber: null };
@@ -620,6 +627,9 @@ function writeDocument(doc, out) {
     return;
   }
   fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+  // A write would follow a symbolic link at --out and change its target.
+  const entry = fs.lstatSync(out, { throwIfNoEntry: false });
+  if (entry && entry.isSymbolicLink()) stop(`${out} is a symbolic link`);
   fs.writeFileSync(out, text);
   console.log(`written ${out} ${Buffer.byteLength(text)} bytes`);
 }
@@ -640,19 +650,36 @@ function defaultUpstream() {
 function printDefaultSharedRef() {
   const upstream = defaultUpstream();
   if (!upstream) stop('the default branch has no upstream that counts (a remote-tracking ref of the same name); give --ref <remote>/<branch>');
-  console.log(upstream.slice(REMOTES.length));
+  const name = upstream.slice(REMOTES.length);
+  requireSharedRefForm(name, `the upstream ${name}`);
+  console.log(name);
+}
+
+function requireSharedRefForm(name, label) {
+  if (!SHARED_REF_NAME.test(name) || name.includes('..')) stop(`${label} is not of the form <remote>/<branch>`);
 }
 
 function checkSharedRef(name) {
+  requireSharedRefForm(name, `--check-shared-ref ${name}`);
   if (!localBranchNames().some((branch) => countedUpstream(branch) === `${REMOTES}${name}`)) {
     stop(`${name} is not the upstream of a local branch of the same name`);
   }
   console.log(`ok ${name}`);
 }
 
+// Prints the URL of a remote with its user information removed, so that a
+// token inside the URL never reaches the model. Git's own message is not
+// printed: it is not needed and could name the URL.
+function printRemoteUrl(remote) {
+  if (!REMOTE_NAME.test(remote)) stop(`--remote-url ${remote} is not a remote name`);
+  const result = git(['remote', 'get-url', remote]);
+  if (!result.ok) stop(`the remote ${remote} has no URL`);
+  console.log(result.out.replace(URL_USER_INFO, '$1'));
+}
+
 function checkSharedName(name) {
   if (!name) stop('the shared audience needs --ref <remote>/<branch>');
-  if (!SHARED_REF_NAME.test(name) || name.includes('..')) stop(`--ref ${name} is not of the form <remote>/<branch>`);
+  requireSharedRefForm(name, `--ref ${name}`);
   // The exact-name check: rev-parse would also accept a local branch or tag
   // named refs/remotes/<name> (git's name guessing).
   if (!git(['show-ref', '--verify', '--quiet', `${REMOTES}${name}`]).ok) stop(`the shared ref ${name} no longer exists; nothing is published`);
@@ -667,6 +694,10 @@ function main() {
   // state option makes the command a state command.
   if (args.flags.has('--state-dir') || args.flags.has('--config') || args['--config-set'] !== undefined) {
     stateCommand(args);
+    return;
+  }
+  if (args['--remote-url'] !== undefined) {
+    printRemoteUrl(args['--remote-url']);
     return;
   }
   if (args.flags.has('--default-shared-ref')) {

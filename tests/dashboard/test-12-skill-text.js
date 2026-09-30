@@ -105,7 +105,8 @@ flatHas(EXCHANGE, 'Reconnect the right page with `refresh --url <url>` or `refre
 // shown and confirmed before the ref is stored.
 const SHARED_REF = 'shared ref and its remote shown before the store';
 const SHARED_REF_LINE = 'Shared ref: <remote>/<branch>; remote <remote> is <URL>';
-flatHas(SHARED_REF, 'git --no-optional-locks remote get-url');
+flatHas(SHARED_REF, '--remote-url');
+h.check(`${SHARED_REF}: SKILL.md never runs git remote get-url itself`, !/^\s*git .*remote get-url/m.test(TEXT));
 flatHas(SHARED_REF, SHARED_REF_LINE);
 flatHas(SHARED_REF, 'This remote is a folder on this machine');
 h.check(`${SHARED_REF}: the warning comes before the ref line, and the ref line before the store of sharedRef`,

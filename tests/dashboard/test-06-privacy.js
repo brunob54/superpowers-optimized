@@ -90,6 +90,32 @@ h.eq('--check-shared-ref refuses a ref that no branch tracks', run(d, ['--check-
 h.eq('a stored shared ref that no longer exists stops', shared(d, 'origin/gone').code, 2);
 h.eq('a malformed shared ref stops', [shared(d, '../heads/main').code, shared(d, 'main').code, run(d, ['--audience', 'shared']).code], [2, 2, 2]);
 
+// --remote-url prints a remote's URL without user information.
+const urls = h.repo('remote-urls');
+h.write(urls, 'file.txt', 'x\n');
+h.commit(urls, 'base', ['file.txt']);
+const REMOTE_URLS = {
+  token: ['https://user:sekrettoken@example.com/team/repo.git', 'https://example.com/team/repo.git'],
+  plain: ['https://example.com/team/repo.git', 'https://example.com/team/repo.git'],
+  atpath: ['https://example.com/team/@repo.git', 'https://example.com/team/@repo.git'],
+  atquery: ['https://tok@example.com/team/repo.git?u=a@b', 'https://example.com/team/repo.git?u=a@b'],
+};
+for (const [name, [url]] of Object.entries(REMOTE_URLS)) h.git(urls, 'remote', 'add', name, url);
+for (const [name, [, cleaned]] of Object.entries(REMOTE_URLS)) {
+  const result = run(urls, ['--remote-url', name]);
+  h.eq(`--remote-url ${name}: the cleaned URL`, [result.code, result.out.trim()], [0, cleaned]);
+  h.check(`--remote-url ${name}: no token in any output`, !`${result.out}${result.err}`.includes('sekrettoken'));
+}
+h.eq('--remote-url stops on a missing remote and on a bad name', [run(urls, ['--remote-url', 'nothing']).code, run(urls, ['--remote-url', "a'b"]).code], [2, 2]);
+
+// A ref name with shell characters stops in --check-shared-ref.
+const oddRef = h.repo('odd-ref');
+h.addRemote(oddRef, 'odd-ref-remote');
+h.write(oddRef, 'file.txt', 'x\n');
+h.commit(oddRef, 'base', ['file.txt']);
+h.git(oddRef, 'push', '-q', '-u', 'origin', 'main');
+h.eq('--check-shared-ref stops on a name with shell characters', [run(oddRef, ['--check-shared-ref', "origin/a'b"]).code, run(oddRef, ['--check-shared-ref', 'origin/a$b']).code, run(oddRef, ['--check-shared-ref', 'origin/a..b']).code], [2, 2, 2]);
+
 // (7) No remote: a branch whose upstream is a local branch holding a marker.
 const n = h.repo('no-remote');
 h.write(n, 'file.txt', 'x\n');

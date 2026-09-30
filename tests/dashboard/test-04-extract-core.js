@@ -96,6 +96,13 @@ const outside = path.join(h.ROOT, 'scratch', 'private.json');
 const written = run(d, ['--audience', 'private', '--out', outside]);
 h.check('--out outside the repository writes the file and names it', written.code === 0 && written.out.startsWith(`written ${outside} `) && JSON.parse(fs.readFileSync(outside, 'utf8')).audience === 'private');
 
+// --out at a symbolic link stops and leaves the link's target untouched.
+const linkTarget = path.join(h.ROOT, 'scratch', 'link-target.json');
+const linkOut = path.join(h.ROOT, 'scratch', 'link-out.json');
+fs.writeFileSync(linkTarget, 'keep');
+fs.symlinkSync(linkTarget, linkOut);
+h.eq('--out at a symbolic link stops, the target is untouched', [run(d, ['--audience', 'private', '--out', linkOut]).code, fs.readFileSync(linkTarget, 'utf8')], [2, 'keep']);
+
 // 7. The state folder and config.json.
 const data = path.join(h.ROOT, 'plugin-data');
 const key = `core-${crypto.createHash('sha1').update(fs.realpathSync(d), 'utf8').digest('hex').slice(0, 12)}`;
