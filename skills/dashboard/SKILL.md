@@ -116,9 +116,11 @@ audience (`privateUrl` or `sharedUrl`).
 2. When `<url>` is stored and this session has not read or published it yet:
    read it with the Artifact tool (`action: "read"`). A failed read is the
    case "The stored URL no longer works" below. The returned HTML must hold
-   `<meta name="dashboard-audience" content="<audience>">`. When the tag
-   matches, list the page's files with the Artifact tool (`action: "list"`,
-   `scope: "files"`); a listing returns no file content. When the tag names
+   `<meta name="dashboard-audience" content="<audience>">`. When the page
+   holds no such tag, stop, publish nothing, and say that the page at
+   `<url>` is not a dashboard page. When the tag matches, list the page's
+   files with the Artifact tool (`action: "list"`, `scope: "files"`); a
+   listing returns no file content. When the tag names
    the other audience, publish nothing. Read the stored URL of the other
    audience with the Artifact tool (`action: "read"`) too, and find its meta
    tag.
@@ -135,8 +137,10 @@ audience (`privateUrl` or `sharedUrl`).
      node "<skill-dir>/scripts/dashboard-extract.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --config-set 'sharedUrl=<old privateUrl>'
      ```
 
-     When the second store fails, stop and report both stored values (the
-     output of the `--config` command of the preconditions). Otherwise start
+     When the first store fails, the stored values are unchanged: stop and
+     show its message. When the second store fails, stop and report both
+     stored values (the output of the `--config` command of the
+     preconditions). Otherwise start
      the command again from its step 1, without its `--url` and
      `--shared-url` options. The exchange publishes nothing by
      itself; after it, both stored URLs count as not read in this session,
@@ -393,7 +397,7 @@ To stop sharing, turn off the public link in the page's Share control."
 | A section shows `not-found` or `error` on the page | Nothing: the refresh continues; the page shows the note |
 | The extractor exits with 2 | Stop and show its message; nothing is published |
 | `--verify` prints `refused: …` | Stop the publish of that audience and report the reason |
-| The meta tag of the read page names another audience | Stop; publish nothing (see "Publish one audience" step 2) |
+| The read page holds no audience tag or names another audience | Stop; publish nothing (see "Publish one audience" step 2) |
 | ArtifactData fails during `sync` | Stop before any file is written |
 | A proposal gets `invalid`, `file-missing`, `wrong-branch`, `held-run`, `none` or `several` | Report it with its reason; it stays `pending` |
 
