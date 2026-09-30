@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { HEADING_PREFIX } = require('../../pickup/scripts/git-runs');
 
-const BYTE_ORDER_MARK = /^﻿/;
+const BYTE_ORDER_MARK = /^\uFEFF/;
 const SUPERSEDED_SUFFIX = / \[superseded[^\]]*\]$/;
 const RESOLVED_SUFFIX = / \[resolved[^\]]*\]$/;
 const RESOLVED_MARK = '[resolved';

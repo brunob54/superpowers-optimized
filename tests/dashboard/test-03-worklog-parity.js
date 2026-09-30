@@ -34,7 +34,7 @@ const activeLine = (slug) => `<!-- Work log: status=active slug=${slug} created=
 h.write(d, `${W}/alpha.md`, `${activeLine('alpha')}\n\n# Work log: a\n`);
 h.write(d, `${W}/shut.md`, '<!-- Work log: status=closed slug=shut created=2026-09-21 closed=2026-09-22 -->\n');
 h.write(d, `${W}/bad.md`, '<!-- Work log: status=open slug=bad created=2026-09-21 -->\n');
-h.write(d, `${W}/bom.md`, `﻿${activeLine('bom')}\n`);
+h.write(d, `${W}/bom.md`, `\uFEFF${activeLine('bom')}\n`);
 h.write(d, `${W}/crlf.md`, `${activeLine('crlf')}\r\n\r\n# x\r\n`);
 h.write(d, `${W}/heading.md`, `# Work log: heading first\n\n${activeLine('heading')}\n`);
 for (const name of ['Upper.md', 'new.md', 'x y.md', 'café.md']) h.write(d, `${W}/${name}`, `${activeLine('x')}\n`);

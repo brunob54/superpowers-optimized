@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const h = require('./helpers');
 const p = require(h.script('dashboard-parse.js'));
 
-h.eq('splitLines removes a byte order mark and carriage returns', p.splitLines('﻿a\r\nb\r\n'), ['a', 'b', '']);
+h.eq('splitLines removes a byte order mark and carriage returns', p.splitLines('\uFEFFa\r\nb\r\n'), ['a', 'b', '']);
 h.eq('normalizeHeading removes one trailing superseded part', p.normalizeHeading('## 2026-09-29 20:30 [saved] [superseded by 2026-09-29]'), '## 2026-09-29 20:30 [saved]');
 h.eq('normalizeLine removes one trailing resolved part', p.normalizeLine('- fix x [resolved 2026-09-29: from the dashboard]'), '- fix x');
 h.eq('normalizeLine keeps a line without the part', p.normalizeLine('- fix x'), '- fix x');
@@ -66,7 +66,7 @@ h.eq('keyItemId joins the section id and the key', p.keyItemId('commits', 'abc')
 const active = '<!-- Work log: status=active slug=a-b created=2026-09-21 -->';
 const closed = '<!-- Work log: status=closed slug=a-b created=2026-09-21 closed=2026-09-22 -->';
 h.eq('worklogClass: active, closed, malformed', [p.worklogClass(`${active}\n`), p.worklogClass(closed), p.worklogClass('<!-- Work log: status=open slug=a created=2026-09-21 -->')], ['active', 'closed', 'malformed']);
-h.eq('worklogClass removes a byte order mark and carriage returns of line 1', p.worklogClass(`﻿${active}\r\nrest`), 'active');
+h.eq('worklogClass removes a byte order mark and carriage returns of line 1', p.worklogClass(`\uFEFF${active}\r\nrest`), 'active');
 h.eq('worklogNameValid', ['a-b.md', 'A.md', 'new.md', 'a--b.md', `${'s'.repeat(40)}.md`, `${'s'.repeat(41)}.md`].map(p.worklogNameValid), [true, false, false, false, true, false]);
 h.eq('listingName replaces each other byte with ?', [p.listingName('x y.md'), p.listingName('café.md')], ['x?y.md', 'caf??.md']);
 
