@@ -61,3 +61,8 @@ Items: [task 2/2] design — amend plan: Task 6 Contract — the shared run deci
 Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
 Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
 Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
+
+## Phase 3 — Batch 1 (tasks 1–3) — COMPLETE — commits f3dce66..cc903f2
+- Task 1: complete — platform checks recorded (row 9 contradicted, answered by the user; rulings 6, 7)
+- Task 2: complete — run scan moved into git-runs.js; git failures returned as data (rulings 5, 8)
+- Task 3: complete — shared parsing library and the work-log rule parity test (ruling 2)
