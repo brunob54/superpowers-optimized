@@ -66,3 +66,8 @@ Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
 - Task 1: complete — platform checks recorded (row 9 contradicted, answered by the user; rulings 6, 7)
 - Task 2: complete — run scan moved into git-runs.js; git failures returned as data (rulings 5, 8)
 - Task 3: complete — shared parsing library and the work-log rule parity test (ruling 2)
+
+## Phase 3 — Batch 2 (tasks 4–6) — COMPLETE — commits 1606c99..2eda373
+- Task 4: complete — extractor command line, state folder, runs, git and commits
+- Task 5: complete — extractor file sections
+- Task 6: complete — shared audience read from the pushed ref only (ruling 8)
