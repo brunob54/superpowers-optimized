@@ -62,3 +62,9 @@ Output (end): `103 passed, 0 failed` / `dashboard suite: every test file passed`
 
 Command: `bash tests/reviewer-templates/run-tests.sh`
 Output (end): `Results: 272 passed, 0 failed`
+
+## Round 6
+
+Finding addressed: I1.
+
+Commands: `bash tests/dashboard/run-tests.sh` (dashboard suite: every test file passed; test-06 45 passed, test-12 105 passed) and `bash tests/pickup/run-tests.sh` (Results: 207 passed, 0 failed).

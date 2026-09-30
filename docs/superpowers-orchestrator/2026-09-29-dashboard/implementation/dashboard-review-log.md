@@ -260,3 +260,12 @@ _Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — bra
 - [CF87] carried — task 15 owed rows not in order (ship-as-is)
 - [CF88] carried — task 15 index.html size not recorded (ship-as-is)
 - [CF89] user-decision — task 16 README.md "Eighteen releases beyond the REPOZY v6.6.1 baseline" was stale before this branch and is outside the plan (the release task adds one list item only) — at README.md:28 — clause: Task 16 "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`."
+
+## Round 6 — Adversarial red-team — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 3 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — `onSharedRemote` used a prefix test, so an upstream on a remote named `origin/secret` passed as `origin`; now an exact comparison with `refs/remotes/<shared remote>/<branch>`, test-06 case added; SKILL.md `share` step 3 takes the remote from `--remote-url <ref>` instead of splitting the ref → 46e11f7
+- [M1] carried — sync step 6 `applied` batch does not check that the marked document is still `applying` with the step-1 `createdAt`; the loss window is documented in SKILL.md Known limits
+- [M2] carried — template.html `planWrite` keeps the old proposal's branch fields when merging an edit made on another branch's page (part a); part (b), a pending status cannot be withdrawn, is the item decided in Invocation 1 addendum 1 [CF6] (plan governs)
+- [M3] carried — hooks/skill-rules.json refresh/update pattern scores 2 on ordinary front-end dashboard requests; same root as round 5 [CF82]
