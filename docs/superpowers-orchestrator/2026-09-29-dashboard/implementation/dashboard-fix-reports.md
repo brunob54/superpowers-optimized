@@ -13,3 +13,11 @@ Findings addressed: I1, M3, M4.
 
 Command: bash tests/dashboard/run-tests.sh
 Output (tail): 100 passed, 0 failed; dashboard suite: every test file passed
+
+## Round 3
+
+Finding ids addressed: I2, M1, M2.
+
+Command: `bash tests/dashboard/run-tests.sh`
+
+Output (last lines): `102 passed, 0 failed` / `dashboard suite: every test file passed`

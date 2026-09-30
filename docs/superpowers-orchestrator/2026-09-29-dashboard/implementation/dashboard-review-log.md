@@ -101,3 +101,12 @@ _Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — bra
 - [M3] fixed — a proposal left `applying` by an interrupted sync was never reset when the new check did not apply it; SKILL.md sync step 6 now returns it to `pending` → e79e72c
 - [M4] fixed — `--batches … applying` and `--apply` exit 2 on an empty id list and step 5 stopped the sync, losing rejections and applied records; steps 4 and 5 now skip an empty list → e79e72c
 - [M5] carried — a line holding a tab gets edit controls on the page but every proposal for it is `invalid` at sync; same root as round 1 [CF56]
+
+## Round 3 — Security — opus
+**Reviewer verdict:** 0 Critical, 2 Important, 2 Minor
+**Converged:** no
+### Dispositions
+- [I1] user-decision — the shared page does not stay on the remote the user confirmed in `share`: `sharedBranches` and `scanRuns({ refs: 'upstream' })` accept an upstream under any remote, so branch names, dates, run-log paths and last headings of branches pushed to another remote (for example a private `origin` while `share --ref public/main`) reach the public page; fix would filter to the shared ref's remote or confirm every contributing remote in `share` step 3 (plan-mandated) — at skills/dashboard/scripts/dashboard-extract.js:346 — clause: Global Constraints "[5.3] '**Shared run** (`--audience shared`): its rule is **only what is pushed**. 'Pushed' means reachable from a remote-tracking ref. The run fails closed: any"
+- [I2] fixed — `share` step 3 ran `git remote get-url` and only then removed the user information, so an embedded token entered the transcript; new `dashboard-extract.js --remote-url <remote>` prints the URL without user information and SKILL.md uses it → 474279b
+- [M1] fixed — `checkSharedRef` and `printDefaultSharedRef` did not apply the `SHARED_REF_NAME` / `..` test; shared helper now applied in all three places → 474279b
+- [M2] fixed — `writeDocument` followed a symbolic link at `--out`; now refused as the renderer does → 474279b
