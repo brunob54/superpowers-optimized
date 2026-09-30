@@ -3062,11 +3062,11 @@ git commit -m "feat(dashboard): add the page template with text-only rendering" 
   - Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals could not be read; a no-op edit (spec section 7) and a note that breaks the rule of Global Constraint 15 are not written; `createdAt` is local time with its offset; times are compared as instants; the runtime calls are named only inside `createStore` and `ownerState`, and follow the `## Runtime record` of `platform-checks.md` — when that record says a page write cannot be pinned to a version (platform check 12), the document snapshot that the page listed stands for the version the page read: `write` reads the document again with the record's single-document read just before the write, applies the list-path write rules (no write for an `applying` document or an `applied` one closed after `generatedAt`) again to the re-read document, and refuses when `exists`, `state`, `closedAt` or `createdAt` of the re-read differs from the listed document; a new document is written only when the re-read finds none.
   - Verification: `node tests/dashboard/test-08-template-edits.js`; `node tests/dashboard/test-07-template.js` still passes.
 
-- [ ] **Step 1: Load the capabilities skill and read the runtime record**
+- [x] **Step 1: Load the capabilities skill and read the runtime record**
 
 Load the skill `artifact-capabilities` with the Skill tool (spec section 6). Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` with the Read tool (find the line with `grep -n '^## Runtime record'` and read from there). The calls named in the reference bodies below — `runtime.user.isOwner()`, `runtime.db.collection(...).get()`, `.doc(id).get()`, `.doc(id).set(doc)`, `.doc(id).set(doc, { ifVersion })`, `entry.version` — are the guess made while this plan was written. Where the record names other calls, write the record's calls in `createStore` and `ownerState` and in the test's `fakeRuntime`, in the same change; keep the adapter interface (`list()` → `Map(id → { doc, version })`, with `version` undefined when the runtime gives the page none; `write(id, doc, listed, generatedAt)`, where `listed` is the entry that `list()` gave for `id` or undefined, that throws on a refused write; `ownerState(runtime)` → `true`, `false` or `null`). When the record names a create-if-absent write, `write` uses it when `listed` is undefined, and section 6 of the test expects that call for the new document. The record of platform check 12 names no pinned page write and no create-if-absent write, and the page sees no version: `write` then takes the re-read path of the Contract's Invariants for every write, and section 6 of the test exercises that path; the pinned branch of `write` runs only when `list()` gives a version. When the record names an owner-only write rule declared in page code, `createStore` declares it, as a second guard next to the owner check (spec section 13 item 2). Quote in the task report each record line used and the code line of `createStore` or `ownerState` that follows it, so that the task review can compare them.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/dashboard/test-08-template-edits.js`:
 
@@ -3236,12 +3236,12 @@ h.eq('an applying proposal: its label and no control', [buttons(busy).map((b) =>
 })();
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-08-template-edits.js`
 Expected: FAIL — exit 1 with `TypeError: app.planWrite is not a function`.
 
-- [ ] **Step 4: Add the edit code to the app script**
+- [x] **Step 4: Add the edit code to the app script**
 
 In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
 
@@ -3499,12 +3499,12 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
 
 6. Align `createStore`, `ownerState` and the test's `fakeRuntime` with the runtime record (Step 1): the record's calls for the collection read, the single-document re-read (`exists`, `data()`) and the write. Keep the re-read path of `write` as the Contract's Invariants state it: `REFUSED.blocked` when the re-read document is `applying` or `applied` after `generatedAt`, `REFUSED.changed` when `exists`, `state`, `closedAt` or `createdAt` differs from the listed document.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-08-template-edits.js; node tests/dashboard/test-07-template.js | tail -1; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — both files end with `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/dashboard/template.html tests/dashboard/test-08-template-edits.js
