@@ -1321,14 +1321,16 @@ is a view of them, as of its last refresh.
 **Two pages.** The private page shows every source, also files that git does
 not track, and marks those items with a lock sign. The shared page shows only
 what is pushed to the remote repository: it reads one remote-tracking branch
-(by default the upstream of your default branch) and never your working
-folder. On the Pro and Max plans a public link is the only way to share a
+(the local copy of a branch of the remote repository, such as `origin/main`,
+updated by `git fetch`). By default this is the upstream of your default
+branch (the remote-tracking branch that your default branch is set to follow).
+It never reads your working folder. On the Pro and Max plans a public link is the only way to share a
 page, and anyone who has that link can read it; make only the shared page's
 link public.
 
 **Edits.** On the private page you can mark an open item of `session-log.md`
 as resolved, or change the status or the note of a part of a work log. The page
-stores each edit as a proposal. `sync` shows the change as a diff, writes it
+stores each edit as a proposal. `sync` shows the change as a diff (the removed and added lines side by side), writes it
 only after you accept it, and never commits. When `sync` changed a file that
 git tracks (a work log), commit or stash it before you switch branches or
 resume an orchestrated run.
@@ -1338,7 +1340,8 @@ What you should know:
 - **A refresh is a command.** A hook cannot publish a page, so the page never
   updates by itself; it shows the state of its last refresh.
 - **Publishing needs a claude.ai login.** A session that uses an API key, a
-  gateway token or a cloud provider cannot publish, and `claude -p` may not
+  gateway token (a token of an LLM gateway, which is a proxy server between
+  Claude Code and the API) or a cloud provider cannot publish, and `claude -p` may not
   have the Artifact tool. Use `local` there.
 - **The page addresses are kept on one computer**, in the plugin's data
   folder. A second computer creates new pages unless you reconnect them with
