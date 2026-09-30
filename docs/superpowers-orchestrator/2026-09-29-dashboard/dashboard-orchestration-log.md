@@ -49,3 +49,9 @@ Detail: .superpowers/sdd/task-1-report.md (### Question 2); docs/superpowers-orc
 Open: [task 1/2] escalated (spec wrong) — the files written by ArtifactData `query` with `out_dir` carry no `id` and no `version`; how does `dashboard-sync.js` get each proposal's version?
 Ruled: [task 1/1] forced — plan governs: "Load the skills `artifact-design` and `artifact-capabilities` with the Skill tool." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
 Resume: Resume orchestration for docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md [task 1/2]: <answer>
+
+## RULING 7 — 2026-09-30 — phase 3 — Page write fallback compares the listed snapshot; the window is a known limit
+Items: [task 1/3] design — amend plan: Task 8 Contract — on the page side, "the version the page read" is the document snapshot the page listed: when the `## Runtime record` says a page write cannot be pinned (platform check 12), `write` reads the document again with the record's single-document read just before the write, applies the list-path write rules (no write for an `applying` document or an `applied` one closed after `generatedAt`) again to the re-read document, and refuses when `exists`, `state`, `closedAt` or `createdAt` of the re-read differs from the listed document; a new document is written only when the re-read finds none; the Task 12 Contract and its `## Known limits` name the window between the re-read and the write (a page write inside it can overwrite a `sync` mark, and that edit can then be lost without a report) and the create that no condition guards, as spec section 13 item 12 requires; row 12 of platform-checks.md stays `confirmed`
+Detail: docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard-open-decisions.md
+Forks: 3 of 3 (design consistency, implementation practicality, adversarial) — contradiction: settled
+Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6

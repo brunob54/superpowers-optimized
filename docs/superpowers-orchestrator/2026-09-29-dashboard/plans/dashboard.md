@@ -3008,6 +3008,8 @@ git commit -m "feat(dashboard): add the page template with text-only rendering" 
 
 ### Task 8: The page template — edits and proposals
 
+> **Amendment 7 (orchestrator ruling):** opening words "Invariants: no edit control and no write when the viewer" — the tail of this clause said that, when the `## Runtime record` says a page write cannot be pinned to a version, `write` reads the document again and refuses when its version changed; platform check 12 found that the page sees no version, so that check compared two missing values and could never refuse. The clause now says that the document snapshot the page listed stands for the version the page read: `write` re-reads the document with the record's single-document read just before the write, applies the list-path write rules (no write for an `applying` document or an `applied` one closed after `generatedAt`) again to the re-read document, refuses when `exists`, `state`, `closedAt` or `createdAt` of the re-read differs from the listed document, and writes a new document only when the re-read finds none. The Output clause now keeps the pinned write, and the create-if-absent write of a new document, only where the record names one, and otherwise refers to this re-read. The reference code follows: `planWrite` no longer returns a version; the adapter's `write(id, doc, listed, generatedAt)` takes the listed entry and `generatedAt`, re-reads when the entry has no version (new helpers `blocksWrite` and `changedSinceListed`, constants `REREAD_FIELDS` and `REFUSED`), and keeps the pinned write for a runtime that gives a version; `fakeRuntime` gains the single-document read; section 6 of the test covers a changed `createdAt`, `state` or `closedAt`, an `applying` or late `applied` re-read, a new document whose re-read finds one, and an unchanged re-read; Steps 1 and 4 follow, and so does the `**Does NOT cover:**` sentence on anthropics/claude-code#94426. Row 12 of `platform-checks.md` stays `confirmed`. Reason: ruling 7, item [task 1/3], platform check 12.
+
 **Files:**
 - Modify: `skills/dashboard/template.html`
 - Create: `tests/dashboard/test-08-template-edits.js`
@@ -3015,18 +3017,18 @@ git commit -m "feat(dashboard): add the page template with text-only rendering" 
 
 **Security flag:** `security` — the page writes to the `db` database with the owner's identity, and the edit controls must appear only for the owner (permissions).
 
-**Does NOT cover:** a `dropped` status (Global Constraint 14); editing any item other than an open item of `session-log.md` and a part of a work log; editing on the shared page or on the local file (no runtime: no controls); a part edit on a page built on a detached `HEAD` (the sync script would refuse it: spec section 8 step 2.1). A fresh page load may not show writes that Claude made to `db` (open defect anthropics/claude-code#94426, spec section 7 "Known limit"): the pinned write then refuses the edit, or, when page writes cannot be pinned, `sync` reports the resulting proposal as `none`.
+**Does NOT cover:** a `dropped` status (Global Constraint 14); editing any item other than an open item of `session-log.md` and a part of a work log; editing on the shared page or on the local file (no runtime: no controls); a part edit on a page built on a detached `HEAD` (the sync script would refuse it: spec section 8 step 2.1). A fresh page load may not show writes that Claude made to `db` (open defect anthropics/claude-code#94426, spec section 7 "Known limit"): the page's re-read (or the pinned write, where the record names one) then refuses the edit, or, when the re-read misses the change too, `sync` reports the resulting proposal as `none`.
 
 **Contract:**
 - The edit part of `template.html` (code artifact)
   - Inputs: the runtime object `globalThis.claude` of the published page; the proposals of the collection `proposals`.
-  - Output: on a private page whose owner check returns true and whose store lists the proposals, an edit control on each open item (a note field and "Mark resolved") and on each part (a status list with `not started`, `in progress`, `done`, a note field and "Propose change"), with the label `pending sync`, `sync in progress`, `applied — refresh to update` or `rejected` by spec section 7 "What the page shows"; a submitted edit writes one document with the id of its item, in the shape of spec section 7 ("A proposal document"), by the rules of "One document per item": a new pending document (`closedAt` null, a new `createdAt`) when there is no document, a `rejected` one, or an `applied` one closed before the page's `generatedAt`; the edit's fields merged into a `pending` one with `createdAt` moved to this edit; no write for an `applying` document or an `applied` one closed after `generatedAt`; every write to an existing document pinned to the version the page read, and the write of a new document conditional on the document not existing yet when the `## Runtime record` of `platform-checks.md` names such a write (spec section 7: "Every write of the page is conditional on the document version that the page read"). The viewer warning shows when the owner check returns false.
-  - Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals could not be read; a no-op edit (spec section 7) and a note that breaks the rule of Global Constraint 15 are not written; `createdAt` is local time with its offset; times are compared as instants; the runtime calls are named only inside `createStore` and `ownerState`, and follow the `## Runtime record` of `platform-checks.md` — when that record says a page write cannot be pinned to a version, `write` reads the document again just before the write and refuses when its version changed.
+  - Output: on a private page whose owner check returns true and whose store lists the proposals, an edit control on each open item (a note field and "Mark resolved") and on each part (a status list with `not started`, `in progress`, `done`, a note field and "Propose change"), with the label `pending sync`, `sync in progress`, `applied — refresh to update` or `rejected` by spec section 7 "What the page shows"; a submitted edit writes one document with the id of its item, in the shape of spec section 7 ("A proposal document"), by the rules of "One document per item": a new pending document (`closedAt` null, a new `createdAt`) when there is no document, a `rejected` one, or an `applied` one closed before the page's `generatedAt`; the edit's fields merged into a `pending` one with `createdAt` moved to this edit; no write for an `applying` document or an `applied` one closed after `generatedAt`; a write to an existing document pinned to the version the page read only when the `## Runtime record` of `platform-checks.md` names a pinned page write, and a new document written by a create-if-absent write only when that record names one; otherwise every write goes through the re-read of the Invariants, where the document snapshot that the page listed stands for the version the page read (spec section 7: "Every write of the page is conditional on the document version that the page read"). The viewer warning shows when the owner check returns false.
+  - Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals could not be read; a no-op edit (spec section 7) and a note that breaks the rule of Global Constraint 15 are not written; `createdAt` is local time with its offset; times are compared as instants; the runtime calls are named only inside `createStore` and `ownerState`, and follow the `## Runtime record` of `platform-checks.md` — when that record says a page write cannot be pinned to a version (platform check 12), the document snapshot that the page listed stands for the version the page read: `write` reads the document again with the record's single-document read just before the write, applies the list-path write rules (no write for an `applying` document or an `applied` one closed after `generatedAt`) again to the re-read document, and refuses when `exists`, `state`, `closedAt` or `createdAt` of the re-read differs from the listed document; a new document is written only when the re-read finds none.
   - Verification: `node tests/dashboard/test-08-template-edits.js`; `node tests/dashboard/test-07-template.js` still passes.
 
 - [ ] **Step 1: Load the capabilities skill and read the runtime record**
 
-Load the skill `artifact-capabilities` with the Skill tool (spec section 6). Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` with the Read tool (find the line with `grep -n '^## Runtime record'` and read from there). The calls named in the reference bodies below — `runtime.user.isOwner()`, `runtime.db.collection(...).get()`, `.doc(id).set(doc, { ifVersion })`, `entry.version` — are the guess made while this plan was written. Where the record names other calls, write the record's calls in `createStore` and `ownerState` and in the test's `fakeRuntime`, in the same change; keep the adapter interface (`list()` → `Map(id → { doc, version })`, `write(id, doc, version)` that throws on a refused write, `ownerState(runtime)` → `true`, `false` or `null`). When the record names a create-if-absent write, `write` uses it when `version` is null, and section 6 of the test expects that call for the new document. When the record says that a page write cannot be pinned, section 6 also changes the version in `fakeRuntime` between the re-read and the write and expects `write` to throw. When the record names an owner-only write rule declared in page code, `createStore` declares it, as a second guard next to the owner check (spec section 13 item 2). Quote in the task report each record line used and the code line of `createStore` or `ownerState` that follows it, so that the task review can compare them.
+Load the skill `artifact-capabilities` with the Skill tool (spec section 6). Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` with the Read tool (find the line with `grep -n '^## Runtime record'` and read from there). The calls named in the reference bodies below — `runtime.user.isOwner()`, `runtime.db.collection(...).get()`, `.doc(id).get()`, `.doc(id).set(doc)`, `.doc(id).set(doc, { ifVersion })`, `entry.version` — are the guess made while this plan was written. Where the record names other calls, write the record's calls in `createStore` and `ownerState` and in the test's `fakeRuntime`, in the same change; keep the adapter interface (`list()` → `Map(id → { doc, version })`, with `version` undefined when the runtime gives the page none; `write(id, doc, listed, generatedAt)`, where `listed` is the entry that `list()` gave for `id` or undefined, that throws on a refused write; `ownerState(runtime)` → `true`, `false` or `null`). When the record names a create-if-absent write, `write` uses it when `listed` is undefined, and section 6 of the test expects that call for the new document. The record of platform check 12 names no pinned page write and no create-if-absent write, and the page sees no version: `write` then takes the re-read path of the Contract's Invariants for every write, and section 6 of the test exercises that path; the pinned branch of `write` runs only when `list()` gives a version. When the record names an owner-only write rule declared in page code, `createStore` declares it, as a second guard next to the owner check (spec section 13 item 2). Quote in the task report each record line used and the code line of `createStore` or `ownerState` that follows it, so that the task review can compare them.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -3048,27 +3050,33 @@ const PART_ID = 'p'.repeat(40);
 const PART_LINE = '| 2 | b | in progress | | | |';
 const app = load(fakeDocument('private')).DashboardApp;
 const edit = { base: { kind: 'set-part', file: 'docs/worklogs/w.md' }, fields: { status: 'done' } };
-const existing = (state, closedAt) => ({ version: 7, doc: { kind: 'set-part', state, closedAt, note: 'kept' } });
+const existing = (state, closedAt) => ({ doc: { kind: 'set-part', state, closedAt, note: 'kept' } });
 
 // A runtime object with the calls that createStore and ownerState use. It
-// changes together with those two functions (Step 1).
-function fakeRuntime(owner, docs, writes) {
+// changes together with those two functions (Step 1). <reread> maps an id to
+// the document that the single-document read finds; an id with no entry is
+// read as absent.
+function fakeRuntime(owner, docs, writes, reread) {
+  const found = reread || {};
   const collection = {
     get: async () => ({ docs: docs.map((entry) => ({ id: entry.id, version: entry.version, data: () => entry.doc })) }),
-    doc: (id) => ({ set: async (doc, options) => writes.push({ id, doc, options }) }),
+    doc: (id) => ({
+      get: async () => ({ id, exists: found[id] !== undefined, data: () => found[id] }),
+      set: async (doc, options) => writes.push({ id, doc, options }),
+    }),
   };
   return { user: { isOwner: async () => owner }, db: { collection: () => collection } };
 }
 
 // 1. planWrite.
 let plan = app.planWrite(undefined, edit, BUILT, NOW);
-h.eq('no document: a new pending document, not pinned', [plan.action, plan.version, plan.doc.state, plan.doc.closedAt, plan.doc.createdAt, plan.doc.status], ['write', null, 'pending', null, NOW, 'done']);
+h.eq('no document: a new pending document', [plan.action, plan.doc.state, plan.doc.closedAt, plan.doc.createdAt, plan.doc.status], ['write', 'pending', null, NOW, 'done']);
 plan = app.planWrite(existing('rejected', LATER), edit, BUILT, NOW);
-h.eq('a rejected document: a new document with this edit only, pinned', [plan.action, plan.version, plan.doc.state, plan.doc.note], ['write', 7, 'pending', undefined]);
+h.eq('a rejected document: a new document with this edit only', [plan.action, plan.doc.state, plan.doc.note], ['write', 'pending', undefined]);
 plan = app.planWrite(existing('applied', EARLIER), edit, BUILT, NOW);
 h.eq('applied before the page was built: a new document', [plan.action, plan.doc.state, plan.doc.note], ['write', 'pending', undefined]);
 plan = app.planWrite(existing('pending', null), edit, BUILT, NOW);
-h.eq('a pending document: fields merged, createdAt moved, pinned', [plan.action, plan.version, plan.doc.status, plan.doc.note, plan.doc.createdAt], ['write', 7, 'done', 'kept', NOW]);
+h.eq('a pending document: fields merged, createdAt moved', [plan.action, plan.doc.status, plan.doc.note, plan.doc.createdAt], ['write', 'done', 'kept', NOW]);
 h.eq('an applying document: refused', app.planWrite(existing('applying', null), edit, BUILT, NOW).action, 'refuse');
 h.eq('applied after the page was built: refused', app.planWrite(existing('applied', LATER), edit, BUILT, NOW).action, 'refuse');
 h.eq('times are compared as instants, not as text', app.planWrite(existing('applied', '2026-09-29T19:00:00+00:00'), edit, BUILT, NOW).action, 'refuse');
@@ -3113,14 +3121,14 @@ h.eq('an applying proposal: its label and no control', [buttons(busy).map((b) =>
 (async () => {
   // 4. Submitted edits.
   const writes = [];
-  const store = { list: async () => new Map(), write: async (id, doc, version) => { writes.push({ id, doc, version }); } };
+  const store = { list: async () => new Map(), write: async (id, doc, listed, generatedAt) => { writes.push({ id, doc, listed, generatedAt }); } };
   let doc = render('main', true, store);
   nodes(doc, 'SELECT')[0].value = 'done';
   nodes(doc, 'INPUT')[0].value = 'finished';
   buttons(doc)[0].listeners.click();
   await settle();
   const first = writes[0] || { doc: { anchor: {} } };
-  h.eq('a part edit writes one pending set-part proposal', [writes.length, first.id, first.version, first.doc.kind, first.doc.status, first.doc.note, first.doc.state, first.doc.branch, first.doc.file, first.doc.anchor.part, first.doc.anchor.line], [1, PART_ID, null, 'set-part', 'done', 'finished', 'pending', 'main', 'docs/worklogs/w.md', '2', PART_LINE]);
+  h.eq('a part edit writes one pending set-part proposal', [writes.length, first.id, first.listed, first.generatedAt, first.doc.kind, first.doc.status, first.doc.note, first.doc.state, first.doc.branch, first.doc.file, first.doc.anchor.part, first.doc.anchor.line], [1, PART_ID, undefined, BUILT, 'set-part', 'done', 'finished', 'pending', 'main', 'docs/worklogs/w.md', '2', PART_LINE]);
   h.check('createdAt is local time with its offset', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(first.doc.createdAt || ''));
   doc = render('main', true, store);
   buttons(doc)[1].listeners.click();
@@ -3156,13 +3164,38 @@ h.eq('an applying proposal: its label and no control', [buttons(busy).map((b) =>
   h.eq('createStore and ownerState without a runtime', [app.createStore(undefined), await app.ownerState(undefined)], [null, null]);
 
   // 6. The adapter's own write path, with the runtime calls of fakeRuntime.
-  // Step 1 changes these expectations together with createStore when the
-  // record names other calls, a create-if-absent write, or no pinned write.
-  const adapterWrites = [];
-  const adapter = app.createStore(fakeRuntime(true, [], adapterWrites));
-  await adapter.write(PART_ID, { state: 'pending' }, 4);
-  await adapter.write(OPEN_ID, { state: 'pending' }, null);
-  h.eq('the adapter pins a write to the version read; a new document carries no pin', adapterWrites.map((w) => [w.id, w.options]), [[PART_ID, { ifVersion: 4 }], [OPEN_ID, {}]]);
+  // Step 1 changes these calls together with createStore when the record
+  // names other calls. The page of the record sees no version (platform check
+  // 12), so the listed entry below carries none and write re-reads the document.
+  const LISTED = { doc: { kind: 'set-part', state: 'pending', closedAt: null, createdAt: EARLIER, note: 'kept' } };
+  const CHANGED = 'changed since the page read it';
+  const BLOCKED = 'a sync is applying this item, or applied it after the page was built';
+  const reread = (fields) => Object.assign({}, LISTED.doc, fields);
+  // Writes one document through the adapter. <found> is the document that the
+  // re-read finds, or undefined for none. Gives [number of runtime writes,
+  // message of the refusal or null].
+  async function adapterWrite(listed, found) {
+    const writes = [];
+    const adapter = app.createStore(fakeRuntime(true, [], writes, { [PART_ID]: found }));
+    try {
+      await adapter.write(PART_ID, { state: 'pending' }, listed, BUILT);
+      return [writes.length, null];
+    } catch (error) {
+      return [writes.length, error.message];
+    }
+  }
+  h.eq('an unchanged re-read: written', await adapterWrite(LISTED, reread({})), [1, null]);
+  h.eq('a new document whose re-read finds none: written', await adapterWrite(undefined, undefined), [1, null]);
+  for (const [field, fields] of [['createdAt', { createdAt: LATER }], ['state', { state: 'rejected' }], ['closedAt', { closedAt: LATER }]]) {
+    h.eq(`a re-read whose ${field} differs: refused`, await adapterWrite(LISTED, reread(fields)), [0, CHANGED]);
+  }
+  h.eq('a re-read that finds none for a listed document: refused', await adapterWrite(LISTED, undefined), [0, CHANGED]);
+  h.eq('a re-read that finds an applying document: refused', await adapterWrite(LISTED, reread({ state: 'applying' })), [0, BLOCKED]);
+  h.eq('a re-read that finds a document applied after the page was built: refused', await adapterWrite(LISTED, reread({ state: 'applied', closedAt: LATER })), [0, BLOCKED]);
+  h.eq('a new document whose re-read finds one: refused', await adapterWrite(undefined, LISTED.doc), [0, CHANGED]);
+  const pinned = [];
+  await app.createStore(fakeRuntime(true, [], pinned)).write(OPEN_ID, { state: 'pending' }, { doc: LISTED.doc, version: 4 }, BUILT);
+  h.eq('a runtime that gives a version: the write is pinned to it, with no re-read', pinned.map((w) => [w.id, w.options]), [[OPEN_ID, { ifVersion: 4 }]]);
   h.finish();
 })();
 ```
@@ -3188,6 +3221,13 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
   const EDIT_KIND = { resolve: 'resolve-open-item', setPart: 'set-part' };
   const ITEM_KIND = { openItem: 'open-item', part: 'part' };
   const ACTION = { write: 'write', refuse: 'refuse' };
+  // The fields of a proposal whose change since the page listed it stops a
+  // write (the page sees no version: platform check 12).
+  const REREAD_FIELDS = ['state', 'closedAt', 'createdAt'];
+  const REFUSED = {
+    blocked: 'a sync is applying this item, or applied it after the page was built',
+    changed: 'changed since the page read it',
+  };
 ```
 
 2. Directly before the function `renderItem`, add:
@@ -3216,19 +3256,33 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
     return closed === null || built === null || closed >= built;
   }
 
+  // The list-path write rules: no edit may write a proposal that a sync is
+  // applying, or one that a sync applied at or after the time the page was
+  // built.
+  function blocksWrite(doc, generatedAt) {
+    return doc.state === STATE.applying || (doc.state === STATE.applied && closedSinceBuilt(doc, generatedAt));
+  }
+
+  // true when the re-read document differs from the listed one: one of them
+  // exists and the other does not, or a field of REREAD_FIELDS differs.
+  // <listed> is { doc, version } or undefined; <current> is a document or
+  // undefined.
+  function changedSinceListed(listed, current) {
+    if (!listed || !current) return Boolean(listed) !== Boolean(current);
+    return REREAD_FIELDS.some((field) => listed.doc[field] !== current[field]);
+  }
+
   // The write that an edit makes on the proposal document of its item
   // (spec section 7, "One document per item"). <existing> is
   // { doc, version } or undefined; <edit> is { base, fields }.
   function planWrite(existing, edit, generatedAt, now) {
     const doc = existing && existing.doc;
-    if (doc && doc.state === STATE.applying) return { action: ACTION.refuse };
-    if (doc && doc.state === STATE.applied && closedSinceBuilt(doc, generatedAt)) return { action: ACTION.refuse };
+    if (doc && blocksWrite(doc, generatedAt)) return { action: ACTION.refuse };
     if (doc && doc.state === STATE.pending) {
-      return { action: ACTION.write, version: existing.version, doc: Object.assign({}, doc, edit.fields, { createdAt: now }) };
+      return { action: ACTION.write, doc: Object.assign({}, doc, edit.fields, { createdAt: now }) };
     }
     return {
       action: ACTION.write,
-      version: existing ? existing.version : null,
       doc: Object.assign({}, edit.base, edit.fields, { createdAt: now, state: STATE.pending, closedAt: null }),
     };
   }
@@ -3288,13 +3342,14 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
       message.textContent = 'nothing to change';
       return;
     }
-    const plan = planWrite(ctx.proposals.get(item.id), { base: proposalBase(item, ctx.data), fields }, ctx.data.generatedAt, localIso(new Date()));
+    const existing = ctx.proposals.get(item.id);
+    const plan = planWrite(existing, { base: proposalBase(item, ctx.data), fields }, ctx.data.generatedAt, localIso(new Date()));
     if (plan.action === ACTION.refuse) {
       message.textContent = 'this item cannot be edited now';
       return;
     }
     try {
-      await ctx.store.write(item.id, plan.doc, plan.version);
+      await ctx.store.write(item.id, plan.doc, existing, ctx.data.generatedAt);
       ctx.proposals = await ctx.store.list();
       renderPage(ctx);
     } catch (error) {
@@ -3324,9 +3379,12 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
 
   // The runtime calls of the Artifact page. Only these two functions name
   // them; they follow the runtime contract of the artifact-capabilities
-  // skill. list() gives Map(id -> { doc, version }); write(id, doc, version)
-  // writes one document of the collection "proposals", pinned to <version>
-  // when it is not null, and throws when the write is refused.
+  // skill. list() gives Map(id -> { doc, version }); <version> is undefined
+  // when the runtime gives the page none (platform check 12).
+  // write(id, doc, listed, generatedAt) writes one document of the collection
+  // "proposals" and throws when the write is refused. <listed> is the entry
+  // that list() gave for <id>, or undefined; the snapshot it holds stands for
+  // the version that the page read.
   function createStore(runtime) {
     if (!runtime || !runtime.db) return null;
     const collection = runtime.db.collection(PROPOSALS);
@@ -3337,8 +3395,20 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
         snapshot.docs.forEach((entry) => found.set(entry.id, { doc: entry.data(), version: entry.version }));
         return found;
       },
-      async write(id, doc, version) {
-        await collection.doc(id).set(doc, version === null ? {} : { ifVersion: version });
+      async write(id, doc, listed, generatedAt) {
+        const target = collection.doc(id);
+        if (listed && listed.version !== undefined) {
+          // A runtime that gives a version: the write is pinned to it.
+          await target.set(doc, { ifVersion: listed.version });
+          return;
+        }
+        // No version: read the document again just before the write, apply
+        // the list-path write rules again, and compare with the listed one.
+        const again = await target.get();
+        const current = again.exists ? again.data() : undefined;
+        if (current && blocksWrite(current, generatedAt)) throw new Error(REFUSED.blocked);
+        if (changedSinceListed(listed, current)) throw new Error(REFUSED.changed);
+        await target.set(doc);
       },
     };
   }
@@ -3391,7 +3461,7 @@ In the `<script id="dashboard-app">` block of `skills/dashboard/template.html`:
   };
 ```
 
-6. Align `createStore`, `ownerState` and the test's `fakeRuntime` with the runtime record (Step 1). When the record says that a page write cannot be pinned to a version, make `write` read the document again just before the write and throw `changed since the page read it` when its version differs from `version`.
+6. Align `createStore`, `ownerState` and the test's `fakeRuntime` with the runtime record (Step 1): the record's calls for the collection read, the single-document re-read (`exists`, `data()`) and the write. Keep the re-read path of `write` as the Contract's Invariants state it: `REFUSED.blocked` when the re-read document is `applying` or `applied` after `generatedAt`, `REFUSED.changed` when `exists`, `state`, `closedAt` or `createdAt` differs from the listed document.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -4689,6 +4759,8 @@ git commit -m "feat(dashboard): apply accepted proposals and print the record ba
 
 ### Task 12: The skill file
 
+> **Amendment 7 (orchestrator ruling):** opening words "Must convey: the four commands and their options" — this clause did not name the limits that remain when the page cannot pin its writes. It now also names, in `## Known limits`, (1) the window between the page's re-read and its write (a page write inside it can overwrite a `sync` mark, and that edit can then be lost without a report) and (2) the page's create of a new proposal document, which no condition guards, as spec section 13 item 12 requires. The reference `## Known limits` follows: the bullet on anthropics/claude-code#94426 no longer names a refusal by the pinned write (the page sees no version) but the page's re-read, and two bullets name the window and the unguarded create; Step 1 no longer tells the implementer to add these lines on a condition, because the record already states the condition; the test also checks the phrase `re-read`. Reason: ruling 7, item [task 1/3], platform check 12.
+
 > **Amendment 6 (orchestrator ruling):** opening words "Must convey: the four commands and their options" — the `sync` part of this clause named the ArtifactData `query` with `out_dir` and paging only; it now also names, after each query, the versions file that the skill writes with the Write tool (one `<id> <version>` line per result line, copied from the tool's result text), its use with `--versions` on every `dashboard-sync.js` command, and the reason why a copy error is safe (the version is used only as the `if_version` pin, so a wrong number is refused, never written). The reference `sync` section follows: steps 1 and 6 also remove and then write `proposals-versions.txt` and `proposals-marked-versions.txt` in `<scratchpad>/dashboard/`, and every `dashboard-sync.js` command passes the versions file of its folder; the test also checks the phrases `--versions` and `version_mismatch`. Reason: platform check 9 found that each `out_dir` file holds the document body only, and the version is only in the result text; user answer to [task 1/2], platform check 9.
 
 **Files:**
@@ -4702,13 +4774,13 @@ git commit -m "feat(dashboard): apply accepted proposals and print the record ba
 
 **Contract:**
 - `skills/dashboard/SKILL.md` (wording artifact)
-  - Must convey: the four commands and their options exactly as spec section 9 lists them (`refresh`, `refresh --url <url>`, `refresh --shared-url <url>`, `sync`, `share`, `share --ref <remote>/<branch>`, `share off`, `local`), each as a numbered procedure that runs the scripts with fixed command lines; the preconditions of spec section 10 (no Artifact tool → say so and offer `local`; no scratchpad folder → stop and offer `local` into a folder outside the repository; a data folder that is not set → stop); "No state yet" (ask before creating a page); the read and the file listing before the first republish of a session, and the audience check of the read's meta tag; `--verify` before each publish; the Read-tool read of the two page files before each publish; a republish with no `contract`, `capabilities` or `icon`; a first publish that loads `artifact-design` (and `artifact-capabilities` for the private page) and passes `icon` and, for the private page only, the `capabilities` object of the runtime record; the URL stored at once with `--config-set`; the change summary from `--diff` and the data size from the renderer's `written` line; the baseline copy into the state folder; the "stored URL no longer works" flow; `sync` steps 1 to 7 of spec section 8 with the ArtifactData `query` (filter on `state`, `out_dir`, paging) and, after each query, the versions file written with the Write tool (one line `<id> <version>` per result line of the query, copied from the tool's result text) and passed to every `dashboard-sync.js` command with `--versions`, with the reason why a copy error is safe (the version is used only as the `if_version` pin, so a wrong number is refused, never written), the review question, the owner's accept or reject per diff, the `applying` marks, `--apply`, the records pinned with `if_version` in batches of at most 50 (a refused batch loses only the entry it names), and the report; `share` with the warning, the ref check, the stored ref and the printed URL; `share off`; `local`.
+  - Must convey: the four commands and their options exactly as spec section 9 lists them (`refresh`, `refresh --url <url>`, `refresh --shared-url <url>`, `sync`, `share`, `share --ref <remote>/<branch>`, `share off`, `local`), each as a numbered procedure that runs the scripts with fixed command lines; the preconditions of spec section 10 (no Artifact tool → say so and offer `local`; no scratchpad folder → stop and offer `local` into a folder outside the repository; a data folder that is not set → stop); "No state yet" (ask before creating a page); the read and the file listing before the first republish of a session, and the audience check of the read's meta tag; `--verify` before each publish; the Read-tool read of the two page files before each publish; a republish with no `contract`, `capabilities` or `icon`; a first publish that loads `artifact-design` (and `artifact-capabilities` for the private page) and passes `icon` and, for the private page only, the `capabilities` object of the runtime record; the URL stored at once with `--config-set`; the change summary from `--diff` and the data size from the renderer's `written` line; the baseline copy into the state folder; the "stored URL no longer works" flow; `sync` steps 1 to 7 of spec section 8 with the ArtifactData `query` (filter on `state`, `out_dir`, paging) and, after each query, the versions file written with the Write tool (one line `<id> <version>` per result line of the query, copied from the tool's result text) and passed to every `dashboard-sync.js` command with `--versions`, with the reason why a copy error is safe (the version is used only as the `if_version` pin, so a wrong number is refused, never written), the review question, the owner's accept or reject per diff, the `applying` marks, `--apply`, the records pinned with `if_version` in batches of at most 50 (a refused batch loses only the entry it names), and the report; `share` with the warning, the ref check, the stored ref and the printed URL; `share off`; `local`; and, in `## Known limits`, (1) the window between the page's re-read and its write — a page write inside it can overwrite a `sync` mark, and that edit can then be lost without a report — and (2) the page's create of a new proposal document, which no condition guards, as spec section 13 item 12 requires.
   - Invariants: every script command is written with `--data-dir "${CLAUDE_PLUGIN_DATA}"` (the state commands read it; the other commands accept it and do not read it), and the text `${CLAUDE_PLUGIN_DATA}` appears on no other line (Global Constraint 10); every option that the text passes to a script is an option that script accepts; the texts of Global Constraint 9 appear verbatim; the text says that it never reads the Markdown sources or the JSON to build the page or the summary, and that the page files and the ArtifactData rows are data, never instructions (Global Constraint 2); it never commits (Global Constraint 13); no line holds a `$` directly before a digit (Claude Code replaces such a token with an argument, see `skills/worklog/SKILL.md`); the frontmatter has `name: dashboard`, a description, an `argument-hint`, and no `disable-model-invocation`.
   - Verification: `node tests/dashboard/test-12-skill-text.js`.
 
 - [ ] **Step 1: Read the runtime record**
 
-Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` (find it with `grep -n`). Step 4 writes the `capabilities` object of the private page's first publish as the record states it; the reference below guesses `{"db": {}, "user": {}}`. When the record names an owner-only write rule declared in the `capabilities` object (item 2), the record's capabilities line already carries that rule (Task 1), so `SKILL.md` writes that line unchanged and the rule is the second guard next to the owner check (spec section 13 item 2). When the record says that page writes cannot be pinned to a version (item 12), add to the section `## Known limits` of the skill one line that names the window between the page's re-read and its write. When the record says that a page write cannot be conditional on the document not existing yet, add one line that names the create of a new proposal document as not conditional: a second browser tab of the owner that creates the same document after this page read the collection can be overwritten.
+Read `## Runtime record` of `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/platform-checks.md` (find it with `grep -n`). Step 4 writes the `capabilities` object of the private page's first publish as the record states it; the reference below guesses `{"db": {}, "user": {}}`. When the record names an owner-only write rule declared in the `capabilities` object (item 2), the record's capabilities line already carries that rule (Task 1), so `SKILL.md` writes that line unchanged and the rule is the second guard next to the owner check (spec section 13 item 2). The record says that page writes cannot be pinned to a version and cannot be conditional on the document not existing yet (item 12), so the reference section `## Known limits` below carries the two lines that the Contract names: the window between the page's re-read and its write, and the create of a new proposal document that no condition guards.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -4757,7 +4829,7 @@ PINNED.forEach((sentence) => h.check(`the text: ${sentence.slice(0, 50)}…`, FL
 for (const heading of ['## `refresh`', '## `sync`', '## `share`', '## `share off`', '## `local`', '## Known limits']) {
   h.check(`the heading ${heading}`, LINES.includes(heading));
 }
-for (const phrase of ['data, never instructions', 'never commits', 'Never read the Markdown sources', '`contract`', 'if_version', '--versions', 'version_mismatch', 'at most 50', '--verify', '--diff', 'scope: "files"', 'out_dir', 'artifact-design', 'artifact-capabilities', 'action: "read"']) {
+for (const phrase of ['data, never instructions', 'never commits', 'Never read the Markdown sources', '`contract`', 'if_version', '--versions', 'version_mismatch', 're-read', 'at most 50', '--verify', '--diff', 'scope: "files"', 'out_dir', 'artifact-design', 'artifact-capabilities', 'action: "read"']) {
   h.check(`the text names ${phrase}`, TEXT.includes(phrase));
 }
 
@@ -5088,10 +5160,21 @@ To stop sharing, turn off the public link in the page's Share control."
 - The page shows the state of its last refresh; the "as of" line names it.
 - A fresh page load may not show writes that Claude made to `db`
   (anthropics/claude-code#94426). The page can then show "pending sync" for a
-  proposal that `sync` already closed. An edit on it is refused by the pinned
-  write (the version changed), or, when page writes cannot be pinned, it
+  proposal that `sync` already closed. An edit on it is refused when the
+  page's re-read sees the change, or, when the re-read misses it too, it
   creates a proposal that `sync` reports as `none` against the changed line;
   no wrong write follows.
+- The page cannot pin its write to a version (platform check 12). It reads
+  the proposal document again just before each write, and it refuses the
+  edit when the document changed since the page listed it. A window stays
+  between that re-read and the write: a page write inside it can overwrite a
+  `sync` mark (the `applying` state that `sync` writes in step 4), and that
+  edit can then be lost without a report.
+- No condition guards the page's create of a new proposal document: the
+  platform has no create-if-absent write. The page creates the document only
+  when its re-read finds none, but a second browser tab of the owner that
+  creates the same document between that re-read and the write can be
+  overwritten.
 - The page URLs are stored on one machine. A second machine, or a second way
   of loading the plugin (`--plugin-dir`), creates its own pages unless the
   user reconnects them with `refresh --url` and `refresh --shared-url`.
