@@ -133,3 +133,16 @@ _Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — bra
 - [M3] fixed — test-11 check "nothing is read" claimed more than it asserted; renamed and now compares file bytes → e1b13da
 - [M4] carried — the home-folder replacement of `sanitize` in dashboard-extract.js has no test
 - [M5] carried — some contract-named error paths have no case (unknown extract argument, `--verify` on a missing file or an audience-less meta tag, `--check` outside a repository, tab button clicks)
+
+## Round 4 verification 2 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 9 Minor
+### Dispositions
+- [M1] carried — tests/dashboard/helpers.js: a test file whose async block never settles exits 0 before `finish()`, and the runner counts it as passed
+- [M2] carried — test-11 link-at-temporary-name case accepts an uncaught EEXIST crash from `writeTemp` (no `not written:` line, later files skipped); fails safe, but breaks the output contract SKILL.md sync step 5 reads
+- [M3] carried — no test clicks a tab (`selectTab`); same root as verification 1 [M5]
+- [M4] carried — test-03 link parity case compares a literal the test wrote itself, not a product classification
+- [M5] carried — test-06 `share-feature` fixture tests the Amendment 8 merge rule for `unfinishedRuns` only, not for the shared `git` section or the `git merge-base failed` path
+- [M6] carried — Global Constraint 5 (`--no-optional-locks`, index untouched) has no behavioural test; same as round 4 [M3]
+- [M7] carried — several test-10 error-path cases assert only the verdict or exit code (`nothing`, `indexFail`, `scanFail`)
+- [M8] carried — the test-only hook `DASHBOARD_SYNC_TEST_CHANGE_ONCE` ships in dashboard-sync.js; same as verification 1 [M2]
+- [M9] carried — test-12 single-quote check does not cover `--remote-url '<remote>'`
