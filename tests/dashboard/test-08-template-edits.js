@@ -24,13 +24,14 @@ const existing = (state, closedAt) => ({ doc: { kind: 'set-part', state, closedA
 // form of the `## Runtime record` of platform-checks.md: `claude.use(name)`
 // resolves the `user` or `db` namespace; a page snapshot carries no version.
 // <reread> maps an id to the document that the single-document read finds;
-// an id with no entry is read as absent.
-function fakeRuntime(owner, docs, writes, reread) {
+// an id with no entry is read as absent. <fromCache> is the value of
+// metadata.fromCache that each single-document read reports.
+function fakeRuntime(owner, docs, writes, reread, fromCache) {
   const found = reread || {};
   const collection = {
     get: async () => ({ docs: docs.map((entry) => ({ id: entry.id, exists: true, data: () => entry.doc })) }),
     doc: (id) => ({
-      get: async () => ({ id, exists: found[id] !== undefined, data: () => found[id] }),
+      get: async () => ({ id, exists: found[id] !== undefined, data: () => found[id], metadata: { fromCache: fromCache === true } }),
       set: async (doc) => { writes.push({ id, doc }); },
     }),
   };
@@ -203,9 +204,9 @@ h.eq('a status outside the list: a "(current)" option that sets no status', [dro
   // Writes one document through the adapter. <found> is the document that the
   // re-read finds, or undefined for none. Gives [number of runtime writes,
   // message of the refusal or null].
-  async function adapterWrite(listed, found) {
+  async function adapterWrite(listed, found, fromCache) {
     const runtimeWrites = [];
-    const adapter = app.createStore(fakeRuntime(true, [], runtimeWrites, { [PART_ID]: found }));
+    const adapter = app.createStore(fakeRuntime(true, [], runtimeWrites, { [PART_ID]: found }, fromCache));
     try {
       await adapter.write(PART_ID, { state: 'pending' }, listed, BUILT);
       return [runtimeWrites.length, null];
@@ -221,6 +222,7 @@ h.eq('a status outside the list: a "(current)" option that sets no status', [dro
   h.eq('a re-read that finds none for a listed document: refused', await adapterWrite(LISTED, undefined), [0, CHANGED]);
   h.eq('a re-read that finds an applying document: refused', await adapterWrite(LISTED, reread({ state: 'applying' })), [0, BLOCKED]);
   h.eq('a re-read that finds a document applied after the page was built: refused', await adapterWrite(LISTED, reread({ state: 'applied', closedAt: LATER })), [0, BLOCKED]);
+  h.eq('a re-read from the local cache (metadata.fromCache true), otherwise unchanged: refused, nothing written', await adapterWrite(LISTED, reread({}), true), [0, CHANGED]);
   h.eq('a new document whose re-read finds one: refused', await adapterWrite(undefined, LISTED.doc), [0, CHANGED]);
   h.eq('a listed entry that carries a version is still re-read', await adapterWrite({ doc: LISTED.doc, version: 4 }, reread({ state: 'applying' })), [0, BLOCKED]);
   const listedRuntime = app.createStore(fakeRuntime(true, [{ id: OPEN_ID, doc: LISTED.doc }], []));

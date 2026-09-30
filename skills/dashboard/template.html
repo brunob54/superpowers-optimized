@@ -397,6 +397,9 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
         // Record: re-read just before each write (db.collection("proposals").doc(id).get(), then .set(body)).
         const target = (await proposals()).doc(id);
         const again = await target.get();
+        // A snapshot from the local cache (metadata.fromCache true) is not the
+        // server's document: refuse it as a changed document.
+        if (again.metadata && again.metadata.fromCache === true) throw new Error(REFUSED.changed);
         const current = again.exists ? again.data() : undefined;
         if (current && blocksWrite(current, generatedAt)) throw new Error(REFUSED.blocked);
         if (changedSinceListed(listed, current)) throw new Error(REFUSED.changed);

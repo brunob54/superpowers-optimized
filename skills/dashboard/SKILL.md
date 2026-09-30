@@ -426,6 +426,9 @@ To stop sharing, turn off the public link in the page's Share control."
   between that re-read and the write: a page write inside it can overwrite a
   `sync` mark (the `applying` state that `sync` writes in step 4), and that
   edit can then be lost without a report.
+- A branch pushed only to another remote than the shared ref's remote does
+  not appear on the shared page, because the shared run uses only the
+  upstreams on the shared ref's own remote.
 - No condition guards the page's create of a new proposal document: the
   platform has no create-if-absent write. The page creates the document only
   when its re-read finds none, but a second browser tab of the owner that

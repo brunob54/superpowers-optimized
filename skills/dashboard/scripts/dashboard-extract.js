@@ -310,7 +310,9 @@ function runMark(context, run) {
 }
 
 function unfinishedRuns(context) {
-  const runs = scanRuns(context.shared ? { refs: REFS.upstream, base: context.base } : { refs: REFS.local });
+  const runs = scanRuns(context.shared
+    ? { refs: REFS.upstream, base: context.base, acceptUpstream: (upstream) => onSharedRemote(context, upstream) }
+    : { refs: REFS.local });
   const items = runs.map((run) => keyItem(context, SECTION.unfinishedRuns, run.branch, null, {
     kind: KIND.run,
     branch: run.branch,
@@ -346,6 +348,22 @@ function localBranches(context) {
   return okSection(items, { note: notes.join('; '), ahead: ahead.ok ? Number(ahead.out) : null, dirty });
 }
 
+// true when <upstream> (refs/remotes/<remote>/<branch>) lies on the remote of
+// the shared ref: the shared run never shows a branch pushed only to another
+// remote.
+function onSharedRemote(context, upstream) {
+  return upstream.startsWith(`${REMOTES}${context.remote}/`);
+}
+
+// The remote of the shared ref <name> (<remote>/<branch>): the one name in
+// the list that `git remote` prints that is followed by "/" in <name>. A
+// remote name may hold "/", so more than one name can match: the run stops.
+function sharedRemote(name) {
+  const matches = mustLines(['remote']).filter((remote) => name.startsWith(`${remote}/`));
+  if (matches.length !== 1) stop(`the shared ref ${name} does not name exactly one remote (${matches.length} found)`);
+  return matches[0];
+}
+
 // The shared run lists only local branches whose upstream counts, by the
 // upstream's name and date. The shared ref itself is left out by name; an
 // upstream merged into context.base (the counted upstream of the default
@@ -354,7 +372,7 @@ function sharedBranches(context) {
   const items = [];
   for (const name of localBranchNames()) {
     const upstream = countedUpstream(name);
-    if (!upstream || upstream === context.ref) continue;
+    if (!upstream || upstream === context.ref || !onSharedRemote(context, upstream)) continue;
     const merged = context.base ? isAncestor(upstream, context.base) : false;
     if (merged === null) throw new Error('git merge-base failed');
     if (merged) continue;
@@ -607,7 +625,7 @@ function extract(audience, sharedName) {
   // base: the ref against which the shared run decides "merged" (null: no
   // merge exclusion). The private run does not use it.
   const context = {
-    shared, ref, base: shared ? defaultUpstream() : null, top, home: os.homedir(), now: Date.now(), committed: new Map(),
+    shared, ref, remote: shared ? sharedRemote(sharedName) : null, base: shared ? defaultUpstream() : null, top, home: os.homedir(), now: Date.now(), committed: new Map(),
     source: shared ? refSource(ref) : workingTreeSource(top),
   };
   return {

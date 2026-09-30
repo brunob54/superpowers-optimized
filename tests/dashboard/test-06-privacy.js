@@ -185,4 +185,27 @@ const blobRuns = JSON.parse(blobResult.out).sections.unfinishedRuns;
 h.eq('a failed git command of the shared run scan: the fixed note', [blobRuns.status, blobRuns.note], ['error', 'git command failed']);
 h.check('the shared output of a failed scan holds neither the repository root nor the home folder', !blobResult.out.includes(h.ROOT) && !blobResult.out.includes(h.HOME));
 
+// Two remotes: the shared ref is public/main. A feature branch pushed only to
+// origin is absent from the git and unfinishedRuns sections; once it is pushed
+// to public it is present.
+const two = h.repo('two-remotes');
+h.addRemote(two, 'two-remotes-origin');
+h.git(two, 'init', '-q', '--bare', path.join(h.ROOT, 'two-remotes-public.git'));
+h.git(two, 'remote', 'add', 'public', path.join(h.ROOT, 'two-remotes-public.git'));
+h.write(two, 'file.txt', 'x\n');
+h.commit(two, 'base', ['file.txt']);
+h.git(two, 'push', '-q', '-u', 'origin', 'main');
+h.git(two, 'push', '-q', 'public', 'main');
+h.git(two, 'fetch', '-q', 'public');
+h.git(two, 'checkout', '-q', '-b', 'feature/private-only');
+h.write(two, h.logPath('2026-09-06', 'private-only'), h.runLog('private-only', ['## Phase 1']));
+h.commit(two, 'private run', ['docs']);
+h.git(two, 'push', '-q', '-u', 'origin', 'feature/private-only');
+const twoSections = () => JSON.parse(shared(two, 'public/main').out).sections;
+const twoNames = () => [twoSections().git.items.map((i) => i.name), twoSections().unfinishedRuns.items.map((i) => i.branch)];
+h.eq('a branch pushed only to another remote is absent from git and unfinishedRuns', twoNames(), [[], []]);
+h.git(two, 'push', '-q', 'public', 'feature/private-only');
+h.git(two, 'branch', '-q', '--set-upstream-to=public/feature/private-only', 'feature/private-only');
+h.eq('the same branch is present once its upstream is on the shared ref\'s remote', twoNames(), [['public/feature/private-only'], ['public/feature/private-only']]);
+
 h.finish();
