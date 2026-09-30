@@ -3,10 +3,14 @@
 // JSON document (JSON: JavaScript Object Notation) for one audience.
 // Usage (run from inside the repository):
 //   node dashboard-extract.js --audience private [--out <file>]
+//   node dashboard-extract.js --audience shared --ref <remote>/<branch> [--out <file>]
+//   node dashboard-extract.js --default-shared-ref
+//   node dashboard-extract.js --check-shared-ref <remote>/<branch>
 //   node dashboard-extract.js --data-dir <path> --state-dir
 //   node dashboard-extract.js --data-dir <path> --config
 //   node dashboard-extract.js --data-dir <path> --config-set <key>=<value>
-// The private run reads the working tree. The state folder
+// The private run reads the working tree. The shared run reads only the
+// pushed ref refs/remotes/<remote>/<branch> and fails closed. The state folder
 // <data dir>/dashboard/<repo key>/ lies outside the repository.
 // Exit status: 0 on success; 2 when the command cannot run (not a git
 // repository, no commit, a bad argument, a data folder that is not set, an
@@ -18,8 +22,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  HEADS, DETACHED, GIT_OK, GIT_NO_COMMITS, RUN_STATE, REFS, LOG_ROOT, HEADING_PREFIX, STOPPED_HEADING,
-  git, gitState, defaultBranch, currentBranch, scanRuns,
+  HEADS, REMOTES, LINK_MODE, DETACHED, GIT_OK, GIT_NO_COMMITS, RUN_STATE, REFS, LOG_ROOT, HEADING_PREFIX, STOPPED_HEADING,
+  git, gitRaw, gitState, defaultBranch, currentBranch, countedUpstream, isAncestor, scanRuns,
 } = require('../../pickup/scripts/git-runs');
 const parse = require('./dashboard-parse');
 
@@ -45,9 +49,13 @@ const STALE_MS = 24 * 60 * 60 * 1000;
 const COMMIT_LIMIT = 20;
 const FIELD_SEPARATOR = '\x1f';
 const OPTIONS = {
-  values: ['--audience', '--out', '--data-dir', '--config-set'],
-  flags: ['--state-dir', '--config'],
+  values: ['--audience', '--ref', '--out', '--data-dir', '--config-set', '--check-shared-ref'],
+  flags: ['--state-dir', '--config', '--default-shared-ref'],
 };
+// <remote>/<branch>: letters, digits, ".", "_", "-" and "/" only, and no "..".
+const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
+const TREE = 'tree';
+const BLOB = 'blob';
 const NO_SOURCE = { file: null, heading: null, headingOrdinal: null, line: null, occurrence: null, lineNumber: null };
 const MARK = { stopped: 'stopped — waits for you', ambiguous: 'ambiguous — waits for you', inProgress: 'in progress' };
 const SECTION = {
@@ -194,6 +202,48 @@ function workingTreeSource(top) {
   };
 }
 
+// The entries of `git ls-tree -z --full-tree <ref> -- <rel>`.
+function lsTree(ref, rel) {
+  const result = gitRaw(['ls-tree', '-z', '--full-tree', ref, '--', rel]);
+  if (!result.ok) throw new Error(`git ls-tree failed: ${result.err}`);
+  return result.raw.split('\0').filter(Boolean).map((row) => {
+    const tab = row.indexOf('\t');
+    const [mode, type, id] = row.slice(0, tab).split(' ');
+    return { mode, type, id, path: row.slice(tab + 1) };
+  });
+}
+
+// The shared source: only the pushed ref <ref>, read with git; never the
+// working tree, the index or HEAD. A symbolic link (mode 120000) is skipped.
+function refSource(ref) {
+  const entry = (rel) => lsTree(ref, rel).find((item) => item.path === rel) || null;
+  return {
+    read(rel) {
+      const found = entry(rel);
+      if (!found || found.type !== BLOB || found.mode === LINK_MODE) return null;
+      // Global Constraint 7: read with git show <ref>:<path>, after ls-tree
+      // named the entry as a blob that is not a symbolic link.
+      const blob = gitRaw(['show', `${ref}:${rel}`]);
+      if (!blob.ok) throw new Error(`git show failed: ${blob.err}`);
+      return blob.raw;
+    },
+    entries(rel) {
+      const found = entry(rel);
+      if (!found || found.type !== TREE) return null;
+      return lsTree(ref, `${rel}/`)
+        .filter((item) => item.mode !== LINK_MODE)
+        .map((item) => ({
+          name: item.path.slice(rel.length + 1),
+          kind: item.type === TREE ? ENTRY.dir : (item.type === BLOB ? ENTRY.file : ENTRY.other),
+        }))
+        .sort(byName);
+    },
+    committed() {
+      return true;
+    },
+  };
+}
+
 // ---- items and sections ----
 
 function visibilityOf(context, file) {
@@ -252,7 +302,7 @@ function runMark(context, run) {
 }
 
 function unfinishedRuns(context) {
-  const runs = scanRuns({ refs: REFS.local });
+  const runs = scanRuns(context.shared ? { refs: REFS.upstream, base: context.base } : { refs: REFS.local });
   const items = runs.map((run) => keyItem(context, SECTION.unfinishedRuns, run.branch, null, {
     kind: KIND.run,
     branch: run.branch,
@@ -269,7 +319,7 @@ function unfinishedRuns(context) {
     const message = runs.errors.map((failure) => `${failure.command} failed: ${failure.message}`).join('; ');
     return { [SECTION.unfinishedRuns]: Object.assign(errorSection(context, new Error(message)), { items }) };
   }
-  const note = defaultBranch() ? '' : 'no default branch: every feature/* branch is scanned';
+  const note = context.shared || defaultBranch() ? '' : 'no default branch: every feature/* branch is scanned';
   return { [SECTION.unfinishedRuns]: okSection(items, { note }) };
 }
 
@@ -288,8 +338,27 @@ function localBranches(context) {
   return okSection(items, { note: notes.join('; '), ahead: ahead.ok ? Number(ahead.out) : null, dirty });
 }
 
+// The shared run lists only local branches whose upstream counts, by the
+// upstream's name and date. The shared ref itself is left out by name; an
+// upstream merged into context.base (the counted upstream of the default
+// branch) is left out; with no context.base, no upstream counts as merged.
+function sharedBranches(context) {
+  const items = [];
+  for (const name of localBranchNames()) {
+    const upstream = countedUpstream(name);
+    if (!upstream || upstream === context.ref) continue;
+    const merged = context.base ? isAncestor(upstream, context.base) : false;
+    if (merged === null) throw new Error('git merge-base failed');
+    if (merged) continue;
+    const shown = upstream.slice(REMOTES.length);
+    const date = must(['log', '-1', '--format=%cd', '--date=short', upstream]);
+    items.push(keyItem(context, SECTION.git, shown, null, { kind: KIND.branch, name: shown, date }));
+  }
+  return okSection(items, { ahead: null, dirty: null });
+}
+
 function gitSection(context) {
-  return { [SECTION.git]: localBranches(context) };
+  return { [SECTION.git]: context.shared ? sharedBranches(context) : localBranches(context) };
 }
 
 function commits(context) {
@@ -497,13 +566,14 @@ const BUILDERS = [
 
 function commitMeta(context) {
   const sha = must(['rev-parse', `${context.ref}^{commit}`]);
-  const current = currentBranch();
+  // The shared run never reads HEAD.
+  const current = context.shared ? null : currentBranch();
   return {
     sha,
     short: sha.slice(0, 7),
-    branch: current === DETACHED ? null : current,
+    branch: context.shared ? context.ref.slice(REMOTES.length) : (current === DETACHED ? null : current),
     ref: context.ref,
-    defaultBranch: defaultBranch(),
+    defaultBranch: context.shared ? null : defaultBranch(),
   };
 }
 
@@ -519,10 +589,15 @@ function buildSections(context) {
   return sections;
 }
 
-function extract(audience) {
+function extract(audience, sharedName) {
   const top = repoTop();
+  const shared = audience === AUDIENCE.shared;
+  const ref = shared ? `${REMOTES}${sharedName}` : HEAD_REF;
+  // base: the ref against which the shared run decides "merged" (null: no
+  // merge exclusion). The private run does not use it.
   const context = {
-    shared: false, ref: HEAD_REF, top, home: os.homedir(), now: Date.now(), committed: new Map(), source: workingTreeSource(top),
+    shared, ref, base: shared ? defaultUpstream() : null, top, home: os.homedir(), now: Date.now(), committed: new Map(),
+    source: shared ? refSource(ref) : workingTreeSource(top),
   };
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -545,6 +620,41 @@ function writeDocument(doc, out) {
   console.log(`written ${out} ${Buffer.byteLength(text)} bytes`);
 }
 
+function localBranchNames() {
+  return mustLines(['for-each-ref', '--format=%(refname:short)', HEADS]);
+}
+
+// The counted upstream of the default branch (refs/remotes/<remote>/<branch>),
+// or null when there is no default branch or the default branch has no
+// counted upstream. The shared run decides "merged" against this ref, never
+// against the shared ref (spec section 5, Tab 1).
+function defaultUpstream() {
+  const base = defaultBranch();
+  return base ? countedUpstream(base) : null;
+}
+
+function printDefaultSharedRef() {
+  const upstream = defaultUpstream();
+  if (!upstream) stop('the default branch has no upstream that counts (a remote-tracking ref of the same name); give --ref <remote>/<branch>');
+  console.log(upstream.slice(REMOTES.length));
+}
+
+function checkSharedRef(name) {
+  if (!localBranchNames().some((branch) => countedUpstream(branch) === `${REMOTES}${name}`)) {
+    stop(`${name} is not the upstream of a local branch of the same name`);
+  }
+  console.log(`ok ${name}`);
+}
+
+function checkSharedName(name) {
+  if (!name) stop('the shared audience needs --ref <remote>/<branch>');
+  if (!SHARED_REF_NAME.test(name) || name.includes('..')) stop(`--ref ${name} is not of the form <remote>/<branch>`);
+  // The exact-name check: rev-parse would also accept a local branch or tag
+  // named refs/remotes/<name> (git's name guessing).
+  if (!git(['show-ref', '--verify', '--quiet', `${REMOTES}${name}`]).ok) stop(`the shared ref ${name} no longer exists; nothing is published`);
+  if (!git(['rev-parse', '--verify', '--quiet', `${REMOTES}${name}^{commit}`]).ok) stop(`the shared ref ${name} is not a commit; nothing is published`);
+}
+
 function main() {
   const args = parse.parseArguments(process.argv.slice(2), OPTIONS, stop);
   const state = gitState();
@@ -555,11 +665,20 @@ function main() {
     stateCommand(args);
     return;
   }
+  if (args.flags.has('--default-shared-ref')) {
+    printDefaultSharedRef();
+    return;
+  }
+  if (args['--check-shared-ref'] !== undefined) {
+    checkSharedRef(args['--check-shared-ref']);
+    return;
+  }
   const audience = args['--audience'];
-  if (audience !== AUDIENCE.private) stop('--audience must be private');
+  if (!Object.values(AUDIENCE).includes(audience)) stop('--audience must be private or shared');
+  if (audience === AUDIENCE.shared) checkSharedName(args['--ref']);
   const out = args['--out'];
   if (out && parse.isInside(out, repoTop())) stop(`--out ${out} lies inside the repository; write into the session scratchpad folder`);
-  writeDocument(extract(audience), out);
+  writeDocument(extract(audience, args['--ref']), out);
 }
 
 main();
