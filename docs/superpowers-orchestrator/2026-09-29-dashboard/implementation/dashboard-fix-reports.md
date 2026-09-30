@@ -46,3 +46,9 @@ Command: bash tests/dashboard/run-tests.sh (exit code 0)
       102 passed, 0 failed
     
     [0;32mdashboard suite: every test file passed[0m
+
+## Round 3
+
+Findings addressed: CF5, I1.
+
+Commands: `bash tests/dashboard/run-tests.sh` (exit 0, "dashboard suite: every test file passed", last file 102 passed, 0 failed) and `bash tests/pickup/run-tests.sh` (Results: 207 passed, 0 failed).
