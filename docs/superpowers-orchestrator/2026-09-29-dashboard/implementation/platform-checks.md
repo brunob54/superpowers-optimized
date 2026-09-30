@@ -50,6 +50,7 @@ Step 3 counts per log: `researching-prior-art` 0/3, `artifact-layout` 1/7,
 - Write a new document only when it does not exist yet: page side: not available ("There is no create-if-absent write"; the skill's substitute is a lease: `doc.acquire({holder, ttlMs})`, then `get()`, then `set()` only when absent, which coordinates only callers that all use `acquire`). Claude side: ArtifactData `set` with no `if_version` creates a document and is refused on an existing one (`version_mismatch`: "already exists and this write carried no if_version"), observed on `proposals/p2`
 - Owner-only write rule for `proposals` (item 2): `{"path":"proposals","read":"view","write":"owner"}` in `capabilities.db.rules`; declared in the `capabilities` object, stored by the publish, and enforced (an `as_level: "admin"` update was refused)
 - Capabilities of the private page's first publish: `{"db":{"rules":[{"path":"proposals","read":"view","write":"owner"}]},"user":{}}`
+- Probe page URL: https://claude.ai/artifact/P2iqBGEqbpPiJrjoJgTYwW (private; the owner may delete it)
 - One ArtifactData `out_dir` file (item 9): the document body only; no field holds the version (see row 9)
 
       { "state": string }
