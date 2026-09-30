@@ -42,12 +42,23 @@ const OPEN_ITEMS_HEADING = '## Open items';
 // The columns of the two tables of skills/worklog/template.md, by header label.
 const PART_COLUMNS = { number: '#', part: 'Part', status: 'Status', since: 'Since', commit: 'Commit', note: 'Note' };
 const OPEN_ITEM_COLUMNS = { number: '#', item: 'Item', part: 'Part', found: 'Found', blocks: 'Blocks' };
+// The characters that a diff does not show or that end a line for some
+// tools: the C0 control characters (U+0000 to U+001F, which include the line
+// feed and the carriage return), U+007F, the C1 control characters (U+0080
+// to U+009F), the bidirectional controls (U+200E, U+200F, U+202A to U+202E,
+// U+2066 to U+2069) and the line and paragraph separators (U+2028, U+2029).
+// A proposal of the page never holds one in a field that is printed or
+// written.
+const UNSAFE_CLASS = '\\u0000-\\u001f\\u007f-\\u009f\\u200e\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069';
+const UNSAFE_CHARACTER = new RegExp(`[${UNSAFE_CLASS}]`);
 // The note rule and the part statuses. The page template of the dashboard
 // (Task 8) holds the only other copy of these three values, because the page
-// cannot load shared code; a parity test of Task 8 checks that copy.
+// cannot load shared code; a parity test of Task 8 checks that copy. A note is
+// one line of at most 200 characters, with none of the characters | [ ] and
+// no unsafe character.
 const PART_STATUSES = ['not started', 'in progress', 'done'];
 const NOTE_LIMIT = 200;
-const NOTE_FORBIDDEN = /[|[\]\r\n]/;
+const NOTE_FORBIDDEN = new RegExp(`[|[\\]${UNSAFE_CLASS}]`);
 // The bytes that the listing command keeps in an invalid file name: a-z,
 // 0-9, "." and "-" (it runs awk with LC_ALL=C, so it replaces bytes).
 const LISTING_KEEP = (byte) => (byte >= 0x61 && byte <= 0x7a) || (byte >= 0x30 && byte <= 0x39) || byte === 0x2e || byte === 0x2d;
@@ -293,9 +304,9 @@ function parseArguments(argv, options, stop) {
 module.exports = {
   HEADING_PREFIX, RESOLVED_MARK, SUPERSEDED_MARK, WORKLOG_CLASS,
   SESSION_LOG, WORKLOG_DIR, PARTS_HEADING, OPEN_ITEMS_HEADING, PART_COLUMNS, OPEN_ITEM_COLUMNS,
-  PART_STATUSES, NOTE_LIMIT, NOTE_FORBIDDEN,
+  PART_STATUSES, NOTE_LIMIT, NOTE_FORBIDDEN, UNSAFE_CHARACTER,
   splitLines, normalizeHeading, normalizeLine, headings, findSection, occurrenceOf, lineAtOccurrence,
   openItems, openItemText, splitRow, joinRow, sectionTable, columnIndex,
   itemId, lineItemId, keyItemId, worklogLine1, worklogClass, worklogNameValid, listingName,
-  localIso, parseArguments, isInside,
+  localIso, parseArguments, realPath, isInside,
 };

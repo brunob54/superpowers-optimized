@@ -117,7 +117,9 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
   // checks that the two copies are equal.
   const PART_STATUSES = ['not started', 'in progress', 'done'];
   const NOTE_LIMIT = 200;
-  const NOTE_FORBIDDEN = /[|[\]\r\n]/;
+  // A note is one line without | [ ], control characters, line or paragraph
+  // separators, or bidirectional controls.
+  const NOTE_FORBIDDEN = /[|[\]\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
   const NOTE_HINT = 'note (optional, one line)';
   const STATE = { pending: 'pending', applying: 'applying', applied: 'applied', rejected: 'rejected' };
   const EDIT_KIND = { resolve: 'resolve-open-item', setPart: 'set-part' };

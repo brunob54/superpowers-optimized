@@ -87,6 +87,6 @@ fs.symlinkSync(inside, path.join(h.ROOT, 'inside-link'));
 h.eq('isInside: a new file inside, the folder itself, a folder beside it', [p.isInside(path.join(inside, 'a', 'b.json'), inside), p.isInside(inside, inside), p.isInside(path.join(h.ROOT, 'inside2', 'x'), inside)], [true, true, false]);
 h.eq('isInside resolves a symbolic link of the existing part', p.isInside(path.join(h.ROOT, 'inside-link', 'x.json'), inside), true);
 
-h.eq('the part statuses and the note rule are the values of the plan', [p.PART_STATUSES, p.NOTE_LIMIT, String(p.NOTE_FORBIDDEN)], [['not started', 'in progress', 'done'], 200, String(/[|[\]\r\n]/)]);
+h.eq('the part statuses and the note rule are the values of the plan', [p.PART_STATUSES, p.NOTE_LIMIT, String(p.NOTE_FORBIDDEN)], [['not started', 'in progress', 'done'], 200, String(/[|[\]\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/)]);
 
 h.finish();

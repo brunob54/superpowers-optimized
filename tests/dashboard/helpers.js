@@ -126,7 +126,28 @@ function logPath(date, slug) {
   return `docs/superpowers-orchestrator/${date}-${slug}/${slug}-orchestration-log.md`;
 }
 
+// The versions file of a proposal folder: "<folder>-versions.txt", next to
+// the folder, as the dashboard skill places it.
+function versionsFile(folder) {
+  return `${folder}-versions.txt`;
+}
+
+// Writes one proposal as ArtifactData query with out_dir saves it: the file
+// <folder>/proposals/<id>.json holds the document body only, with no id and
+// no version (platform check 9). <body> is a document, or a raw text for a
+// file that is not valid JSON. The version goes to the versions file as the
+// line "<id> <version>", the line that the skill copies from the query's
+// result text.
+function proposalFile(folder, id, body, version) {
+  const file = path.join(folder, 'proposals', `${id}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, typeof body === 'string' ? body : JSON.stringify(body, null, 2));
+  fs.appendFileSync(versionsFile(folder), `${id} ${version}\n`);
+  return file;
+}
+
 module.exports = {
   REPO, SCRIPTS, GIT_RUNS, OLD_DATE, ROOT, HOME, ENV,
   check, eq, finish, git, gitIn, repo, addRemote, write, commit, node, script, scan, runLog, logPath,
+  proposalFile, versionsFile,
 };
