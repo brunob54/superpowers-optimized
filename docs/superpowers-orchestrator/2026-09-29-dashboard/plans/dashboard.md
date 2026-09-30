@@ -759,7 +759,7 @@ git commit -m "refactor(pickup): move the run scan into git-runs.js; start the d
   - Verification: `node tests/dashboard/test-02-parse.js`; `node tests/dashboard/test-03-worklog-parity.js` runs the check command and the listing command copied out of `skills/worklog/SKILL.md` on the same fixtures and finds equal results.
   - Interface not externally pinned — the names are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/dashboard/test-02-parse.js`:
 
@@ -920,12 +920,12 @@ for (const slug of slugs) {
 h.finish();
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/dashboard/test-02-parse.js; node tests/dashboard/test-03-worklog-parity.js`
 Expected: FAIL — both exit 1 with `Cannot find module` naming `skills/dashboard/scripts/dashboard-parse.js`.
 
-- [ ] **Step 3: Create the library**
+- [x] **Step 3: Create the library**
 
 Create `skills/dashboard/scripts/dashboard-parse.js`:
 
@@ -1226,12 +1226,12 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-02-parse.js; node tests/dashboard/test-03-worklog-parity.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — both files end with `0 failed`; the suite prints `dashboard suite: every test file passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-parse.js tests/dashboard/test-02-parse.js tests/dashboard/test-03-worklog-parity.js
