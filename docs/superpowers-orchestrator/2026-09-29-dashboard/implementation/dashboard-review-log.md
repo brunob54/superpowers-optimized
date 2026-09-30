@@ -122,3 +122,14 @@ _Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — bra
 - [M3] carried — no automated check covers Global Constraint 5 (`--no-optional-locks`, index not written)
 - [M4] fixed — test-10 notes held literal invisible characters; now `\u` escapes → 497a4ca
 - [M5] fixed — test-04 `--out` link case had no guard for a missing link privilege, test-09 skipped a case with no NOTE line → 497a4ca
+
+## Round 4 verification 1 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 2 Important, 5 Minor
+### Dispositions
+- [I1] fixed — the template's `fetch` data path (the only path of a published page) had no test; test-07 now boots with a fake `fetch` and checks the file name against the renderer, a 404 and a rejected `json()` → e1b13da
+- [I2] fixed — test-10 checked `invalid` cases by verdict word only, hiding the path rules, and had no case for a `docs/worklogs` link pointing outside the repository; reasons now asserted and case 3b added for `--check` and `--apply` → e1b13da
+- [M1] fixed — the "two proposals never change the same line" guard had no test; test-11 section 7b added → e1b13da
+- [M2] carried — the test-only hook `DASHBOARD_SYNC_TEST_CHANGE_ONCE` ships in dashboard-sync.js; same root as round 1 [CF66]
+- [M3] fixed — test-11 check "nothing is read" claimed more than it asserted; renamed and now compares file bytes → e1b13da
+- [M4] carried — the home-folder replacement of `sanitize` in dashboard-extract.js has no test
+- [M5] carried — some contract-named error paths have no case (unknown extract argument, `--verify` on a missing file or an audience-less meta tag, `--check` outside a repository, tab button clicks)
