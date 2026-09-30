@@ -110,3 +110,15 @@ _Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — bra
 - [I2] fixed — `share` step 3 ran `git remote get-url` and only then removed the user information, so an embedded token entered the transcript; new `dashboard-extract.js --remote-url <remote>` prints the URL without user information and SKILL.md uses it → 474279b
 - [M1] fixed — `checkSharedRef` and `printDefaultSharedRef` did not apply the `SHARED_REF_NAME` / `..` test; shared helper now applied in all three places → 474279b
 - [M2] fixed — `writeDocument` followed a symbolic link at `--out`; now refused as the renderer does → 474279b
+
+## Round 4 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 2 Important, 5 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — no test checked that "not an ancestor" is not a scan error; test-06 now asserts `unfinishedRuns` status and note, test-01 asserts no errors for an unmerged upstream → 497a4ca
+- [I2] fixed — the two `--apply` failure outputs (changed 3 times, rename fails) were never exercised; test-11 sections 14 and 15 assert exit 1, one `not written:` line, no `proposal` line → 497a4ca
+- [M1] fixed — test-11 section 10 planted its link at an unused temporary name, so the create-only guard was unreachable; `crypto.randomBytes` now stubbed → 497a4ca
+- [M2] carried — the `fetch('dashboard-data.json')` branch of the template's `loadData` never runs in a test; same root as round 1 [CF39]
+- [M3] carried — no automated check covers Global Constraint 5 (`--no-optional-locks`, index not written)
+- [M4] fixed — test-10 notes held literal invisible characters; now `\u` escapes → 497a4ca
+- [M5] fixed — test-04 `--out` link case had no guard for a missing link privilege, test-09 skipped a case with no NOTE line → 497a4ca
