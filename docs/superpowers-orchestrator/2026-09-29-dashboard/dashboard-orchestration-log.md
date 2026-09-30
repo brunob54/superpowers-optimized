@@ -86,3 +86,6 @@ Re-dispatch: phase 3, in-run resume 1 of 3, return 1 of 6
 - Task 13: complete — routing rule, triggering case, Routing Guide
 - Task 14: complete — user documentation
 - Task 15: complete — page data measured (62892 bytes, row 11 confirmed); acceptance checklist
+
+## Phase 3 — Batch 6 (task 16) — COMPLETE — commits 35aee03..faf9e5b
+- Task 16: complete — release v7.55.0
