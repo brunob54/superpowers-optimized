@@ -3872,7 +3872,7 @@ git commit -m "feat(dashboard): render, verify and compare the page files" --tra
   - Invariants: the script writes nothing in this mode; the machine clock never enters a new line (Global Constraint 13); a file is read only after the proposal passed the path rules (relative, no `..`, no backslash, one of the two allowed files, inside the repository after symbolic links are resolved, not a symbolic link itself); `held-run` applies only to a file that git tracks; exit 2 when the folder has no `proposals` folder or the working folder is not a repository with a commit.
   - Verification: `node tests/dashboard/test-10-sync-check.js`.
 
-- [ ] **Step 1: Add the proposal-file helper**
+- [x] **Step 1: Add the proposal-file helper**
 
 In `tests/dashboard/helpers.js`, directly before `module.exports = {`, add:
 
@@ -3900,7 +3900,7 @@ function proposalFile(folder, id, body, version) {
 
 and add `proposalFile` and `versionsFile` to the names in `module.exports`.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `tests/dashboard/test-10-sync-check.js`:
 
@@ -4096,12 +4096,12 @@ h.eq('the matching versions file of the same folder is accepted', h.node(d, [SYN
 h.finish();
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `node tests/dashboard/test-10-sync-check.js`
 Expected: FAIL — exit 1; `unique verdicts (expected [...], got [])` and the following cases fail (the script does not exist).
 
-- [ ] **Step 4: Create the sync script with `--check`**
+- [x] **Step 4: Create the sync script with `--check`**
 
 Create `skills/dashboard/scripts/dashboard-sync.js`:
 
@@ -4429,12 +4429,12 @@ function main() {
 main();
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `node tests/dashboard/test-10-sync-check.js; bash tests/dashboard/run-tests.sh | tail -1`
 Expected: PASS — `0 failed`; `dashboard suite: every test file passed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/dashboard/scripts/dashboard-sync.js tests/dashboard/helpers.js tests/dashboard/test-10-sync-check.js
