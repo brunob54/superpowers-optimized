@@ -438,6 +438,12 @@ To stop sharing, turn off the public link in the page's Share control."
   when its re-read finds none, but a second browser tab of the owner that
   creates the same document between that re-read and the write can be
   overwritten.
+- The page has no control that withdraws a pending proposal. Choosing the
+  old status of a part again, with no new note, gives "nothing to change":
+  the page compares an edit with the Markdown file as of the last refresh,
+  not with the pending proposal. A pending proposal changes no file until
+  the owner accepts it in `sync`; to remove an unwanted proposal, reject it
+  in `sync` step 3.
 - The page URLs are stored on one machine. A second machine, or a second way
   of loading the plugin (`--plugin-dir`), creates its own pages unless the
   user reconnects them with `refresh --url` and `refresh --shared-url`.
