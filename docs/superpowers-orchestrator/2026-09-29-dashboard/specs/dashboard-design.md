@@ -537,9 +537,21 @@ uses the clock of the machine, so the new line is the same on every run.
 is written as `| ` + the cells joined by ` | ` + ` |`, with single spaces:
 the column padding of a hand-aligned table is not kept.
 
-**One document per item.** Every write of the page is conditional on the
-document version that the page read (section 13 item 12). An edit on an
-item:
+**One document per item.** The page cannot make a write conditional on a
+document version: a page write has no such option (section 13 item 12).
+The page reads the proposal document again just before each write. It
+refuses the edit when, since the page listed the document, the document
+appeared or disappeared, or its `state`, `closedAt` or `createdAt`
+changed. It also refuses the edit when the re-read was answered from the
+browser's local cache, or when the re-read finds a document that allows
+no edit (the third case below).
+Known limit: a short time passes between that re-read and the write. A
+page write inside that time can overwrite a `sync` mark (the `applying`
+state that `sync` writes in section 8 step 4); the owner's edit of that
+page write can then be lost, and no report names it. A page also has no
+write that creates a document only when it is absent: when a second
+browser tab of the owner creates the same document between the re-read
+and the write, the page overwrites that document. An edit on an item:
 
 - with no document, with a document whose `state` is `rejected`, or with
   an `applied` document whose `closedAt` is earlier than the page's
@@ -588,8 +600,8 @@ A proposal document:
 - Known limit: defect anthropics/claude-code#94426 means a fresh page load
   may not show writes that Claude made to `db`. The page can then show
   "pending sync" for a proposal that `sync` already closed. An edit on it
-  is then refused by the version check of the page's write (the version
-  changed), or, if that check is not available, it creates a proposal that
+  is then refused when the page's re-read before the write sees the
+  change, or, when the re-read misses it too, it creates a proposal that
   `sync` reports as `none` against the changed line; no wrong write
   follows.
 
@@ -680,7 +692,9 @@ A proposal document:
    `if_version` set to the version read in step 1. A version conflict means
    the owner edited that item on the page during the sync: that proposal is
    not applied in this sync and is reported; its new version is handled by
-   the next sync. The page allows no edit on an `applying` document.
+   the next sync. The page shows no edit control on an `applying`
+   document, and its re-read refuses a write to one; the exception is the
+   known limit of section 7 (the time between the re-read and the write).
 5. **Apply.** Run
    `dashboard-sync.js --apply <that folder> <ids> --versions <versions file>` for the
    proposals marked in step 4. The script repeats the whole check for each
@@ -702,7 +716,8 @@ A proposal document:
    step 1, and the check gives `already-applied` for a line that was
    written and `unique` for one that was not. Because the new line depends
    only on the proposal (the date comes from `createdAt`), and the page
-   cannot change an `applying` document, `sync` is idempotent. The file is written before `db` is
+   does not change an `applying` document (outside the known limit of
+   section 7), `sync` is idempotent. The file is written before `db` is
    updated, so a sync that stops between the two steps is completed by the
    next sync through the `already-applied` verdict. Because the new line
    depends only on the proposal (the date comes from `createdAt`), `sync`
@@ -967,3 +982,10 @@ the user.
 12. The page's `db` writes can be conditional on the version the page read.
     If they cannot, the page re-reads the document just before each write,
     and the design states the remaining window as a known limit.
+    **Platform check 12 found no such condition for a page write** (from
+    the platform's own skill text; the probe page did not run): a page's
+    `set(data)` and `update(data)` take no version option, a page
+    `DocumentSnapshot` carries no version, and a page has no
+    create-if-absent write. The page therefore uses the re-read (section 7,
+    "One document per item"; item 12 of
+    `implementation/platform-checks.md`).
