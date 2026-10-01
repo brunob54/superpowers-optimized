@@ -1,0 +1,309 @@
+# dashboard — code review log
+
+_Invocation 1 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..8b9c26d — branch feature/dashboard — gate: orchestration_
+
+## Round 1 — Correctness & spec alignment — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 3 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — `sync` reported an empty proposal query (no `out_dir` folder is created) as an error; SKILL.md sync step 1 now says no proposal waits and stops → 0b09d85
+- [M1] fixed — SKILL.md sync step 3 said every non-`unique` proposal stays `pending`, contradicting step 6 for `already-applied` → 0b09d85
+- [M2] fixed — dashboard-extract.js `worklogs` dropped an unreadable work log with no item and no note; now a `worklog-file` item noted "could not be read" → 0b09d85
+- [M3] fixed — RELEASE-NOTES.md and docs/guide/README.md understated what the shared page reads (other pushed branches' names and run logs) → 0b09d85
+- [CF1] fixed — carried task 9: test-09 symbolic-link case had no skip path on Windows Git Bash (fix-before-merge) → 0b09d85
+- [CF2] fixed — carried task 14: "stash", "tracks" undefined and "LLM" unexpanded in docs/guide/README.md (fix-before-merge) → 0b09d85
+- [CF3] user-decision — carried task 4: the state key takes the basename of the realpath, `repo.name` the basename of the unresolved toplevel; they differ through a symbolic link (Global Constraint 11 wording) — at skills/dashboard/scripts/dashboard-extract.js:116 — clause: Global Constraints "[6] '`<repo key>` is the basename of the repository root, a `-`, and the first 12 hexadecimal digits of the SHA-1 of the UTF-8 string `fs.realpathSync(<output o"
+- [CF4] user-decision — carried task 6 security M3: `repo.name` is the local user name when the repository root is the home folder; a fix changes the spec field — at skills/dashboard/scripts/dashboard-extract.js:606 — clause: Task 4 "Output: the JSON document of spec section 5.1 (`schemaVersion` 1, `audience`, `generatedAt` as local time with offset, `repo.name` the basename of the root, `co"
+- [CF5] user-decision — carried task 8: the page's re-read accepts a `metadata.fromCache: true` snapshot (not server-confirmed); a cached `pending` can hide a server `applying` and the full-replace set() overwrites it; refuse a cached re-read — at skills/dashboard/template.html:397 — clause: Task 8 "Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals cou"
+- [CF6] user-decision — carried task 8: a pending status cannot be withdrawn from the page (changesSomething compares with the cell, spec line 516 literally); spec question — at skills/dashboard/template.html:257 — clause: Task 8 "Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals cou"
+- [CF7] user-decision — carried task 12: `share` step 3 `git remote get-url` output can hold a token (https://user:token@host) that enters the transcript before the model removes it; a strip in the script would avoid it — at skills/dashboard/SKILL.md:353 — clause: Task 12 "Must convey: the four commands and their options exactly as spec section 9 lists them (`refresh`, `refresh --url <url>`, `refresh --shared-url <url>`, `sync`, `"
+- [CF8] carried — task 1 platform-checks.md row 5 Verdict cell lacks `owed to manual acceptance` (ship-as-is)
+- [CF9] carried — task 1 row 5 "No declaration" vs `"user":{}` (ship-as-is)
+- [CF10] carried — task 1 row 5 wrong cause for "not stored" (ship-as-is)
+- [CF11] carried — task 1 row 9 does not name its ruling (ship-as-is)
+- [CF12] carried — task 1 row 2 quotes "..." (ship-as-is)
+- [CF13] carried — task 2 module-level `scanErrors` shared with `runs.errors` (ship-as-is)
+- [CF14] carried — task 2 `countedUpstream` cannot tell no-upstream from error (ship-as-is)
+- [CF15] carried — task 2 `addRemote` ignores the `git init --bare` status (ship-as-is)
+- [CF16] carried — task 2 test-01 `errors.length >= 1` (ship-as-is)
+- [CF17] carried — task 2 EXIT_* constants declared mid-file (ship-as-is)
+- [CF18] carried — task 2 pickup-scan runs `git log -1` twice (ship-as-is)
+- [CF19] carried — task 3 `realPath` and a dangling link (ship-as-is)
+- [CF20] carried — task 3 `isInside` at the file-system root (ship-as-is)
+- [CF21] carried — task 3 test-02 time zone not pinned (ship-as-is)
+- [CF22] carried — task 3 test-02 constants restated (ship-as-is)
+- [CF23] carried — task 3 repeated value option kept silently (ship-as-is)
+- [CF24] carried — task 4 `rev-parse --show-toplevel` runs three times (ship-as-is)
+- [CF25] carried — task 4 Task 5 helpers untested until Task 5 (ship-as-is)
+- [CF26] carried — task 4 `--config-set` on a JSON array config (ship-as-is)
+- [CF27] carried — task 5 BOM/CRLF tested for state.md only (ship-as-is)
+- [CF28] carried — task 5 bare `Goal:` gives no session item (ship-as-is)
+- [CF29] carried — task 5 RELEASE_HEADING matches `## vendor notes` (ship-as-is)
+- [CF30] carried — task 5 `.slice(0, 300)` can split a surrogate pair (ship-as-is)
+- [CF31] carried — task 5 repeated `notFound` returns (ship-as-is)
+- [CF32] carried — task 6 symbolic-link check in `refSource.read` untested (ship-as-is)
+- [CF33] carried — task 6 repeated `${REMOTES}${name}` (ship-as-is)
+- [CF34] carried — task 6 inapplicable options ignored silently (ship-as-is)
+- [CF35] carried — task 6 `isAncestor` appends to an earlier scan's errors (ship-as-is)
+- [CF36] carried — task 6 security M2 gitlink in upstream mode (ship-as-is; outside the supported environment)
+- [CF37] carried — task 6 security M4 "pushed" includes a local-folder remote (ship-as-is)
+- [CF38] carried — task 7 a renderPage throw leaves a blank page (ship-as-is)
+- [CF39] carried — task 7 test-07 lacks the fetch and load-error cases (ship-as-is)
+- [CF40] carried — task 7 test-07:30 check cannot fail (ship-as-is)
+- [CF41] carried — task 7 visible h1 lacks the audience word (ship-as-is)
+- [CF42] carried — task 7 security #1/#2/#3/#5 (ship-as-is)
+- [CF43] carried — task 8 empty Status cell gives " (current)" (ship-as-is)
+- [CF44] carried — task 8 `use('user')` null shows the viewer warning (ship-as-is)
+- [CF45] carried — task 8 `localIso` comment does not name the page copy (ship-as-is)
+- [CF46] carried — task 8 security #5 NOTE_FORBIDDEN (ship-as-is; reviewer: already fixed in this diff)
+- [CF47] carried — task 9 `trackedOnly` unguarded (ship-as-is)
+- [CF48] carried — task 9 `--diff` crash on a previous JSON without items (ship-as-is)
+- [CF49] carried — task 9 two refusal reasons for invalid JSON (ship-as-is)
+- [CF50] carried — task 9 `--local` ignores `--audience` (ship-as-is)
+- [CF51] carried — task 9 `realpathSync.native` untried on Windows (ship-as-is)
+- [CF52] carried — task 9 base test not run RED first (ship-as-is)
+- [CF53] carried — task 9 security #2/#4/#8/#7 (ship-as-is)
+- [CF54] carried — task 10 security #5 and #6 (ship-as-is)
+- [CF55] carried — task 10 CREATED_AT accepts impossible dates (ship-as-is)
+- [CF56] carried — task 10 tab-indented anchor gives an unclear reason (ship-as-is)
+- [CF57] carried — task 10 raw ids in the stop message (ship-as-is)
+- [CF58] carried — task 10 any run-scan error stops the check (ship-as-is)
+- [CF59] carried — task 10 test 7e guard not asserted (ship-as-is)
+- [CF60] carried — task 10 literal invisible characters in the tests (ship-as-is)
+- [CF61] carried — task 10 two blank lines (ship-as-is)
+- [CF62] carried — task 11 no `not-written` proposal line on a failed rename (ship-as-is)
+- [CF63] carried — task 11 applyFile DRY (ship-as-is)
+- [CF64] carried — task 11 over-wide comment (ship-as-is)
+- [CF65] carried — task 11 test gaps (ship-as-is)
+- [CF66] carried — task 11 security #3/#4/#5/#7/#9/#10/#11 (ship-as-is)
+- [CF67] carried — task 12 no-tag wording (ship-as-is)
+- [CF68] carried — task 12 no-tag stop names no next step (ship-as-is)
+- [CF69] carried — task 12 no command clears a wrong privateUrl (ship-as-is)
+- [CF70] carried — task 12 first `share` writes no shared.json (ship-as-is)
+- [CF71] carried — task 12 remote name with `/` (ship-as-is)
+- [CF72] carried — task 12 test-12 reads platform-checks.md (ship-as-is)
+- [CF73] carried — task 12 security #3/#7/#8 (ship-as-is)
+- [CF74] carried — task 13 intent pattern matches "update the dashboard for sales data" (ship-as-is)
+- [CF75] carried — task 13 report gives no log path (ship-as-is)
+- [CF76] carried — task 14 over-long guide lines (ship-as-is)
+- [CF77] carried — task 14 long README bullet (ship-as-is)
+- [CF78] carried — task 15 owed rows not in order (ship-as-is)
+- [CF79] carried — task 15 index.html size not recorded (ship-as-is)
+- [CF80] carried — task 16 "Eighteen releases" stale (ship-as-is)
+
+## Round 2 — Adversarial red-team — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 5 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — SKILL.md "Publish one audience" step 3 assumed one Read returns the whole data file (about 23,734 of 25,000 tokens on this repository); added the PARTIAL-notice paging rule → e79e72c
+- [M1] carried — the `dashboard` rule of hooks/skill-rules.json matches ordinary application requests ("update the dashboard to show weekly revenue per region"); same root as round 1 [CF74]
+- [M2] rejected: duplicate of round 1 [CF6] (user-decision) — a pending part change cannot be undone from the page (template.html `changesSomething`)
+- [M3] fixed — a proposal left `applying` by an interrupted sync was never reset when the new check did not apply it; SKILL.md sync step 6 now returns it to `pending` → e79e72c
+- [M4] fixed — `--batches … applying` and `--apply` exit 2 on an empty id list and step 5 stopped the sync, losing rejections and applied records; steps 4 and 5 now skip an empty list → e79e72c
+- [M5] carried — a line holding a tab gets edit controls on the page but every proposal for it is `invalid` at sync; same root as round 1 [CF56]
+
+## Round 3 — Security — opus
+**Reviewer verdict:** 0 Critical, 2 Important, 2 Minor
+**Converged:** no
+### Dispositions
+- [I1] user-decision — the shared page does not stay on the remote the user confirmed in `share`: `sharedBranches` and `scanRuns({ refs: 'upstream' })` accept an upstream under any remote, so branch names, dates, run-log paths and last headings of branches pushed to another remote (for example a private `origin` while `share --ref public/main`) reach the public page; fix would filter to the shared ref's remote or confirm every contributing remote in `share` step 3 (plan-mandated) — at skills/dashboard/scripts/dashboard-extract.js:346 — clause: Global Constraints "[5.3] '**Shared run** (`--audience shared`): its rule is **only what is pushed**. 'Pushed' means reachable from a remote-tracking ref. The run fails closed: any"
+- [I2] fixed — `share` step 3 ran `git remote get-url` and only then removed the user information, so an embedded token entered the transcript; new `dashboard-extract.js --remote-url <remote>` prints the URL without user information and SKILL.md uses it → 474279b
+- [M1] fixed — `checkSharedRef` and `printDefaultSharedRef` did not apply the `SHARED_REF_NAME` / `..` test; shared helper now applied in all three places → 474279b
+- [M2] fixed — `writeDocument` followed a symbolic link at `--out`; now refused as the renderer does → 474279b
+
+## Round 4 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 2 Important, 5 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — no test checked that "not an ancestor" is not a scan error; test-06 now asserts `unfinishedRuns` status and note, test-01 asserts no errors for an unmerged upstream → 497a4ca
+- [I2] fixed — the two `--apply` failure outputs (changed 3 times, rename fails) were never exercised; test-11 sections 14 and 15 assert exit 1, one `not written:` line, no `proposal` line → 497a4ca
+- [M1] fixed — test-11 section 10 planted its link at an unused temporary name, so the create-only guard was unreachable; `crypto.randomBytes` now stubbed → 497a4ca
+- [M2] carried — the `fetch('dashboard-data.json')` branch of the template's `loadData` never runs in a test; same root as round 1 [CF39]
+- [M3] carried — no automated check covers Global Constraint 5 (`--no-optional-locks`, index not written)
+- [M4] fixed — test-10 notes held literal invisible characters; now `\u` escapes → 497a4ca
+- [M5] fixed — test-04 `--out` link case had no guard for a missing link privilege, test-09 skipped a case with no NOTE line → 497a4ca
+
+## Round 4 verification 1 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 2 Important, 5 Minor
+### Dispositions
+- [I1] fixed — the template's `fetch` data path (the only path of a published page) had no test; test-07 now boots with a fake `fetch` and checks the file name against the renderer, a 404 and a rejected `json()` → e1b13da
+- [I2] fixed — test-10 checked `invalid` cases by verdict word only, hiding the path rules, and had no case for a `docs/worklogs` link pointing outside the repository; reasons now asserted and case 3b added for `--check` and `--apply` → e1b13da
+- [M1] fixed — the "two proposals never change the same line" guard had no test; test-11 section 7b added → e1b13da
+- [M2] carried — the test-only hook `DASHBOARD_SYNC_TEST_CHANGE_ONCE` ships in dashboard-sync.js; same root as round 1 [CF66]
+- [M3] fixed — test-11 check "nothing is read" claimed more than it asserted; renamed and now compares file bytes → e1b13da
+- [M4] carried — the home-folder replacement of `sanitize` in dashboard-extract.js has no test
+- [M5] carried — some contract-named error paths have no case (unknown extract argument, `--verify` on a missing file or an audience-less meta tag, `--check` outside a repository, tab button clicks)
+
+## Round 4 verification 2 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 9 Minor
+### Dispositions
+- [M1] carried — tests/dashboard/helpers.js: a test file whose async block never settles exits 0 before `finish()`, and the runner counts it as passed
+- [M2] carried — test-11 link-at-temporary-name case accepts an uncaught EEXIST crash from `writeTemp` (no `not written:` line, later files skipped); fails safe, but breaks the output contract SKILL.md sync step 5 reads
+- [M3] carried — no test clicks a tab (`selectTab`); same root as verification 1 [M5]
+- [M4] carried — test-03 link parity case compares a literal the test wrote itself, not a product classification
+- [M5] carried — test-06 `share-feature` fixture tests the Amendment 8 merge rule for `unfinishedRuns` only, not for the shared `git` section or the `git merge-base failed` path
+- [M6] carried — Global Constraint 5 (`--no-optional-locks`, index untouched) has no behavioural test; same as round 4 [M3]
+- [M7] carried — several test-10 error-path cases assert only the verdict or exit code (`nothing`, `indexFail`, `scanFail`)
+- [M8] carried — the test-only hook `DASHBOARD_SYNC_TEST_CHANGE_ONCE` ships in dashboard-sync.js; same as verification 1 [M2]
+- [M9] carried — test-12 single-quote check does not cover `--remote-url '<remote>'`
+
+_Completed — 2026-09-30 — cap reached — HEAD e1b13dab77e823b173a8d2c8512c6cd1731e4074_
+Secrets found: none
+
+### Post-loop addendum 1 — 2026-09-30
+Effective HEAD had moved past the completion marker (e1b13da → e4d5038, plan amendments); the verification re-review is skipped and Invocation 2 reviews the fix.
+- [CF3] decided (orchestrator): plan governs: "[6] '`<repo key>` is the basename of the repository root, a `-`, and the first 12 hexadecimal digits of the SHA-1 of the UTF-8 string `fs.realpathSync(<output o" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+- [CF4] decided (orchestrator): plan governs: "Output: the JSON document of spec section 5.1 (`schemaVersion` 1, `audience`, `generatedAt` as local time with offset, `repo.name` the basename of the root, `co" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+- [CF5] decided (orchestrator): amend plan: Task 8 Contract Invariants — the re-read of `write` refuses a snapshot that the server did not confirm (`metadata.fromCache` true in the `## Runtime record`'s read), with the same refusal as a changed document, so a cached copy never stands for the server's current document (already applied and committed in the plan as Amendment 11); fix it: `write` refuses a cached re-read, with one test in the Task 8 test file
+- [CF5] fixed — template.html `write` refuses a re-read snapshot with `metadata.fromCache` true as a changed document; test-08 case added → 5bceb8f91c1ef497e79a60df0b379ba956988b71
+- [CF6] decided (orchestrator): plan governs: "Invariants: no edit control and no write when the viewer is not the owner, when the store is missing (the local file, the shared page) or when the proposals cou" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md
+- [CF7] decided (orchestrator): amend plan: Task 12 Contract Invariants — the skill text never runs `git remote get-url`; the `share` step obtains the remote URL only through `dashboard-extract.js --remote-url <remote>`, which prints it without user information (already applied and committed in the plan as Amendment 13); fix it: already achieved by commit 474279b (round 3 [I2]); no further code change is needed
+- [I1] (round 3) decided (orchestrator): (this answers the round 3 security item on the shared page's remotes) amend plan: Global Constraint 7 keeps its spec quote and gains a plan note (not a spec quote) — the shared run uses a counted upstream `refs/remotes/<remote>/<branch>` only when `<remote>` is the shared ref's own remote, found by exact match against the `git remote` list, and an ambiguous match (a remote name holding `/`) stops with exit 2; the Task 6 Contract applies this filter to `git` and `unfinishedRuns` and to the scan errors of other remotes' refs, which neither appear nor change a section's status; the Task 12 Contract's `## Known limits` gains the line that branches pushed only to another remote do not appear on the shared page (already applied and committed in the plan as Amendment 14: Global Constraint 7, Tasks 6 and 12); fix it: implement the filter in `dashboard-extract.js`, with a test-06 repository of two remotes: a branch pushed only to `origin` is absent from both sections when the shared ref is `public/main`, and present once it is pushed to `public`
+- [I1] (round 3) fixed — shared run keeps a counted upstream only on the shared ref's own remote (exact match against `git remote`, ambiguous match exits 2) in `sharedBranches` and `scanRuns`; test-06 two-remote case; SKILL.md Known limits bullet → 5bceb8f91c1ef497e79a60df0b379ba956988b71
+
+_Invocation 2 — 2026-09-30 — N=4 M=1 — BASE..HEAD 4061d3b..5bceb8f — branch feature/dashboard — gate: orchestration_
+
+## Round 5 — Correctness & spec alignment — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 4 Minor
+**Converged:** no
+### Dispositions
+- [M1] fixed — manual-acceptance.md owed check 1 pointed at a bare skill call that prints no path; now points at the `refresh` precondition's state-folder output → 85f69ad
+- [M2] fixed — RELEASE-NOTES.md and docs/guide/README.md did not say the shared page lists only upstreams on the shared ref's own remote (Amendment 14) → 85f69ad
+- [M3] fixed — RELEASE-NOTES.md said `/pickup` shows one run; it lists every unfinished run of local branches → 85f69ad
+- [M4] carried — dashboard-sync.js `findPartTarget` finds the row by its first cell while the extractor uses the header's `#` column; follows spec section 8 step 2.5 wording, fails safe (`none`)
+- [CF1] carried — task 1 row 5 Verdict cell lacks `owed to manual acceptance` (ship-as-is)
+- [CF2] carried — task 1 row 5 "No declaration" vs `"user":{}` (ship-as-is)
+- [CF3] carried — task 1 row 5 wrong cause for "not stored" (ship-as-is)
+- [CF4] carried — task 1 row 9 does not name its ruling (ship-as-is)
+- [CF5] carried — task 1 row 2 quotes "..." (ship-as-is)
+- [CF6] carried — task 2 module-level `scanErrors` (ship-as-is)
+- [CF7] carried — task 2 `countedUpstream` cannot tell no-upstream from error (ship-as-is)
+- [CF8] carried — task 2 `addRemote` ignores the `git init --bare` status (ship-as-is)
+- [CF9] carried — task 2 test-01 `errors.length >= 1` (ship-as-is)
+- [CF10] carried — task 2 EXIT_* constants mid-file (ship-as-is)
+- [CF11] carried — task 2 pickup-scan runs `git log -1` twice (ship-as-is)
+- [CF12] carried — task 3 `realPath` and a dangling link (ship-as-is)
+- [CF13] carried — task 3 `isInside` at the file-system root (ship-as-is)
+- [CF14] carried — task 3 test-02 time zone not pinned (ship-as-is)
+- [CF15] carried — task 3 test-02 constants restated (ship-as-is)
+- [CF16] carried — task 3 repeated value option kept silently (ship-as-is)
+- [CF17] fixed — task 4 `rev-parse --show-toplevel` computed once (fix-before-merge) → 85f69ad
+- [CF18] carried — task 4 state key vs `repo.name` basename (ship-as-is; decided in Invocation 1 addendum 1 [CF3])
+- [CF19] carried — task 4 Task 5 helpers untested until Task 5 (ship-as-is)
+- [CF20] carried — task 4 `--config-set` on a JSON array (ship-as-is)
+- [CF21] carried — task 5 BOM/CRLF tested for state.md only (ship-as-is)
+- [CF22] carried — task 5 bare `Goal:` gives no session item (ship-as-is)
+- [CF23] fixed — task 5 RELEASE_HEADING now requires a digit after `v` (fix-before-merge) → 85f69ad
+- [CF24] carried — task 5 `.slice(0, 300)` can split a surrogate pair (ship-as-is)
+- [CF25] fixed — task 5 repeated `notFound` section returns now one helper (fix-before-merge) → 85f69ad
+- [CF26] carried — task 6 symbolic-link check in `refSource.read` untested (ship-as-is)
+- [CF27] fixed — task 6 `remoteRef`/`remoteName` helpers replace the repeated `REMOTES` expressions (fix-before-merge) → 85f69ad
+- [CF28] carried — task 6 inapplicable options ignored silently (ship-as-is)
+- [CF29] carried — task 6 `isAncestor` appends to an earlier scan's errors (ship-as-is)
+- [CF30] carried — task 6 security M2 gitlink in upstream mode (ship-as-is; outside the supported environment)
+- [CF31] carried — task 6 security M3 `repo.name` is the user name when the root is the home folder; reviewer recommended user-decision, but this item was already decided in this run: Invocation 1 addendum 1 [CF4] decided (orchestrator): plan governs
+- [CF32] carried — task 6 security M4 "pushed" includes a local-folder remote (ship-as-is)
+- [CF33] carried — task 7 a renderPage throw leaves a blank page (ship-as-is)
+- [CF34] carried — task 7 test-07 fetch and load-error cases (ship-as-is)
+- [CF35] carried — task 7 test-07:30 check cannot fail (ship-as-is)
+- [CF36] carried — task 7 visible h1 lacks the audience word (ship-as-is)
+- [CF37] carried — task 7 security #1/#2/#3/#5 (ship-as-is)
+- [CF38] carried — task 8 cached re-read accepted (ship-as-is; fixed by 5bceb8f, Invocation 1 addendum 1 [CF5])
+- [CF39] carried — task 8 a pending status cannot be withdrawn from the page; reviewer recommended user-decision, but this item was already decided in this run: Invocation 1 addendum 1 [CF6] decided (orchestrator): plan governs
+- [CF40] carried — task 8 empty Status cell gives " (current)" (ship-as-is)
+- [CF41] carried — task 8 `use('user')` null shows the viewer warning (ship-as-is)
+- [CF42] fixed — task 8 `localIso` comment in dashboard-parse.js now names the page copy (fix-before-merge) → 85f69ad
+- [CF43] carried — task 8 security #5 NOTE_FORBIDDEN (ship-as-is; already fixed)
+- [CF44] carried — task 9 test-09 symbolic link skip path (ship-as-is; already fixed)
+- [CF45] carried — task 9 `trackedOnly` unguarded (ship-as-is)
+- [CF46] carried — task 9 `--diff` crash on a previous JSON without items (ship-as-is)
+- [CF47] carried — task 9 two refusal reasons for invalid JSON (ship-as-is)
+- [CF48] carried — task 9 `--local` ignores `--audience` (ship-as-is)
+- [CF49] carried — task 9 `realpathSync.native` untried on Windows (ship-as-is)
+- [CF50] carried — task 9 base test not run RED first (ship-as-is)
+- [CF51] carried — task 9 security #2/#4/#8/#7 (ship-as-is)
+- [CF52] carried — task 10 security #5 `resolve-open-item` (ship-as-is)
+- [CF53] carried — task 10 security #6 `set-part` target (ship-as-is)
+- [CF54] carried — task 10 CREATED_AT accepts impossible dates (ship-as-is)
+- [CF55] carried — task 10 tab-indented anchor gives an unclear reason (ship-as-is)
+- [CF56] carried — task 10 raw ids in the stop message (ship-as-is)
+- [CF57] carried — task 10 any run-scan error stops the check (ship-as-is)
+- [CF58] carried — task 10 test 7e guard not asserted (ship-as-is)
+- [CF59] carried — task 10 literal invisible characters in the tests (ship-as-is; already fixed)
+- [CF60] carried — task 10 two blank lines (ship-as-is)
+- [CF61] carried — task 11 no `proposal` line on a failed rename (ship-as-is)
+- [CF62] fixed — task 11 `applyFile` repeated not-written block now a `notWritten` helper (fix-before-merge) → 85f69ad
+- [CF63] fixed — task 11 `applyFile` comment made literally true (fix-before-merge) → 85f69ad
+- [CF64] carried — task 11 test-11 gaps (ship-as-is)
+- [CF65] carried — task 11 security #3 size+mtime guard (ship-as-is)
+- [CF66] carried — task 11 security #4 umask (ship-as-is)
+- [CF67] carried — task 11 security #5 uncaught file-system errors (ship-as-is)
+- [CF68] carried — task 11 security #7 folder swap race (ship-as-is)
+- [CF69] carried — task 11 security #9 duplicate `--batches` records (ship-as-is)
+- [CF70] carried — task 11 security #10 test hook variable (ship-as-is)
+- [CF71] carried — task 11 security #11 no fsync (ship-as-is)
+- [CF72] fixed — task 12 SKILL.md "no such tag" now "no `dashboard-audience` meta tag at all"; test-12 phrase updated (fix-before-merge) → 85f69ad
+- [CF73] carried — task 12 no-tag stop names no next step (ship-as-is)
+- [CF74] carried — task 12 no command clears a wrong privateUrl (ship-as-is)
+- [CF75] carried — task 12 first `share` writes no shared.json (ship-as-is)
+- [CF76] carried — task 12 remote name with `/` (ship-as-is)
+- [CF77] carried — task 12 `git remote get-url` token (ship-as-is; fixed by 474279b)
+- [CF78] carried — task 12 test-12 reads platform-checks.md (ship-as-is)
+- [CF79] carried — task 12 security #3 exact URL comparison (ship-as-is)
+- [CF80] carried — task 12 security #7 `--check-shared-ref` form (ship-as-is)
+- [CF81] fixed — task 12 "Publish one audience" step 4 now says the verified files are published unchanged (fix-before-merge) → 85f69ad
+- [CF82] carried — task 13 intent pattern matches "update the dashboard for sales data" (ship-as-is)
+- [CF83] carried — task 13 report gives no log path (ship-as-is)
+- [CF84] carried — task 14 over-long guide lines (ship-as-is)
+- [CF85] carried — task 14 "stash", "tracks", "LLM" (ship-as-is; already fixed)
+- [CF86] carried — task 14 long README bullet (ship-as-is)
+- [CF87] carried — task 15 owed rows not in order (ship-as-is)
+- [CF88] carried — task 15 index.html size not recorded (ship-as-is)
+- [CF89] user-decision — task 16 README.md "Eighteen releases beyond the REPOZY v6.6.1 baseline" was stale before this branch and is outside the plan (the release task adds one list item only) — at README.md:28 — clause: Task 16 "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`."
+
+## Round 6 — Adversarial red-team — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 3 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — `onSharedRemote` used a prefix test, so an upstream on a remote named `origin/secret` passed as `origin`; now an exact comparison with `refs/remotes/<shared remote>/<branch>`, test-06 case added; SKILL.md `share` step 3 takes the remote from `--remote-url <ref>` instead of splitting the ref → 46e11f7
+- [M1] carried — sync step 6 `applied` batch does not check that the marked document is still `applying` with the step-1 `createdAt`; the loss window is documented in SKILL.md Known limits
+- [M2] carried — template.html `planWrite` keeps the old proposal's branch fields when merging an edit made on another branch's page (part a); part (b), a pending status cannot be withdrawn, is the item decided in Invocation 1 addendum 1 [CF6] (plan governs)
+- [M3] carried — hooks/skill-rules.json refresh/update pattern scores 2 on ordinary front-end dashboard requests; same root as round 5 [CF82]
+
+## Round 7 — Security — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 2 Minor
+**Converged:** no
+### Dispositions
+- [M1] carried — the shared document's `repo.name` is the local working folder's name, which reaches the shared page's title; same root as round 5 [CF31] / Invocation 1 addendum 1 [CF4] (plan governs: `repo.name` the basename of the root)
+- [M2] carried — dashboard-sync.js accepts any non-space proposal id, and SKILL.md puts ids into single-quoted command lines guarded only by Rule 7; the page writes only 40-hex ids and only the owner can write proposals
+
+## Round 8 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 1 Important, 6 Minor
+**Converged:** no
+### Dispositions
+- [I1] fixed — no test covered the exit-2 stop when two remote names match the shared ref (Global Constraint 7 plan note); test-06 now asserts exit 2 and empty stdout for the shared run and `--remote-url` on `origin/secret/main` → 901f560
+- [M1] carried — no behavioural test for Global Constraint 5 (`--no-optional-locks`, index untouched); same as Invocation 1 round 4 [M3]
+- [M2] carried — the home-folder `~` replacement of `sanitize` has no test; same as Invocation 1 round 4 verification 1 [M4]
+- [M3] carried — test-11 temp-link case accepts an uncaught EEXIST crash from `writeTemp`; same as Invocation 1 round 4 verification 2 [M2]
+- [M4] fixed — no test clicked a tab; test-07 now clicks `tab-history` and checks `hidden` and `aria-selected` → 901f560
+- [M5] carried — test-02 compares `NOTE_FORBIDDEN` with a hand-copied literal instead of behaviour
+- [M6] fixed — test-12 pinned the Amendment 13 rule only for lines that begin with `git`; now any `remote get-url` outside the allowed sentence fails → 901f560
+
+## Round 8 verification 1 — Test & coverage quality — opus
+**Reviewer verdict:** 0 Critical, 0 Important, 8 Minor
+### Dispositions
+- [M1] carried — test-11 temp-link case: unguarded `fs.symlinkSync` in the preload and an assertion that accepts the uncaught EEXIST crash; same root as round 8 [M3]
+- [M2] carried — test-10 "every rule gives invalid" pins reasons for 6 of 19 cases; the `nothing` rule can be removed without a failure
+- [M3] carried — test-09 never tests the `--verify` meta-tag check alone
+- [M4] carried — test-03 link parity row compares the test's own classification; same as Invocation 1 round 4 verification 2 [M4]
+- [M5] carried — test-02 compares `NOTE_FORBIDDEN` with a literal; same as round 8 [M5]
+- [M6] carried — test-08 has no case for "the view must not wait for the runtime" (`use` that never settles)
+- [M7] carried — no test checks Global Constraint 5 (`--no-optional-locks`); same as round 8 [M1]
+- [M8] carried — test-06 does not check that a scan error of another remote's ref leaves `unfinishedRuns.status` `ok` (Amendment 14 clause)
+
+_Completed — 2026-09-30 — cap reached — HEAD 901f5607ee2fe0460c6332648882311f4eb3174e_
+Secrets found: none
+
+### Post-loop addendum 1 — 2026-09-30
+Effective HEAD unchanged (901f560, the completion marker's HEAD); no code change follows from the answer, so no new invocation runs and the marker stands.
+- [CF89] decided (orchestrator): plan governs: "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md

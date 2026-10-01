@@ -24,6 +24,7 @@ SKILLS=(
     "multi-doc-review"
     "multi-code-review"
     "worklog"
+    "dashboard"
 )
 
 echo "=== Running Skill Triggering Tests ==="

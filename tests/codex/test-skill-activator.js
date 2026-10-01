@@ -1480,6 +1480,40 @@ test('a feature request that mentions keeping track still suggests brainstorming
   assert.ok(matched.includes('brainstorming'), `Expected brainstorming, got: ${JSON.stringify(matched)}`);
 });
 
+// ── dashboard routing ─────────────────────────────────────────────────────────
+// The dashboard rule matches only the verbs of the skill (refresh, update,
+// publish, sync, share) and the words "project dashboard" / "status
+// dashboard", so a request to build a dashboard UI stays with frontend-design.
+
+console.log('\ndashboard routing');
+
+for (const prompt of [
+  'refresh the project dashboard',
+  'sync the dashboard edits back into the markdown files',
+  'share the dashboard with my colleagues',
+]) {
+  test(`"${prompt}" suggests dashboard`, () => {
+    const matched = suggested(prompt);
+    assert.ok(matched.includes('dashboard'), `Expected dashboard, got: ${JSON.stringify(matched)}`);
+  });
+}
+
+for (const prompt of [
+  'build a dashboard for sales data',
+  'create a dashboard component in React',
+  'update the dashboard component styles',
+]) {
+  test(`"${prompt}" does NOT suggest dashboard`, () => {
+    const matched = suggested(prompt);
+    assert.ok(!matched.includes('dashboard'), `Unexpected dashboard suggestion: ${JSON.stringify(matched)}`);
+  });
+}
+
+test('a request to build a dashboard still suggests frontend-design', () => {
+  const matched = suggested('build a dashboard for sales data');
+  assert.ok(matched.includes('frontend-design'), `Expected frontend-design, got: ${JSON.stringify(matched)}`);
+});
+
 // ── Messages the user did not type, and recall already shown ─────────────────
 //
 // Claude Code passes task notifications and messages from other agents to the

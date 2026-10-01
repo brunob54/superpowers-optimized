@@ -266,7 +266,8 @@ header, so reviewers and executors read it from the plan itself.
 **Facts about the repository are tested, not assumed.** Since v7.24.0 the
 plan writer runs one command for each fact about the repository that a task
 depends on, before it writes that task: whether git tracks a file
-(`git ls-files --error-unmatch <path>`), whether git ignores it
+(`git ls-files --error-unmatch <path>`; git tracks a file when the file is in
+the list of files that git versions), whether git ignores it
 (`git check-ignore -v <path>`), whether a file exists, and whether a command
 exists. A file or command that an earlier task of the same plan creates is
 not such a fact; it is a dependency between tasks. A task that must edit a
@@ -580,7 +581,7 @@ creating the PR or merging is your call, made interactively at the end via
 `finishing-a-development-branch`.
 
 What it will **never** do: merge or open a PR on its own, ask you questions
-mid-run, stash or commit unrelated changes it finds in your tree, or silently
+mid-run, stash (put aside in git's temporary storage) or commit unrelated changes it finds in your tree, or silently
 reconcile inconsistent state — anything suspicious is a stop, not a guess.
 
 ```mermaid
@@ -1300,6 +1301,63 @@ What you should know:
 - A closed work log is reopened by hand: edit its line 1 back to the active
   form, `<!-- Work log: status=active slug=<slug> created=<YYYY-MM-DD> -->`.
 
+### The project dashboard — a status page on claude.ai
+
+Since v7.56.0, the `dashboard` skill shows the status of a repository on a
+claude.ai **Artifact page**: a web page that a Claude Code session publishes to
+claude.ai with its Artifact tool, private to you at first. The page answers two
+questions in two tabs. **Waits for me** lists the unfinished orchestration runs
+(a stopped run is marked "stopped — waits for you"), the local branches that
+are not merged, the active work logs with their open parts and open items, the
+open items of the recent `session-log.md` entries, and the current goal of
+`state.md`. **History** lists the releases, the orchestration topic folders,
+the closed work logs, the recent commits, the goals of the recent sessions and
+the known issues. The repository files stay the only source of truth: the page
+is a view of them, as of its last refresh.
+
+| Command | What it does |
+| --- | --- |
+| `/superpowers-orchestrator:dashboard refresh` | Reads the repository with a script, renders the page and publishes it; prints what changed since the last refresh. The first refresh asks before it creates the page. |
+| `… refresh --url <url>` / `… refresh --shared-url <url>` | Reconnects an existing page (for example on a second computer), then refreshes. |
+| `… sync` | Copies the edits that you made on the page back into the Markdown files. You accept or reject each change first. |
+| `… share` / `… share --ref <remote>/<branch>` | Publishes a second page that holds pushed content only, after a warning. |
+| `… share off` | Stops updating the shared page. |
+| `… local` | Writes a read-only HTML file instead, for a session that cannot publish. |
+
+**Two pages.** The private page shows every source, also files that git does
+not track, and marks those items with a lock sign. The shared page shows only
+what is pushed to the remote repository. It reads only pushed content: one
+remote-tracking branch for its files, plus the names and run logs of the other
+pushed branches that have an upstream on the same remote as the shared branch (a remote-tracking branch is the local
+copy of a branch of the remote repository, such as `origin/main`, updated by
+`git fetch`). One value is not pushed content: the repository name in the
+page title. It comes from the URL of that remote, never from the name of your
+local folder; when that remote is a folder on your computer, or its URL does
+not give a plain name, the title shows the name of the shared branch instead. By default the shared branch is the upstream of your default
+branch (the remote-tracking branch that your default branch is set to follow).
+It never reads your working folder. On the Pro and Max plans a public link is the only way to share a
+page, and anyone who has that link can read it; make only the shared page's
+link public.
+
+**Edits.** On the private page you can mark an open item of `session-log.md`
+as resolved, or change the status or the note of a part of a work log. The page
+stores each edit as a proposal. `sync` shows the change as a diff (the removed and added lines side by side), writes it
+only after you accept it, and never commits. When `sync` changed a file that
+git tracks (a work log), commit or stash it before you switch branches or
+resume an orchestrated run.
+
+What you should know:
+
+- **A refresh is a command.** A hook cannot publish a page, so the page never
+  updates by itself; it shows the state of its last refresh.
+- **Publishing needs a claude.ai login.** A session that uses an API key, a
+  gateway token (a token of an LLM (large language model) gateway, which is a proxy server between
+  Claude Code and the API) or a cloud provider cannot publish, and `claude -p` may not
+  have the Artifact tool. Use `local` there.
+- **The page addresses are kept on one computer**, in the plugin's data
+  folder. A second computer creates new pages unless you reconnect them with
+  `refresh --url`.
+
 ## 7. Context pressure — the "memory almost full" safety gate
 
 **The problem, in one sentence.** Claude's working memory for a session —
@@ -1450,6 +1508,7 @@ handled by the router (§2) — just describe what you want.
 | `/handoff [slug]` (type it; Claude never starts it by itself) | Before you clear the context window: writes a continuation prompt to `tmp/docs/<date>-handoff-<slug>.md`, saves state when the session made decisions, and prints the prompt to copy | §6 |
 | `/pickup [handoff path]` (type it; Claude never starts it by itself) | In a fresh session: continues from the newest handoff or a named one after checking that it is still current, or lists unfinished orchestration runs and asks before resuming one | §6 |
 | `/worklog new [<slug>]`, `/worklog`, `/worklog close [<slug>]` | Create, fully update or close a work log: the tracking document of one piece of multi-part work, under `docs/worklogs/` | §6 |
+| `/superpowers-orchestrator:dashboard refresh`, `sync`, `share`, `local` | Publish the repository's status page on claude.ai, copy your page edits back into the Markdown files, share a pushed-content page, or write a local file | §6 |
 | "use `<skill>`" / `/<skill>` | Direct invocation of a skill by name; `/handoff` and `/pickup` start only as slash commands | §2 |
 
 (This table is release-maintained — if a phrase here doesn't work, your
