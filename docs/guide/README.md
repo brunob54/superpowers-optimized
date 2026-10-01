@@ -1235,6 +1235,9 @@ When you submit a prompt, hooks inject any `known-issues.md` and
 as context the moment you hit it again in August, without you asking. Each
 entry is injected at most once per session, and messages you did not type
 (task notifications, reports from other agents) get no injection at all.
+Because of the once-per-session rule, an entry injected before a compaction
+is not injected again after it in the same session; after a compaction the
+session-start hook re-adds only the last session-log entries.
 
 This is also what makes the pipeline's `/clear` recommendations (§3) free of
 cost: since every gate persists its outcome to these files before asking you

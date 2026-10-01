@@ -1653,6 +1653,25 @@ test('an agent message that names an execution trigger skips the context-pressur
   }
 });
 
+test('an empty cwd falls back to the working folder, so the context-pressure gate still fires', () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-emptycwd-'));
+  const sessionId = uniqueSessionId();
+  makeJsonlSession(sessionId, cwdToProjectDir(process.cwd()), tmpHome, [
+    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
+  ]);
+  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
+  process.env.USERPROFILE = tmpHome;
+  process.env.HOME = tmpHome;
+  try {
+    const ctx = contextOf(runActivator({ prompt: 'execute the plan', session_id: sessionId, cwd: '' }));
+    assert.ok(ctx.includes('context-pressure-gate'), `Expected the pressure block, got: ${ctx.slice(0, 200)}`);
+  } finally {
+    process.env.USERPROFILE = orig.up;
+    process.env.HOME = orig.home;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
 test('the Codex adapter skips agent messages too', () => withRecallProject((dir) => {
   const output = runActivator({ prompt: AGENT_MESSAGES['a task notification'], session_id: uniqueSessionId(), cwd: dir });
   assert.deepStrictEqual(output, {});
