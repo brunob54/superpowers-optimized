@@ -19,9 +19,9 @@ messages: about 157K tokens, about 31% of the main session's context growth.
 agent message or a subagent's hand-back report, and it injects each recall
 entry at most once per session.
 
-**Effect.** Replaying 84 messages of that run in the form the hook receives:
-451,797 bytes injected before, 7,309 after; both typed prompts are still
-enriched. Reinstall the plugin. Nothing to migrate.
+**Effect.** On 84 messages of that session, the transcript recorded 452,175
+bytes of injected text. A replay through the new hook injects about 7,400
+bytes, on the 2 typed prompts only. Reinstall the plugin. Nothing to migrate.
 
 ### Why
 
@@ -37,8 +37,10 @@ transcript found two causes:
   Anthropic, and removing the setting stops it.
 - `hooks/skill-activator.js` attached about 5.4 KB of recall to each of those
   messages. It did not check who sent a message, and it repeated the same
-  entries: `known-issues.md` gave the same two entries 71 times. This release
-  fixes this part.
+  entries: `known-issues.md` gave the same two entries 71 times. Up to the
+  end of the run this was 72 injections, 70 of them on messages that the user
+  did not type: about 157K tokens, about 31% of the context growth. This
+  release fixes this part.
 
 Claude Code documents no field in the hook input that names the sender of a
 prompt, and a probe hook (a hook that only logs its input) found none: the
@@ -53,14 +55,20 @@ a real agent message. Measured on 2026-10-01:
 - The probe hook logged two openings on Claude Code 2.1.286:
   `<task-notification>` for a task notification, and `<agent-message from="…">`
   for a message that a named subagent sent.
-- A subagent's hand-back report reaches the hook as its body alone, which
-  opens with "[Subagent hand-back]". This comes from a replay of the dashboard
-  run (Claude Code 2.1.278): of 42 recorded hook outputs for agent messages,
-  18 are reproduced by this form only, and none by another form only.
-- The replay figures of the summary are the run's 84 messages of 2026-09-30
-  (2 typed prompts, 37 messages from agents, 45 task notifications), each in
-  the form the hook receives. The transcript recorded 452,175 bytes of
-  injected text on 83 of them.
+- The hook input of a subagent's hand-back report was not logged. In a replay
+  of the dashboard run's session (Claude Code 2.1.284), all 42 recorded hook
+  outputs for messages from agents are reproduced by the tag form
+  (`<agent-message from="…">`, the report, the closing tag) and also by the
+  report's body alone, which opens with "[Subagent hand-back]". 21 of the 42
+  are not reproduced by the transcript text. The replay cannot tell the tag
+  form and the body apart, so the list holds both openings.
+- The figures of the summary are the session's 84 messages of 2026-09-30:
+  2 typed prompts, 37 messages from agents and 45 task notifications; 72 of
+  them up to the end of the run, 12 from the investigation after it. The
+  transcript recorded the 452,175 bytes on 83 of them. The replay through
+  the new hook gives 7,309 to 7,456 bytes, depending on the state of
+  `session-log.md` during 2026-10-01; the new hook skips every agent message
+  in the tag form and in the body form.
 
 ### What changed
 
@@ -68,9 +76,13 @@ a real agent message. Measured on 2026-10-01:
   prompt that opens (after leading white space) with `<task-notification>`,
   `<agent-message`, `<teammate-message`, "[Subagent hand-back]" or "Another
   Claude session sent a message" gets `{}` — no skill hint, no recall, no
-  context-pressure gate. The first, second and fourth openings were measured
-  as hook input; the other two are kept as a defence. A typed prompt that
-  only holds such an opening later in its text is enriched as before.
+  context-pressure gate. The probe hook logged the first two openings as hook
+  input. The other three were not logged: "[Subagent hand-back]" is in the
+  list for the case that the hook receives a hand-back report without its
+  tag, and no hook input was measured for `<teammate-message` or for the
+  transcript line. A typed prompt that only holds such an opening later in
+  its text is enriched as before, and so is a typed prompt that opens with
+  only a part of an opening (for example `[` or `<`).
 - **Once per session.** The two recall searches keep their ranking (top 2
   each). An entry already injected in the session is then dropped and is not
   replaced by a weaker match. An entry is identified by a SHA-1 hash of its
@@ -82,10 +94,12 @@ a real agent message. Measured on 2026-10-01:
 - **One copy of the decision.** `evaluatePrompt()` holds it; the Claude Code
   entry point and the Codex adapter (`hooks/codex/user-prompt-submit-adapter.js`)
   both call it, instead of keeping two copies of the same code.
-- **Tests.** 26 new tests in `tests/codex/test-skill-activator.js` (179 in
-  the file); 22 run the real hook script, 4 call the shared function through
+- **Tests.** 31 new tests in `tests/codex/test-skill-activator.js` (184 in
+  the file); 27 run the real hook script, 4 call the shared function through
   the Codex adapter: six forms of an agent message, a leading newline, a
-  typed prompt that holds each of the six forms later in its text, once per
+  typed prompt that holds each of the six forms later in its text, a typed
+  prompt that opens with only a part of an opening or with an opening in
+  another letter case (five cases), once per
   session (also through the adapter), a new session, no session id, entries
   with the same heading, no weaker match after the top 2 (session log and
   known issues), a corrupt record, a record that cannot be read or written,
@@ -101,16 +115,17 @@ a real agent message. Measured on 2026-10-01:
   compaction is not injected again in the same session. The session-start
   hook re-adds the last session-log entries after a compaction.
 - A message whose opening is not in the list is enriched as a typed prompt
-  is, until its opening is added. Two known cases: a teammate message, if
-  Claude Code passes it to the hook as free text (its hook input was not
-  measured), and the automatic message after a usage-limit reset ("Your
-  claude.ai usage limit has reset…"). The once-per-session rule still limits
-  the recall for them.
+  is, until its opening is added. One known case: the automatic message
+  after a usage-limit reset ("Your claude.ai usage limit has reset…"). The
+  once-per-session rule still limits its recall. For a teammate message no
+  hook input was measured: in 44 transcripts, no recorded hook output
+  follows any of 889 teammate messages, so the hook possibly never runs for
+  them.
 - Two hook processes of one session that run at the same time can lose an
   update of the record, and the record is written before the output is
   printed. An entry can then be injected a second time, or count as injected
-  when it was not. No workflow was found in which two hook processes of one
-  session overlap.
+  when it was not. The adversarial review of this release found no workflow
+  in which two hook processes of one session overlap.
 - The record files stay in the temporary folder until the system removes
   them, as the files of the Bash compression hook do.
 

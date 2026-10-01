@@ -1540,10 +1540,10 @@ function contextOf(output) {
 
 // The text that the hook receives is not the text of the transcript: Claude
 // Code writes the line "Another Claude session sent a message:" into the
-// transcript record, and the hook input does not hold it. The first three
-// fixtures are forms of the hook input measured on 2026-10-01 (see the
-// comment on AGENT_MESSAGE_OPENINGS in the hook); the teammate form and the
-// two transcript forms were not measured as hook input.
+// transcript record, and the hook input does not hold it. The first two
+// fixtures are forms that a hook which only logs its input recorded on
+// 2026-10-01; the other four were not recorded as hook input (see the
+// comment on AGENT_MESSAGE_OPENINGS in the hook).
 const AGENT_MESSAGES = {
   'a task notification': `<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>${RECALL_PROMPT}</summary>\n</task-notification>`,
   'a message that another agent sent': `<agent-message from="beta">\n${RECALL_PROMPT}\n</agent-message>`,
@@ -1569,6 +1569,20 @@ for (const [label, message] of Object.entries(AGENT_MESSAGES)) {
   test(`a typed prompt that holds ${label} later in its text is still enriched`, () => withRecallProject((dir) => {
     const output = runHook({ prompt: `${RECALL_PROMPT}; it also prints ${message}`, session_id: uniqueSessionId(), cwd: dir });
     assert.ok(contextOf(output).includes(KNOWN_ISSUE_HEADING), `Expected the known issue, got: ${JSON.stringify(output)}`);
+  }));
+}
+
+function assertHintAndRecall(output) {
+  const context = contextOf(output);
+  assert.ok(context.includes(KNOWN_ISSUE_HEADING) && context.includes('<user-prompt-submit-hook>'), `Expected the skill hint and the recall, got: ${context}`);
+}
+
+// A typed prompt that opens with only a part of an opening, or with an
+// opening in another letter case, is a typed prompt: the match must not be
+// wider than the list.
+for (const opening of ['[deploy log](deploy.md)', '<error>', '<task>', 'Another crash:', 'another claude session sent a message, then']) {
+  test(`a typed prompt that opens with ${opening} is still enriched`, () => withRecallProject((dir) => {
+    assertHintAndRecall(runHook({ prompt: `${opening} ${RECALL_PROMPT}`, session_id: uniqueSessionId(), cwd: dir }));
   }));
 }
 
@@ -1608,7 +1622,9 @@ const withLogProject = (entries, fn) => withProjectFiles({ 'session-log.md': ent
 const SAME_HEADING = '## 2026-08-22 [saved]';
 const ZEBRA_PROMPT = 'what did we decide on the zebrafish parser';
 const WALRUS_PROMPT = 'what did we decide on the walrus cache';
-const memoryOf = output => (contextOf(output).match(/<session-memory-recall>[\s\S]*<\/session-memory-recall>/) || [''])[0];
+// The recall block with the given tag in a hook output, or '' when it is absent.
+const recallBlockOf = (output, tag) => (contextOf(output).match(new RegExp(`<${tag}>[\\s\\S]*</${tag}>`)) || [''])[0];
+const memoryOf = output => recallBlockOf(output, 'session-memory-recall');
 
 test('entries with the same heading are told apart; a shown entry stays shown across prompts', () => withLogProject(
   [`${SAME_HEADING}\nGoal: zebrafish parser\n`, `${SAME_HEADING}\nGoal: walrus cache\n`],
@@ -1623,33 +1639,28 @@ test('entries with the same heading are told apart; a shown entry stays shown ac
   },
 ));
 
+// Sends one prompt twice in one session. Three items of the project match
+// it: the first answer must hold the top two in the recall block with the
+// given tag, and the second answer must hold no such block (the third item
+// does not replace the two that were shown).
+function assertNoWeakerMatch(dir, tag, itemPattern) {
+  const sessionId = uniqueSessionId();
+  const ask = () => recallBlockOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }), tag);
+  const first = ask();
+  const second = ask();
+  assert.strictEqual((first.match(itemPattern) || []).length, 2, `Expected the top 2 items first: ${first}`);
+  assert.strictEqual(second, '', `Expected no recall the second time, got: ${second}`);
+}
+
 test('an entry already shown is not replaced by a weaker match', () => withLogProject(
   [1, 2, 3].map(n => `## 2026-08-2${n} 10:00 [saved]\nGoal: zebrafish parser design, step ${n}\n`),
-  (dir) => {
-    const sessionId = uniqueSessionId();
-    const first = memoryOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
-    const second = memoryOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
-    assert.strictEqual((first.match(/\[saved\]/g) || []).length, 2, `Expected the top 2 entries first: ${first}`);
-    assert.strictEqual(second, '', `Expected no recall the second time, got: ${second}`);
-  },
+  dir => assertNoWeakerMatch(dir, 'session-memory-recall', /\[saved\]/g),
 ));
 
 test('a known issue already shown is not replaced by a weaker match', () => withProjectFiles(
   { 'known-issues.md': [1, 2, 3].map(n => `## Zebrafish parser issue ${n}\n\n**Symptom:** the zebrafish parser fails, case ${n}.\n`).join('\n') },
-  (dir) => {
-    const sessionId = uniqueSessionId();
-    const issuesOf = output => (contextOf(output).match(/<known-issues-recall>[\s\S]*<\/known-issues-recall>/) || [''])[0];
-    const first = issuesOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
-    const second = issuesOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
-    assert.strictEqual((first.match(/## Zebrafish parser issue/g) || []).length, 2, `Expected the top 2 issues first: ${first}`);
-    assert.strictEqual(second, '', `Expected no known issue the second time, got: ${second}`);
-  },
+  dir => assertNoWeakerMatch(dir, 'known-issues-recall', /## Zebrafish parser issue/g),
 ));
-
-function assertHintAndRecall(output) {
-  const context = contextOf(output);
-  assert.ok(context.includes(KNOWN_ISSUE_HEADING) && context.includes('<user-prompt-submit-hook>'), `Expected the skill hint and the recall, got: ${context}`);
-}
 
 test('a corrupt recall record does not break the hook', () => withRecallProject((dir) => {
   const sessionId = uniqueSessionId();

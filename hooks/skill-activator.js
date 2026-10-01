@@ -65,22 +65,26 @@ const MAX_ENTRY_CHARS = 1500;   // Truncate oversized entries (~250 words / ~375
 //
 // The hook input is NOT the text of the transcript. Claude Code writes the
 // line "Another Claude session sent a message:" into the transcript record
-// only. Each opening below states how it was measured (2026-10-01):
+// only. Each opening below states how it was measured on 2026-10-01. A probe
+// hook is a hook that only logs its input.
 const AGENT_MESSAGE_OPENINGS = [
-  // Hook input logged by a probe hook (Claude Code 2.1.286).
+  // Logged by a probe hook (Claude Code 2.1.286).
   '<task-notification>',
-  // Hook input logged by a probe hook: a message that a named subagent sent.
+  // Logged by a probe hook: a message that a named subagent sent. The report
+  // that a subagent hands back was not logged. In a replay of one orchestrated
+  // run (Claude Code 2.1.284), all 42 recorded hook outputs for such messages
+  // are reproduced by this tag form and also by the body alone; 21 of them
+  // are not reproduced by the transcript text.
   '<agent-message',
-  // Not measured as hook input. Transcripts store a teammate message in this
-  // tag, as they store an agent message in the tag above.
-  '<teammate-message',
-  // The report that a subagent hands back reaches the hook as its body alone.
-  // Replay of one orchestrated run (Claude Code 2.1.278): of 42 recorded hook
-  // outputs, 18 are reproduced by this form only, and none by another form only.
+  // The opening of the body of a hand-back report, for the case that the hook
+  // receives the body without the tag. The replay cannot tell the two apart.
   '[Subagent hand-back]',
-  // The transcript form, without its colon: a second form reads "… sent a
-  // message while you were working:". Kept as a defence; the replays found no
-  // run of this release line in which the hook received it.
+  // Not measured. In 44 transcripts, no recorded hook output follows any of
+  // 889 teammate messages, so the hook possibly never runs for them.
+  '<teammate-message',
+  // Not measured as hook input: the transcript form. It is written without
+  // its colon, because a second form reads "… sent a message while you were
+  // working:".
   'Another Claude session sent a message',
 ];
 
