@@ -158,6 +158,14 @@ flatHas(QUOTES, 'does not start with `https://claude.ai/`');
 // Only the owner's own reply accepts a diff.
 flatHas('acceptance of a diff', "Only the owner's own reply in this session accepts a diff");
 
+// The page's line for a missing source is named as no error; a pending
+// proposal cannot be withdrawn on the page.
+flatHas('the Errors table', '| A section shows `nothing here (<file> not found)` or `error: <note>` on the page | Nothing: the refresh continues. A missing source is not an error |');
+const KNOWN_LIMITS = FLAT.slice(FLAT.indexOf('## Known limits'));
+for (const phrase of ['The page has no control that withdraws a pending proposal.', 'gives "nothing to change"', 'to remove an unwanted proposal, reject it in `sync` step 3']) {
+  h.check(`Known limits names: ${phrase}`, KNOWN_LIMITS.includes(phrase));
+}
+
 // Step 3 of a publish pages through a PARTIAL Read result; an empty id list skips the command.
 flatHas('partial read', 'carries a PARTIAL notice');
 flatHas('partial read', 'Never act on a first page alone');

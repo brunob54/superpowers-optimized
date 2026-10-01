@@ -56,20 +56,27 @@ const locks = doc.created.filter((node) => node.getAttribute('class') === 'lock'
 h.eq('one lock sign, on the private item only', locks.length, 1);
 // The lines under the title of a section card: [class, text] of each one.
 const VIEW = { data: sample('private', 'main'), canEdit: false, proposals: new Map(), store: null };
-const sectionLines = (section) => app.renderSection('knownIssues', section, VIEW).children.slice(1).map((line) => [line.getAttribute('class'), line.textContent]);
+const KNOWN_ISSUES = 'knownIssues';
+const cardLines = (card) => card.children.slice(1).map((line) => [line.getAttribute('class'), line.textContent]);
+const sectionLines = (section) => cardLines(app.renderSection(KNOWN_ISSUES, section, VIEW));
 const emptySection = (status, note) => ({ status, note, items: [] });
 const MUTED = 'muted';
 const NOTHING_HERE = 'nothing here';
+const missingLines = (section) => [[MUTED, `${NOTHING_HERE} (${section.note})`]];
+const missing = VIEW.data.sections[KNOWN_ISSUES];
+const history = doc.getElementById('panel-history');
+h.eq('the page shows a missing source as an empty section with its note', cardLines(history.children.find((card) => card.getAttribute('data-section') === KNOWN_ISSUES)), missingLines(missing));
+h.check('the page shows no status word for a missing source', !history.textContent.includes(missing.status));
 h.eq('an empty section that is ok shows one muted line', sectionLines(emptySection('ok', '')), [[MUTED, NOTHING_HERE]]);
-h.eq('a missing source with a note shows the same muted line and the note, with no status word', sectionLines(sample('private', 'main').sections.knownIssues), [[MUTED, `${NOTHING_HERE} (known-issues.md not found)`]]);
-h.eq('a missing source without a note shows the muted line only', sectionLines(emptySection('not-found', '')), [[MUTED, NOTHING_HERE]]);
+h.eq('a missing source with a note shows the same muted line and the note, with no status word', sectionLines(missing), [[MUTED, `${NOTHING_HERE} (known-issues.md not found)`]]);
+h.eq('a missing source without a note shows the muted line only', sectionLines(emptySection(missing.status, '')), [[MUTED, NOTHING_HERE]]);
 h.eq('an error keeps its status word and the error style', sectionLines(emptySection('error', 'git command failed')), [['status error', 'error: git command failed']]);
 // The section that the extractor writes for a missing source is shown that way.
-const bare = h.repo('template-missing-source');
-h.write(bare, 'file.txt', 'x\n');
-h.commit(bare, 'base', ['file.txt']);
-const extracted = JSON.parse(h.node(bare, [h.script('dashboard-extract.js'), '--audience', 'private']).out).sections.knownIssues;
-h.eq('the extractor\'s section of a missing source is shown as an empty section', sectionLines(extracted), [[MUTED, `${NOTHING_HERE} (${extracted.note})`]]);
+const noIssuesFile = h.repo('template-missing-source');
+h.write(noIssuesFile, 'file.txt', 'x\n');
+h.commit(noIssuesFile, 'base', ['file.txt']);
+const extracted = JSON.parse(h.node(noIssuesFile, [h.script('dashboard-extract.js'), '--audience', 'private']).out).sections[KNOWN_ISSUES];
+h.eq('the extractor\'s section of a missing source is shown as an empty section', sectionLines(extracted), missingLines(extracted));
 h.check('the git counts and the older open items are shown', doc.getElementById('panel-waits').textContent.includes('2 commits not pushed') && doc.getElementById('panel-waits').textContent.includes('3 more unresolved open items in older entries'));
 
 // 3. Boot with inline data: the audience check and the banner.
