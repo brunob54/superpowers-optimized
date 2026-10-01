@@ -60,16 +60,24 @@ const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
 // URL that has an authority part. The authority ends at the first "/", "?"
 // or "#"; its user information ends at the last "@" inside it.
 const URL_USER_INFO = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
-// A remote URL that names a folder on this machine: it starts with "/", "./",
-// "../", "~", a drive letter ("C:/" or "C:\") or "file://". SKILL.md, `share`
-// step 3, holds the only other copy of this rule, in prose.
-const LOCAL_FOLDER_URL = /^(?:\/|\.\.?\/|~|[A-Za-z]:[\\/]|file:\/\/)/;
-// The parts of a remote URL that follow the repository name: a query ("?…")
-// or a fragment ("#…"), then trailing "/" characters, then one ".git".
-const URL_NAME_TAIL = [/[?#].*$/, /\/+$/, /\.git$/];
-// The path parts of a URL end at "/"; the scp-like form <user>@<host>:<path>
-// (scp: secure copy) puts ":" before its first path part.
-const URL_PART_END = /[/:]/;
+// The two forms of a network URL from which repo.name of the shared run may
+// be taken; each one captures the path. The expressions read a URL from
+// which URL_USER_INFO is already removed, so the first form allows no "@"
+// before the path. First form: <scheme>://<host>[:<port>]/<path> with one of
+// four schemes, in any letter case. Second form, the scp-like form (scp:
+// secure copy): [<user>@]<host>:<path>, with no "://" anywhere, and with a
+// host of at least two characters (one letter is a Windows drive) that is
+// not "file" and holds no "/", "@" or ":".
+const NETWORK_URL_FORMS = [
+  /^(?:https?|ssh|git):\/\/[^/?#@:]+(?::\d+)?\/(.*)$/i,
+  /^(?!.*:\/\/)(?:[^@/:]+@)?(?!file:)[^@/:]{2,}:(.*)$/i,
+];
+// The end of a URL path that is not part of the repository name: trailing
+// "/" characters, then one ".git".
+const URL_PATH_TAIL = [/\/+$/, /\.git$/];
+// A repository name that may reach the shared page: only these characters,
+// and not "." or "..", which name a folder and not a repository.
+const PLAIN_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 const TREE = 'tree';
 const BLOB = 'blob';
 const NO_SOURCE = { file: null, heading: null, headingOrdinal: null, line: null, occurrence: null, lineNumber: null };
@@ -388,24 +396,29 @@ function sharedRemote(name) {
   return matches[0];
 }
 
-// The URL of the remote <remote> with the user information removed, or null
-// when git gives no URL. Every reader of a remote URL uses this function, so
-// that a token inside the URL reaches no output.
+// The text that `git remote get-url` prints for the remote <remote>, with
+// the part that URL_USER_INFO matches removed, or null when the git command
+// fails. For a remote with no URL, git prints the name of the remote. Only
+// that user information is removed: a token in a path part, in a query or in
+// a fragment stays. Every reader of a remote URL uses this function.
 function remoteUrl(remote) {
   const result = git(['remote', 'get-url', remote]);
   return result.ok ? result.out.replace(URL_USER_INFO, '$1') : null;
 }
 
-// repo.name of the shared run: the last path part of the URL of the shared
-// ref's remote. The name of the local folder is local data and never reaches
-// the shared page. The last part of a folder path on this machine is local
-// data too, so such a remote, a remote with no URL and a URL that gives no
-// name all give the shared ref <sharedName> (<remote>/<branch>) instead.
+// repo.name of the shared run. The name of the local folder is local data
+// and never reaches the shared page. The name is the last path part of the
+// URL of the shared ref's remote, without its URL_PATH_TAIL, and only when
+// the URL has one of the NETWORK_URL_FORMS and that part is a plain name. In
+// every other case (a folder on this machine, a helper form such as
+// "hg::<address>", a URL with no path, a remote with no URL) the name is the
+// shared ref <sharedName> (<remote>/<branch>).
 function sharedRepoName(sharedName, remote) {
-  const url = remoteUrl(remote);
-  if (url === null || LOCAL_FOLDER_URL.test(url)) return sharedName;
-  const head = URL_NAME_TAIL.reduce((text, tail) => text.replace(tail, ''), url);
-  return head.split(URL_PART_END).pop() || sharedName;
+  const url = remoteUrl(remote) || '';
+  const match = NETWORK_URL_FORMS.map((form) => form.exec(url)).find(Boolean);
+  if (!match) return sharedName;
+  const name = URL_PATH_TAIL.reduce((text, tail) => text.replace(tail, ''), match[1]).split('/').pop();
+  return PLAIN_NAME.test(name) ? name : sharedName;
 }
 
 // The shared run lists only local branches whose upstream counts, by the

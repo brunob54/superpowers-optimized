@@ -43,7 +43,8 @@ a diff, writes only the changes that the owner accepts, and never commits; a
 change to a tracked file is refused while an orchestrated run holds the
 repository. `share` publishes a second page that reads only pushed content: one
 remote-tracking branch for its files, plus the names and run logs of the other
-pushed branches that have an upstream on the same remote as the shared branch, never the working folder; on Pro and Max plans such a
+pushed branches that have an upstream on the same remote as the shared branch, never the working folder; the repository
+name in its title comes from the URL of that remote, never from the name of the local folder; on Pro and Max plans such a
 page can be shared only by a public link, so `share` warns first. `local`
 writes a read-only HTML file for a session that cannot publish.
 

@@ -110,48 +110,92 @@ for (const [name, [, cleaned]] of Object.entries(REMOTE_URLS)) {
 }
 h.eq('--remote-url stops on a missing remote and on a bad name', [run(urls, ['--remote-url', 'nothing/main']).code, run(urls, ['--remote-url', "a'b/main"]).code], [2, 2]);
 
-// repo.name of the shared run: the last path part of the URL of the shared
-// ref's remote, never the name of the local folder (the folder name holds
-// MARKER). A remote that is a folder on this machine, or a URL that gives no
-// name, gives the shared ref instead.
+// repo.name of the shared run comes from the URL of the shared ref's remote,
+// never from the name of the local folder (the folder name holds MARKER).
+// Only a network URL whose last path part is a plain name gives that name;
+// every other URL gives the shared ref. Each fallback URL below holds MARKER
+// or TOKEN where a wrong rule would take the name from.
 const NAMED_REF = 'origin/main';
-const named = h.repo(`${MARKER}-folder`);
+const FOLDER_NAME = `${MARKER}-folder`;
+const named = h.repo(FOLDER_NAME);
 h.addRemote(named, 'named-remote');
 h.write(named, 'file.txt', 'x\n');
 h.commit(named, 'base', ['file.txt']);
 h.git(named, 'push', '-q', '-u', 'origin', 'main');
-h.eq('repo.name of the private run is the folder name', JSON.parse(run(named, ['--audience', 'private']).out).repo.name, `${MARKER}-folder`);
-const sharedRun = (url) => {
-  h.git(named, 'remote', 'set-url', 'origin', url);
-  return shared(named, NAMED_REF);
+// repo.name of an extractor run, or a text that no case expects when the
+// extractor stopped, so that a stop fails its case and the cases go on.
+const repoName = (result) => (result.code === 0 ? JSON.parse(result.out).repo.name : `stopped with exit ${result.code}: ${result.err.trim()}`);
+const privateName = () => repoName(run(named, ['--audience', 'private']));
+const sharedCase = (label, name) => {
+  const result = shared(named, NAMED_REF);
+  h.eq(`repo.name of the shared run with ${label}`, repoName(result), name);
+  h.check(`the shared output with ${label} holds no folder name and no token`, !`${result.out}${result.err}`.includes(MARKER) && !`${result.out}${result.err}`.includes(TOKEN));
 };
-const bareRemote = shared(named, NAMED_REF);
-h.eq('repo.name with the bare fixture remote (an absolute folder path) is the shared ref', JSON.parse(bareRemote.out).repo.name, NAMED_REF);
-h.check('the shared JSON does not hold the local folder name', !bareRemote.out.includes(MARKER));
+h.eq('repo.name of the private run is the folder name', privateName(), FOLDER_NAME);
+sharedCase('the bare fixture remote (an absolute folder path)', NAMED_REF);
 const URL_NAME = 'repo';
 const SHARED_NAMES = {
+  // A network URL with a scheme, and the scp-like form (scp: secure copy).
   'https://example.com/team/repo.git': URL_NAME,
   'https://example.com/team/repo': URL_NAME,
   'https://example.com/team/repo.git//': URL_NAME,
+  'https://example.com/repo.git': URL_NAME,
+  'HTTPS://example.com/team/repo.git': URL_NAME,
+  'http://example.com:8080/team/repo.git': URL_NAME,
   'ssh://git@example.com/team/repo.git': URL_NAME,
+  'ssh://git@example.com:22/team/repo.git': URL_NAME,
+  'git://example.com/team/repo.git': URL_NAME,
   'git@example.com:team/repo.git': URL_NAME,
   'git@example.com:repo.git': URL_NAME,
+  'example.com:team/repo.git': URL_NAME,
   [`https://user:${TOKEN}@example.com/team/repo.git`]: URL_NAME,
-  [`https://example.com/team/repo.git?token=${TOKEN}`]: URL_NAME,
+  // Exactly one trailing ".git" is removed.
+  'https://example.com/team/repo.git.git': 'repo.git',
+  // User information that no rule may take the name from.
+  [`https://user:${TOKEN}@example.com`]: NAMED_REF,
+  [`https://${TOKEN}@example.com/`]: NAMED_REF,
+  [`https://user:${TOKEN}#ss@example.com/team/repo.git`]: NAMED_REF,
+  [`user:${TOKEN}@example.com`]: NAMED_REF,
+  // A network URL with no path, or with a last part that is not a plain name.
+  [`https://${MARKER}.example.com`]: NAMED_REF,
+  [`https://${MARKER}.example.com/`]: NAMED_REF,
+  [`https://${MARKER}.example.com:8443`]: NAMED_REF,
+  'https://example.com/.git': NAMED_REF,
+  'https://example.com/team/.': NAMED_REF,
+  'https://example.com/team/..': NAMED_REF,
+  [`https://example.com/team/${MARKER} repo.git`]: NAMED_REF,
+  [`https://example.com/team/repo.git?token=${TOKEN}`]: NAMED_REF,
+  [`https://example.com/team/repo#${TOKEN}`]: NAMED_REF,
+  // A scheme that is not in the list, and a helper form (<helper>::<address>).
+  [`ftp://example.com/team/${MARKER}.git`]: NAMED_REF,
+  [`codecommit::us-east-1://profile@${MARKER}`]: NAMED_REF,
+  [`hg::https://user:${TOKEN}@example.com/${MARKER}`]: NAMED_REF,
+  // A folder on this machine.
   [`/srv/git/${MARKER}.git`]: NAMED_REF,
   [`./${MARKER}.git`]: NAMED_REF,
   [`../${MARKER}.git`]: NAMED_REF,
   [`~/${MARKER}.git`]: NAMED_REF,
+  [`${MARKER}.git`]: NAMED_REF,
+  [`backups/${MARKER}.git`]: NAMED_REF,
   [`C:/git/${MARKER}.git`]: NAMED_REF,
   [`C:\\git\\${MARKER}.git`]: NAMED_REF,
+  [`C:${MARKER}.git`]: NAMED_REF,
+  [`..\\${MARKER}.git`]: NAMED_REF,
+  [`\\\\server\\share\\${MARKER}.git`]: NAMED_REF,
   [`file:///srv/git/${MARKER}.git`]: NAMED_REF,
-  'https://example.com/.git': NAMED_REF,
+  [`FILE:///srv/git/${MARKER}.git`]: NAMED_REF,
+  [`file:/srv/git/${MARKER}.git`]: NAMED_REF,
+  [`File:${MARKER}.git`]: NAMED_REF,
 };
 for (const [url, name] of Object.entries(SHARED_NAMES)) {
-  const result = sharedRun(url);
-  h.eq(`repo.name of the shared run with the remote ${url}`, [result.code, JSON.parse(result.out).repo.name], [0, name]);
-  h.check(`the shared JSON with the remote ${url} holds no folder name and no token`, !result.out.includes(MARKER) && !result.out.includes(TOKEN));
+  h.git(named, 'remote', 'set-url', 'origin', url);
+  sharedCase(`the remote ${url}`, name);
 }
+h.git(named, 'remote', 'set-url', 'origin', 'https://example.com/team/repo.git');
+h.eq('repo.name of the private run is the folder name, also with a network remote', privateName(), FOLDER_NAME);
+// A remote with no URL: git prints the remote name in place of a URL.
+h.git(named, 'config', '--unset', 'remote.origin.url');
+sharedCase('a remote that has no URL', NAMED_REF);
 
 // A remote whose name begins with the shared remote's name and "/": a branch
 // pushed only to it is not on the shared ref's remote (exact remote match).

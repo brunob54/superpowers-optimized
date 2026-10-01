@@ -100,7 +100,8 @@ use no npm dependency, and work on macOS, Linux and Windows Git Bash.
 
 Data flow of `refresh`. The two audiences use **two separate extractor
 runs**: the private run reads the working tree; the shared run reads only
-pushed refs (section 5.3). The shared JSON never passes through the private
+pushed refs, and the URL of the shared ref's remote for `repo.name`
+(section 5.3). The shared JSON never passes through the private
 run.
 
 ```
@@ -356,7 +357,9 @@ with a small lock sign.
 
 **Shared run** (`--audience shared`): its rule is **only what is pushed**.
 "Pushed" means reachable from a remote-tracking ref. The run fails closed:
-anything it cannot place under the rule is left out.
+anything it cannot place under the rule is left out. One value is not
+pushed content: `repo.name`, which comes from the URL of the shared ref's
+remote in the local git configuration (the `repo.name` item below).
 
 - An upstream counts only when it is a remote-tracking ref of the same
   name: `git rev-parse --symbolic-full-name <branch>@{upstream}` must print
@@ -372,18 +375,32 @@ anything it cannot place under the rule is left out.
   is checked out, and the page names it. When the stored ref no longer
   exists, the shared refresh stops with a message and publishes nothing.
 - `repo.name` is never the name of the local folder: that name is local
-  data. It is the last path part of the URL of the shared ref's remote,
-  with a query (`?…`) or fragment (`#…`), trailing `/` characters and one
-  trailing `.git` removed: `https://host/org/repo.git`,
-  `ssh://git@host/org/repo.git` and `git@host:org/repo.git` all give
-  `repo`. The extractor reads the URL with the code of its `--remote-url`
-  option, which removes the user information (user name, password or
-  token), so no credential reaches the name. When the URL names a folder on
-  this machine (it starts with `/`, `./`, `../`, `~`, a drive letter such as
-  `C:/` or `C:\`, or `file://`), or when it gives no name, `repo.name` is
-  the shared ref text `<remote>/<branch>` (for example `origin/main`): the
-  last part of a local folder path is local data too. (Decision after
-  acceptance, 2026-10-01, owner; recorded in
+  data. It comes from the URL of the shared ref's remote, which the
+  extractor reads from the local git configuration with the code of its
+  `--remote-url` option; that code removes the user information (user name,
+  password or token) of a URL with a scheme. `repo.name` is the last path
+  part of that URL, with trailing `/` characters and exactly one trailing
+  `.git` removed, only when both of these hold:
+  - The URL is a network URL in one of two forms. The first form is
+    `<scheme>://<host>[:<port>]/<path>`, with the scheme `http`, `https`,
+    `ssh` or `git` in any letter case. The second form is the scp-like form
+    `[<user>@]<host>:<path>` (scp: secure copy): the text holds no `://`,
+    and the host holds no `/`, `@` or `:`, has at least two characters (one
+    letter is a Windows drive) and is not `file`.
+  - The last path part holds only the characters `A-Z a-z 0-9 . _ -` and is
+    not `.` or `..`.
+
+  So `https://host/org/repo.git`, `ssh://git@host/org/repo.git` and
+  `git@host:org/repo.git` all give `repo`. In every other case `repo.name`
+  is the shared ref text `<remote>/<branch>` (for example `origin/main`): a
+  folder on this machine in any spelling (the last part of a local folder
+  path is local data too), a helper form such as `hg::<address>`, a URL
+  with no path, a last part that holds a `?` or a `#`, a remote with no
+  URL. This rule lists what is allowed. It is separate from the warning of
+  `share` step 3 in `SKILL.md`, which only tells the user that a remote is
+  a folder on this machine and recognises it by the start of the URL (`/`,
+  `./`, `../`, `~`, a drive letter such as `C:/` or `C:\`, or `file://`).
+  (Decision after acceptance, 2026-10-01, owner; recorded in
   `plans/dashboard-open-decisions.md`.)
 - Files are read only with `git show <ref>:<path>`, never from the working
   tree or from `HEAD`. A file that is only in the working tree, only
