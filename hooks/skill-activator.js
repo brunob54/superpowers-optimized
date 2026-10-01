@@ -15,8 +15,11 @@
  *
  * Features:
  * - Micro-task detection: short, specific prompts skip both features entirely
+ * - Agent messages (task notifications, messages from other sessions) skip
+ *   both features entirely: the user did not type them
  * - Confidence threshold: only suggests skills when match confidence is meaningful
- * - Memory recall: keyword-based grep of session-log.md, ≤2 entries, deduped
+ * - Memory recall: keyword-based grep of session-log.md, ≤2 entries; an entry
+ *   already injected in the same session is not injected again
  * - Smart routing: fewer false positives, zero overhead for simple tasks
  *
  * Input:  stdin JSON with { prompt, session_id, cwd, ... }
@@ -25,6 +28,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // Resolve hooks directory from this script's location
@@ -50,6 +54,22 @@ const CONFIDENCE_THRESHOLD = 2;
 const MAX_MEMORY_ENTRIES = 2;    // Never inject more than 2 matched entries
 const MIN_KEYWORD_LENGTH = 4;   // Skip tokens shorter than this
 const MAX_ENTRY_CHARS = 1500;   // Truncate oversized entries (~250 words / ~375 tokens)
+
+// ── Messages the user did not type ────────────────────────────────────────────
+// Claude Code runs UserPromptSubmit for task notifications and for messages
+// from other agents too, and its documented payload has no field that names
+// the sender. These openings are the only signal (measured in transcripts of
+// Claude Code 2.1.284, 2026-09-30).
+const AGENT_MESSAGE_OPENINGS = [
+  '<task-notification>',
+  'Another Claude session sent a message:',
+  '<agent-message',
+  '<teammate-message',
+];
+
+// The headings of the recall entries already injected in a session are kept
+// in one file per session id in the temporary folder.
+const RECALL_STATE_PREFIX = 'sp-recall-';
 
 // Common English words that produce noisy false-positive matches
 const STOP_WORDS = new Set([
@@ -605,6 +625,117 @@ function buildContextPressureBlock(pressure) {
   ].join('\n');
 }
 
+// ── Agent messages and recall already shown ───────────────────────────────────
+
+/**
+ * Returns true if the prompt is a task notification or a message from another
+ * agent, not text the user typed. Only the opening of the prompt is tested, so
+ * a typed prompt that quotes such a marker later is still enriched.
+ */
+function isAgentMessage(prompt) {
+  if (!prompt || typeof prompt !== 'string') return false;
+  const opening = prompt.trimStart();
+  return AGENT_MESSAGE_OPENINGS.some(marker => opening.startsWith(marker));
+}
+
+/** The path of the file that holds the recall headings of one session. */
+function recallStatePath(sessionId) {
+  const safeId = String(sessionId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+  return path.join(os.tmpdir(), `${RECALL_STATE_PREFIX}${safeId}.json`);
+}
+
+/** The headings already injected in this session; empty when none are known. */
+function readShownHeadings(sessionId) {
+  if (!sessionId) return new Set();
+  try {
+    return new Set(JSON.parse(fs.readFileSync(recallStatePath(sessionId), 'utf8')).headings);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Records the headings as injected. A write failure only means that an entry
+ * may be injected again later, so it is ignored.
+ */
+function rememberShownHeadings(sessionId, headings) {
+  if (!sessionId) return;
+  try {
+    fs.writeFileSync(recallStatePath(sessionId), JSON.stringify({ headings: [...headings] }));
+  } catch {
+    // ignored on purpose, see the comment above
+  }
+}
+
+/** An entry is identified by its first line, the `## ` heading. */
+function entryHeading(entry) {
+  return entry.split('\n')[0];
+}
+
+/**
+ * Builds the hook output for one UserPromptSubmit payload: `{}` or
+ * `{ hookSpecificOutput }`. Shared by the Claude Code entry point below and by
+ * hooks/codex/user-prompt-submit-adapter.js.
+ */
+function evaluatePrompt(data) {
+  if (!data || typeof data !== 'object') return {};
+
+  const prompt = typeof data.prompt === 'string' ? data.prompt : '';
+  // Micro tasks and messages the user did not type skip all enrichment.
+  if (!prompt || isMicroTask(prompt) || isAgentMessage(prompt)) return {};
+
+  const cwd = typeof data.cwd === 'string' ? data.cwd : process.cwd();
+  const sessionId = typeof data.session_id === 'string' ? data.session_id : null;
+
+  // Context pressure gate: if the user is about to start implementation and
+  // the context window is ≥60% full, block and require compact-first.
+  // Returns early — pressure block replaces all other hints when it fires.
+  if (isExecutionTrigger(prompt)) {
+    const pressure = getContextPressure(cwd, sessionId);
+    if (pressure && pressure.overThreshold) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: buildContextPressureBlock(pressure),
+        },
+      };
+    }
+  }
+
+  // Run all pipelines independently. The two recall searches keep their own
+  // ranking; an entry already injected in this session is then dropped and
+  // not replaced by a weaker match.
+  const matches = matchSkills(prompt);
+  const keywords = extractKeywords(prompt);
+  const shown = readShownHeadings(sessionId);
+  const isNew = entry => !shown.has(entryHeading(entry));
+  const memoryEntries = searchSessionLog(cwd, keywords).filter(isNew);
+  const knownIssueEntries = searchKnownIssues(cwd, keywords).filter(isNew);
+
+  const recalled = [...memoryEntries, ...knownIssueEntries];
+  if (recalled.length > 0) {
+    recalled.forEach(entry => shown.add(entryHeading(entry)));
+    rememberShownHeadings(sessionId, shown);
+  }
+
+  const skillContext = buildContext(matches);
+  const memoryContext = buildMemoryContext(memoryEntries);
+  const knownIssuesContext = buildKnownIssuesContext(knownIssueEntries);
+
+  if (!skillContext && !memoryContext && !knownIssuesContext) return {};
+
+  // Combine: skill hint first (routing), known issues second (avoid known errors),
+  // memory last (historical context)
+  const combined = [skillContext, knownIssuesContext, memoryContext].filter(Boolean).join('\n\n');
+
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'UserPromptSubmit',
+      additionalContext: combined,
+    },
+  };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -612,59 +743,7 @@ async function main() {
   for await (const chunk of process.stdin) input += chunk;
 
   try {
-    const data = JSON.parse(input);
-    const prompt = data.prompt || '';
-    const cwd = data.cwd || process.cwd();
-    const sessionId = data.session_id || null;
-
-    // Micro-task fast path: skip all enrichment entirely
-    if (isMicroTask(prompt)) {
-      process.stdout.write('{}');
-      return;
-    }
-
-    // Context pressure gate: if the user is about to start implementation and
-    // the context window is ≥60% full, block and require compact-first.
-    // Returns early — pressure block replaces all other hints when it fires.
-    if (isExecutionTrigger(prompt)) {
-      const pressure = getContextPressure(cwd, sessionId);
-      if (pressure && pressure.overThreshold) {
-        process.stdout.write(JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: 'UserPromptSubmit',
-            additionalContext: buildContextPressureBlock(pressure),
-          },
-        }));
-        return;
-      }
-    }
-
-    // Run all pipelines independently
-    const matches = matchSkills(prompt);
-    const keywords = extractKeywords(prompt);
-    const memoryEntries = searchSessionLog(cwd, keywords);
-    const knownIssueEntries = searchKnownIssues(cwd, keywords);
-
-    const skillContext = buildContext(matches);
-    const memoryContext = buildMemoryContext(memoryEntries);
-    const knownIssuesContext = buildKnownIssuesContext(knownIssueEntries);
-
-    // Nothing to inject
-    if (!skillContext && !memoryContext && !knownIssuesContext) {
-      process.stdout.write('{}');
-      return;
-    }
-
-    // Combine: skill hint first (routing), known issues second (avoid known errors),
-    // memory last (historical context)
-    const combined = [skillContext, knownIssuesContext, memoryContext].filter(Boolean).join('\n\n');
-
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'UserPromptSubmit',
-        additionalContext: combined,
-      },
-    }));
+    process.stdout.write(JSON.stringify(evaluatePrompt(JSON.parse(input))));
   } catch {
     process.stdout.write('{}');
   }
@@ -696,6 +775,9 @@ if (require.main === module) {
     findLatestSessionJsonl,
     getContextPressureAuto,
     buildContextPressureBlock,
+    isAgentMessage,
+    evaluatePrompt,
+    recallStatePath,
     RULES,
     CONFIDENCE_THRESHOLD,
     STOP_WORDS,
