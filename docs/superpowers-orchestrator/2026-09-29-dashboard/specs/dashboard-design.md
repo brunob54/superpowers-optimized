@@ -537,9 +537,16 @@ uses the clock of the machine, so the new line is the same on every run.
 is written as `| ` + the cells joined by ` | ` + ` |`, with single spaces:
 the column padding of a hand-aligned table is not kept.
 
-**One document per item.** Every write of the page is conditional on the
-document version that the page read (section 13 item 12). An edit on an
-item:
+**One document per item.** The page cannot make a write conditional on a
+document version: the platform has no such option (section 13 item 12).
+The page reads the proposal document again just before each write, and it
+refuses the edit when the document changed since the page listed it.
+Known limit: a window stays between that re-read and the write. A page
+write inside it can overwrite a `sync` mark (the `applying` state that
+`sync` writes in section 8 step 4), and that edit can then be lost without
+a report. The platform also has no create-if-absent write: a second
+browser tab of the owner that creates the same document inside the window
+can be overwritten. An edit on an item:
 
 - with no document, with a document whose `state` is `rejected`, or with
   an `applied` document whose `closedAt` is earlier than the page's
@@ -588,8 +595,8 @@ A proposal document:
 - Known limit: defect anthropics/claude-code#94426 means a fresh page load
   may not show writes that Claude made to `db`. The page can then show
   "pending sync" for a proposal that `sync` already closed. An edit on it
-  is then refused by the version check of the page's write (the version
-  changed), or, if that check is not available, it creates a proposal that
+  is then refused when the page's re-read before the write sees the
+  change, or, when the re-read misses it too, it creates a proposal that
   `sync` reports as `none` against the changed line; no wrong write
   follows.
 
@@ -966,4 +973,9 @@ the user.
     reading it once per publish is small.
 12. The page's `db` writes can be conditional on the version the page read.
     If they cannot, the page re-reads the document just before each write,
-    and the design states the remaining window as a known limit.
+    and the design states the remaining window as a known limit. **The
+    measurement found no such condition:** `set(data)` and `update(data)`
+    take no version option, a page `DocumentSnapshot` carries no version,
+    and the platform has no create-if-absent write. The page therefore
+    uses the re-read (section 7, "One document per item"; item 12 of
+    `implementation/platform-checks.md`).
