@@ -8,7 +8,7 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
-## v7.55.0 — the dashboard skill: the repository's status on a claude.ai page
+## v7.56.0 — the dashboard skill: the repository's status on a claude.ai page
 
 **Problem.** What waited for the owner was spread over branches, orchestration
 logs, work logs and `session-log.md`; `/pickup` lists only the unfinished runs of local branches and shows no work
@@ -67,6 +67,79 @@ not show writes that Claude made to the page database (anthropics/claude-code#94
 The live acceptance — one refresh, one edit on the page and one sync on this
 repository — is the owner's step before the merge; its steps and results are
 in `docs/superpowers-orchestrator/2026-09-29-dashboard/implementation/manual-acceptance.md`.
+
+## v7.55.0 — memory recall skips agent messages and repeats no entry
+
+**Problem.** The `UserPromptSubmit` hook ran for task notifications and
+messages from other agents as if they were typed prompts, and attached the
+same known-issues and session-log recall to each one. In one orchestrated run
+this was 72 injections, 70 of them on agent messages: about 157K tokens,
+about 31% of the main session's context growth.
+
+**Change.** The hook gives no hint and no recall to a prompt that opens with
+`<task-notification>` or "Another Claude session sent a message:", and it
+injects each recall entry at most once per session.
+
+**Effect.** Replaying that run's 85 messages: 453,492 bytes injected before,
+18,500 after; every typed prompt is still enriched. Reinstall the plugin.
+Nothing to migrate.
+
+### Why
+
+The dashboard run of 2026-09-30 grew the main session's context to 56% of a
+1M-token window, with no compaction. Six independent investigations of its
+transcript found two causes:
+
+- With `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, each named controller runs
+  as a teammate. Its subagents failed their hand-back ("the agent that
+  spawned you is no longer running"), and when the controller woke one with
+  `SendMessage`, that subagent's report and task notification went to the
+  main session. This is a Claude Code behaviour; it was reported to
+  Anthropic, and removing the setting stops it.
+- `hooks/skill-activator.js` attached about 5.4 KB of recall to each of those
+  messages. It did not check who sent a message, and it repeated the same
+  entries: `known-issues.md` gave the same two entries 71 times. This release
+  fixes this part.
+
+Claude Code documents no field in the hook input that names the sender of a
+prompt. The opening text is the only signal: in 80 transcripts of this
+repository, all 1,330 agent messages opened with one of the two strings
+above, and no other opening was seen.
+
+### What changed
+
+- **Agent messages.** `isAgentMessage()` in `hooks/skill-activator.js`: a
+  prompt that opens (after leading white space) with `<task-notification>`
+  or "Another Claude session sent a message:" gets `{}` — no skill hint, no
+  recall, no context-pressure gate. A typed prompt that only mentions such a
+  marker later is enriched as before.
+- **Once per session.** The two recall searches keep their ranking (top 2
+  each). An entry already injected in the session is then dropped and is not
+  replaced by a weaker match. An entry is identified by a SHA-1 of its text,
+  because session-log headings repeat (17 entries of this repository are
+  named `## 2026-08-22 [saved]`). The record is one file per session id in
+  the temporary folder (`sp-recall-<session id>.json`); without a session id
+  nothing is recorded.
+- **One copy of the decision.** `evaluatePrompt()` holds it; the Claude Code
+  entry point and the Codex adapter (`hooks/codex/user-prompt-submit-adapter.js`)
+  both call it, instead of keeping two copies of the same code.
+- **Tests.** 14 tests in `tests/codex/test-skill-activator.js`; 11 run the
+  real hook script, 3 call the shared function through the Codex adapter: each agent-message shape, a leading newline, a typed prompt
+  that mentions a marker, once per session, a new session, no session id,
+  entries with the same heading, no weaker match after the top 2, the
+  pressure gate skipped for an agent message, an empty `cwd`, a session id
+  with path characters. The tests remove their record files.
+- **Docs.** README and `docs/guide/README.md` §2 describe the new behaviour.
+
+### Limits
+
+- Nothing resets the record at a compaction: an entry injected before a
+  compaction is not injected again in the same session. The session-start
+  hook re-adds the last session-log entries after a compaction.
+- A new message format from Claude Code would be enriched again until its
+  opening is added to the list.
+- The record files stay in the temporary folder until the system removes
+  them, as the files of the Bash compression hook do.
 
 ## v7.54.0 — the TDD reminder names the source files it counts
 

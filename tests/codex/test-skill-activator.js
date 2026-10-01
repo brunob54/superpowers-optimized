@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Unit tests — hooks/codex/user-prompt-submit-adapter.js
+ * Unit tests — hooks/skill-activator.js (the UserPromptSubmit hook) and
+ * hooks/codex/user-prompt-submit-adapter.js, which delegates to it.
  *
  * Verifies:
  *   - Correct Codex payload field: `prompt` (not `userPrompt`)
@@ -1511,6 +1512,210 @@ for (const prompt of [
 test('a request to build a dashboard still suggests frontend-design', () => {
   const matched = suggested('build a dashboard for sales data');
   assert.ok(matched.includes('frontend-design'), `Expected frontend-design, got: ${JSON.stringify(matched)}`);
+});
+
+// ── Messages the user did not type, and recall already shown ─────────────────
+//
+// Claude Code passes task notifications and messages from other agents to the
+// UserPromptSubmit hook as if they were prompts. Measured on 2026-09-30: 70 of
+// 72 recall injections of one orchestrated run were attached to such messages.
+// These tests run the real hook script (the Claude Code entry point) with a
+// unique session id each, because the recall record of a session id persists
+// in the temporary folder across test runs.
+
+console.log('\nAgent messages and repeated recall (hooks/skill-activator.js)');
+
+const { spawnSync } = require('child_process');
+const { recallStatePath } = require('../../hooks/skill-activator');
+const HOOK_SCRIPT = path.join(__dirname, '../../hooks/skill-activator.js');
+const KNOWN_ISSUE_HEADING = '## Flaky deploy script loses the release tag';
+const SAVED_HEADING = '## 2026-01-01 10:00 [saved]';
+const RECALL_PROMPT = 'there is a bug: the deploy script crashes and loses the release tag, please debug it';
+
+function makeRecallProject() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-unit-'));
+  fs.writeFileSync(path.join(dir, 'known-issues.md'),
+    `${KNOWN_ISSUE_HEADING}\n\n**Symptom:** the deploy script crashes and the release tag is lost.\n`);
+  fs.writeFileSync(path.join(dir, 'session-log.md'),
+    `${SAVED_HEADING}\nGoal: fix the deploy script that loses the release tag\n`);
+  return dir;
+}
+
+let recallSessionCount = 0;
+const recallSessionIds = [];
+function uniqueSessionId() {
+  recallSessionCount += 1;
+  const sessionId = `recall-unit-${process.pid}-${Date.now()}-${recallSessionCount}`;
+  recallSessionIds.push(sessionId);
+  return sessionId;
+}
+
+// Removes a test's project folder whatever the test's outcome.
+function withRecallProject(fn) {
+  const dir = makeRecallProject();
+  try {
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function runHook(payload) {
+  const result = spawnSync(process.execPath, [HOOK_SCRIPT], { input: JSON.stringify(payload), encoding: 'utf8' });
+  return JSON.parse(result.stdout || '{}');
+}
+
+function contextOf(output) {
+  return output.hookSpecificOutput?.additionalContext || '';
+}
+
+const AGENT_MESSAGES = {
+  'a task notification': `<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>${RECALL_PROMPT}</summary>\n</task-notification>`,
+  'a message from another session (subagent hand-back)': `Another Claude session sent a message:\n<agent-message from="a2">\n[Subagent hand-back] ${RECALL_PROMPT}\n</agent-message>`,
+  'a teammate message': `Another Claude session sent a message:\n<teammate-message teammate_id="orch-batch-1">\n${RECALL_PROMPT}\n</teammate-message>`,
+};
+
+for (const [label, prompt] of Object.entries(AGENT_MESSAGES)) {
+  test(`${label} gets no hint and no recall`, () => withRecallProject((dir) => {
+    const output = runHook({ prompt, session_id: uniqueSessionId(), cwd: dir });
+    assert.deepStrictEqual(output, {}, `Expected {} for ${label}, got: ${JSON.stringify(output)}`);
+  }));
+}
+
+test('a task notification that starts after a newline gets no hint and no recall', () => withRecallProject((dir) => {
+  const output = runHook({ prompt: `\n  ${AGENT_MESSAGES['a task notification']}`, session_id: uniqueSessionId(), cwd: dir });
+  assert.deepStrictEqual(output, {});
+}));
+
+test('a typed prompt that mentions <task-notification> later in its text is still enriched', () => withRecallProject((dir) => {
+  const output = runHook({ prompt: `${RECALL_PROMPT}; it also prints <task-notification>`, session_id: uniqueSessionId(), cwd: dir });
+  assert.ok(contextOf(output).includes(KNOWN_ISSUE_HEADING), `Expected the known issue, got: ${JSON.stringify(output)}`);
+}));
+
+test('a recalled entry is shown once per session; the skill hint stays', () => withRecallProject((dir) => {
+  const sessionId = uniqueSessionId();
+  const first = contextOf(runHook({ prompt: RECALL_PROMPT, session_id: sessionId, cwd: dir }));
+  const second = contextOf(runHook({ prompt: RECALL_PROMPT, session_id: sessionId, cwd: dir }));
+  assert.ok(first.includes(KNOWN_ISSUE_HEADING) && first.includes(SAVED_HEADING), `First prompt lacks the recall: ${first}`);
+  assert.ok(!second.includes('<known-issues-recall>') && !second.includes('<session-memory-recall>'), `Second prompt repeats the recall: ${second}`);
+  assert.ok(second.includes('<user-prompt-submit-hook>'), `Second prompt lost the skill hint: ${second}`);
+}));
+
+test('another session gets the same recall again', () => withRecallProject((dir) => {
+  runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd: dir });
+  const other = contextOf(runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd: dir }));
+  assert.ok(other.includes(KNOWN_ISSUE_HEADING), `Expected the recall in a new session, got: ${other}`);
+}));
+
+test('without a session id the recall is shown every time', () => withRecallProject((dir) => {
+  runHook({ prompt: RECALL_PROMPT, cwd: dir });
+  const again = contextOf(runHook({ prompt: RECALL_PROMPT, cwd: dir }));
+  assert.ok(again.includes(KNOWN_ISSUE_HEADING), `Expected the recall without a session id, got: ${again}`);
+}));
+
+test('a session id with path characters still records the recall', () => withRecallProject((dir) => {
+  const sessionId = `../${uniqueSessionId()}/x`;
+  recallSessionIds.push(sessionId);
+  runHook({ prompt: RECALL_PROMPT, session_id: sessionId, cwd: dir });
+  const second = contextOf(runHook({ prompt: RECALL_PROMPT, session_id: sessionId, cwd: dir }));
+  assert.ok(!second.includes('<known-issues-recall>'), `The recall record was not kept: ${second}`);
+}));
+
+// Two session-log entries with the same date-only heading, as context-management
+// writes them, and a third entry that matches the same words.
+function makeLogProject(entries) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-log-unit-'));
+  fs.writeFileSync(path.join(dir, 'session-log.md'), entries.join('\n'));
+  return dir;
+}
+
+function withLogProject(entries, fn) {
+  const dir = makeLogProject(entries);
+  try {
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const SAME_HEADING = '## 2026-08-22 [saved]';
+const ZEBRA_PROMPT = 'what did we decide on the zebrafish parser';
+const WALRUS_PROMPT = 'what did we decide on the walrus cache';
+const memoryOf = output => (contextOf(output).match(/<session-memory-recall>[\s\S]*<\/session-memory-recall>/) || [''])[0];
+
+test('entries with the same heading are told apart; a shown entry stays shown across prompts', () => withLogProject(
+  [`${SAME_HEADING}\nGoal: zebrafish parser\n`, `${SAME_HEADING}\nGoal: walrus cache\n`],
+  (dir) => {
+    const sessionId = uniqueSessionId();
+    const zebra = memoryOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
+    const walrus = memoryOf(runHook({ prompt: WALRUS_PROMPT, session_id: sessionId, cwd: dir }));
+    const zebraAgain = memoryOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
+    assert.ok(zebra.includes('zebrafish'), `The zebrafish entry was not recalled: ${zebra}`);
+    assert.ok(walrus.includes('walrus'), `The walrus entry was hidden by the same heading: ${walrus}`);
+    assert.ok(!zebraAgain.includes('zebrafish'), `The zebrafish entry was recalled twice: ${zebraAgain}`);
+  },
+));
+
+test('an entry already shown is not replaced by a weaker match', () => withLogProject(
+  [1, 2, 3].map(n => `## 2026-08-2${n} 10:00 [saved]\nGoal: zebrafish parser design, step ${n}\n`),
+  (dir) => {
+    const sessionId = uniqueSessionId();
+    const first = memoryOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
+    const second = memoryOf(runHook({ prompt: ZEBRA_PROMPT, session_id: sessionId, cwd: dir }));
+    assert.strictEqual((first.match(/\[saved\]/g) || []).length, 2, `Expected the top 2 entries first: ${first}`);
+    assert.strictEqual(second, '', `Expected no recall the second time, got: ${second}`);
+  },
+));
+
+test('an agent message that names an execution trigger skips the context-pressure gate', () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-agent-'));
+  const cwd = path.join(tmpHome, 'myproject');
+  const sessionId = uniqueSessionId();
+  makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
+    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
+  ]);
+  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
+  process.env.USERPROFILE = tmpHome;
+  process.env.HOME = tmpHome;
+  try {
+    const prompt = '<task-notification>\n<summary>execute the plan</summary>\n</task-notification>';
+    assert.deepStrictEqual(runActivator({ prompt, session_id: sessionId, cwd }), {});
+  } finally {
+    process.env.USERPROFILE = orig.up;
+    process.env.HOME = orig.home;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test('an empty cwd falls back to the working folder, so the context-pressure gate still fires', () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-emptycwd-'));
+  const sessionId = uniqueSessionId();
+  makeJsonlSession(sessionId, cwdToProjectDir(process.cwd()), tmpHome, [
+    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
+  ]);
+  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
+  process.env.USERPROFILE = tmpHome;
+  process.env.HOME = tmpHome;
+  try {
+    const ctx = contextOf(runActivator({ prompt: 'execute the plan', session_id: sessionId, cwd: '' }));
+    assert.ok(ctx.includes('context-pressure-gate'), `Expected the pressure block, got: ${ctx.slice(0, 200)}`);
+  } finally {
+    process.env.USERPROFILE = orig.up;
+    process.env.HOME = orig.home;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test('the Codex adapter skips agent messages too', () => withRecallProject((dir) => {
+  const output = runActivator({ prompt: AGENT_MESSAGES['a task notification'], session_id: uniqueSessionId(), cwd: dir });
+  assert.deepStrictEqual(output, {});
+}));
+
+// The recall record of each session id used in this file stays in the
+// temporary folder; remove it at exit, also when a test throws, so the test
+// runs leave nothing behind. The earlier tests use the fixed session id 'test'.
+process.on('exit', () => {
+  [...recallSessionIds, 'test'].forEach(sessionId => fs.rmSync(recallStatePath(sessionId), { force: true }));
 });
 
 // ── Result ────────────────────────────────────────────────────────────────────
