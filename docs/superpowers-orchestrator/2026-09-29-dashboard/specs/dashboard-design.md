@@ -404,7 +404,8 @@ anything it cannot place under the rule is left out.
   written into the shared page files.
 
 In this repository `session-log.md`, `state.md` and `known-issues.md` are
-not tracked, so their sections are `not-found` on the shared page. In a
+not tracked, so their sections have the status `not-found` in the shared
+data, and the shared page shows `nothing here (<file> not found)` for each. In a
 repository that commits and pushes them, they appear: they are already
 readable by anyone who can read the remote repository.
 
@@ -694,7 +695,7 @@ publishes; the model does not read the source files or the JSON.
 
 | Situation | Behavior |
 |---|---|
-| A source file is missing | Its section has status `not-found` and a note; the refresh continues |
+| A source file is missing | Its section has status `not-found` and a note; the page shows `nothing here (<note>)` in the muted style, with no status word and not as an error; the refresh continues |
 | A parser meets an expected line it cannot read | A `raw` item with the text (section 5.1) |
 | A git command of a section fails | The section has status `error` and a note with the command's message; the refresh continues |
 | The folder is not a git repository, or the repository has no commit yet (`gitState` of `git-runs.js`) | The extractor stops with exit code 2 and a message; nothing is published |

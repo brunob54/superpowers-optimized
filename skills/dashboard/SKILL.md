@@ -408,7 +408,7 @@ To stop sharing, turn off the public link in the page's Share control."
 
 | Situation | What to do |
 |---|---|
-| A section shows `not-found` or `error` on the page | Nothing: the refresh continues; the page shows the note |
+| A section shows `nothing here (<file> not found)` or `error: <note>` on the page | Nothing: the refresh continues. A missing source is not an error |
 | The extractor exits with 2 | Stop and show its message; nothing is published |
 | `--verify` prints `refused: …` | Stop the publish of that audience and report the reason |
 | The read page holds no audience tag or names another audience | Stop; publish nothing (see "Publish one audience" step 2) |

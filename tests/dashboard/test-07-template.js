@@ -54,7 +54,22 @@ h.eq('tab 1 sections, in order', order('panel-waits'), ['unfinishedRuns', 'git',
 h.eq('tab 2 sections, in order', order('panel-history'), ['releases', 'runHistory', 'closedWorklogs', 'commits', 'sessions', 'knownIssues']);
 const locks = doc.created.filter((node) => node.getAttribute('class') === 'lock');
 h.eq('one lock sign, on the private item only', locks.length, 1);
-h.check('a section that is not ok shows its status and note', doc.getElementById('panel-history').textContent.includes('not-found: known-issues.md not found'));
+// The lines under the title of a section card: [class, text] of each one.
+const VIEW = { data: sample('private', 'main'), canEdit: false, proposals: new Map(), store: null };
+const sectionLines = (section) => app.renderSection('knownIssues', section, VIEW).children.slice(1).map((line) => [line.getAttribute('class'), line.textContent]);
+const emptySection = (status, note) => ({ status, note, items: [] });
+const MUTED = 'muted';
+const NOTHING_HERE = 'nothing here';
+h.eq('an empty section that is ok shows one muted line', sectionLines(emptySection('ok', '')), [[MUTED, NOTHING_HERE]]);
+h.eq('a missing source with a note shows the same muted line and the note, with no status word', sectionLines(sample('private', 'main').sections.knownIssues), [[MUTED, `${NOTHING_HERE} (known-issues.md not found)`]]);
+h.eq('a missing source without a note shows the muted line only', sectionLines(emptySection('not-found', '')), [[MUTED, NOTHING_HERE]]);
+h.eq('an error keeps its status word and the error style', sectionLines(emptySection('error', 'git command failed')), [['status error', 'error: git command failed']]);
+// The section that the extractor writes for a missing source is shown that way.
+const bare = h.repo('template-missing-source');
+h.write(bare, 'file.txt', 'x\n');
+h.commit(bare, 'base', ['file.txt']);
+const extracted = JSON.parse(h.node(bare, [h.script('dashboard-extract.js'), '--audience', 'private']).out).sections.knownIssues;
+h.eq('the extractor\'s section of a missing source is shown as an empty section', sectionLines(extracted), [[MUTED, `${NOTHING_HERE} (${extracted.note})`]]);
 h.check('the git counts and the older open items are shown', doc.getElementById('panel-waits').textContent.includes('2 commits not pushed') && doc.getElementById('panel-waits').textContent.includes('3 more unresolved open items in older entries'));
 
 // 3. Boot with inline data: the audience check and the banner.

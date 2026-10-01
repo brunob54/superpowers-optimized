@@ -100,6 +100,11 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
   const DATA_FILE = 'dashboard-data.json';
   const PRIVATE = 'private';
   const STATUS_OK = 'ok';
+  // The status of a section whose source does not exist. skills/dashboard/
+  // scripts/dashboard-extract.js writes this value; tests/dashboard/
+  // test-07-template.js renders a section that the extractor wrote.
+  const STATUS_NOT_FOUND = 'not-found';
+  const NOTHING_HERE = 'nothing here';
   const TABS = [
     { tab: 'tab-waits', panel: 'panel-waits', sections: ['unfinishedRuns', 'git', 'activeWorklogs', 'sessionOpenItems', 'currentGoal'] },
     { tab: 'tab-history', panel: 'panel-history', sections: ['releases', 'runHistory', 'closedWorklogs', 'commits', 'sessions', 'knownIssues'] },
@@ -437,10 +442,12 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
       card.appendChild(el('p', { className: 'muted', text: 'not in this data' }));
       return card;
     }
-    if (section.status !== STATUS_OK) card.appendChild(el('p', { className: `status ${text(section.status)}`, text: section.note ? `${text(section.status)}: ${text(section.note)}` : section.status }));
+    // A missing source is not an error: its section reads as an empty one.
+    if (section.status === STATUS_NOT_FOUND) card.appendChild(el('p', { className: 'muted', text: section.note ? `${NOTHING_HERE} (${text(section.note)})` : NOTHING_HERE }));
+    else if (section.status !== STATUS_OK) card.appendChild(el('p', { className: `status ${text(section.status)}`, text: section.note ? `${text(section.status)}: ${text(section.note)}` : section.status }));
     else if (section.note) card.appendChild(el('p', { className: 'muted', text: section.note }));
     sectionExtras(id, section).forEach((line) => card.appendChild(el('p', { className: 'muted', text: line })));
-    if (section.status === STATUS_OK && !section.items.length) card.appendChild(el('p', { className: 'muted', text: 'nothing here' }));
+    if (section.status === STATUS_OK && !section.items.length) card.appendChild(el('p', { className: 'muted', text: NOTHING_HERE }));
     if (section.items.length) card.appendChild(el('ul', { className: 'items' }, section.items.map((item) => renderItem(item, ctx))));
     return card;
   }
