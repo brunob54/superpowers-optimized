@@ -60,17 +60,23 @@ const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
 // URL that has an authority part. The authority ends at the first "/", "?"
 // or "#"; its user information ends at the last "@" inside it.
 const URL_USER_INFO = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
+// A character that no URL may hold when repo.name of the shared run is taken
+// from it: white space (a line break too) or a control character.
+const URL_FORBIDDEN = /[\s\u0000-\u001f\u007f-\u009f]/;
 // The two forms of a network URL from which repo.name of the shared run may
 // be taken; each one captures the path. The expressions read a URL from
 // which URL_USER_INFO is already removed, so the first form allows no "@"
-// before the path. First form: <scheme>://<host>[:<port>]/<path> with one of
-// four schemes, in any letter case. Second form, the scp-like form (scp:
-// secure copy): [<user>@]<host>:<path>, with no "://" anywhere, and with a
-// host of at least two characters (one letter is a Windows drive) that is
-// not "file" and holds no "/", "@" or ":".
+// before the path, and a URL that holds no URL_FORBIDDEN character, so no
+// expression meets a line break. First form: <scheme>://<host>[:<port>]/<path>
+// with one of four schemes, in any letter case. Second form, the scp-like
+// form (scp: secure copy): [<user>@]<host>:<path>, with no "://" anywhere,
+// with a host of at least two characters (one letter is a Windows drive)
+// that is not "file" and holds no "/", "@" or ":", and with a path that does
+// not begin with ":" (<name>::<address> is the form of a remote helper, and
+// its address can be a folder on this machine).
 const NETWORK_URL_FORMS = [
   /^(?:https?|ssh|git):\/\/[^/?#@:]+(?::\d+)?\/(.*)$/i,
-  /^(?!.*:\/\/)(?:[^@/:]+@)?(?!file:)[^@/:]{2,}:(.*)$/i,
+  /^(?!.*:\/\/)(?:[^@/:]+@)?(?!file:)[^@/:]{2,}:(?!:)(.*)$/i,
 ];
 // The end of a URL path that is not part of the repository name: trailing
 // "/" characters, then one ".git".
@@ -409,13 +415,15 @@ function remoteUrl(remote) {
 // repo.name of the shared run. The name of the local folder is local data
 // and never reaches the shared page. The name is the last path part of the
 // URL of the shared ref's remote, without its URL_PATH_TAIL, and only when
-// the URL has one of the NETWORK_URL_FORMS and that part is a plain name. In
-// every other case (a folder on this machine, a helper form such as
-// "hg::<address>", a URL with no path, a remote with no URL) the name is the
-// shared ref <sharedName> (<remote>/<branch>).
+// the URL holds no URL_FORBIDDEN character, has one of the NETWORK_URL_FORMS,
+// and that part is a plain name. In every other case the name is the shared
+// ref <sharedName> (<remote>/<branch>). Such cases are: a text with no ":",
+// or with a "/" before its first ":" (git reads it as a folder path), a
+// Windows drive path, a "file:" URL, a helper form <name>::<address>, a URL
+// with no path, and a remote with no URL.
 function sharedRepoName(sharedName, remote) {
   const url = remoteUrl(remote) || '';
-  const match = NETWORK_URL_FORMS.map((form) => form.exec(url)).find(Boolean);
+  const match = URL_FORBIDDEN.test(url) ? null : NETWORK_URL_FORMS.map((form) => form.exec(url)).find(Boolean);
   if (!match) return sharedName;
   const name = URL_PATH_TAIL.reduce((text, tail) => text.replace(tail, ''), match[1]).split('/').pop();
   return PLAIN_NAME.test(name) ? name : sharedName;

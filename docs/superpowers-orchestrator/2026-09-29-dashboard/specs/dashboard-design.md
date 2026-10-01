@@ -380,23 +380,29 @@ remote in the local git configuration (the `repo.name` item below).
   `--remote-url` option; that code removes the user information (user name,
   password or token) of a URL with a scheme. `repo.name` is the last path
   part of that URL, with trailing `/` characters and exactly one trailing
-  `.git` removed, only when both of these hold:
+  `.git` removed, only when all of these hold:
+  - The URL holds no white space and no control character (white space at
+    its two ends is removed first).
   - The URL is a network URL in one of two forms. The first form is
     `<scheme>://<host>[:<port>]/<path>`, with the scheme `http`, `https`,
     `ssh` or `git` in any letter case. The second form is the scp-like form
     `[<user>@]<host>:<path>` (scp: secure copy): the text holds no `://`,
-    and the host holds no `/`, `@` or `:`, has at least two characters (one
-    letter is a Windows drive) and is not `file`.
+    the host holds no `/`, `@` or `:`, has at least two characters (one
+    letter is a Windows drive) and is not `file`, and the path does not
+    begin with `:` (`<name>::<address>` is the form of a remote helper, and
+    its address can be a folder on this machine).
   - The last path part holds only the characters `A-Z a-z 0-9 . _ -` and is
     not `.` or `..`.
 
   So `https://host/org/repo.git`, `ssh://git@host/org/repo.git` and
   `git@host:org/repo.git` all give `repo`. In every other case `repo.name`
-  is the shared ref text `<remote>/<branch>` (for example `origin/main`): a
-  folder on this machine in any spelling (the last part of a local folder
-  path is local data too), a helper form such as `hg::<address>`, a URL
-  with no path, a last part that holds a `?` or a `#`, a remote with no
-  URL. This rule lists what is allowed. It is separate from the warning of
+  is the shared ref text `<remote>/<branch>` (for example `origin/main`).
+  Such cases are: a folder on this machine (the last part of a local folder
+  path is local data too), written as a text with no `:` or with a `/`
+  before its first `:` (git reads such a text as a folder path), as a
+  Windows drive path, or as a `file:` URL; a helper form
+  `<name>::<address>`; a URL with no path; a last part that holds a `?` or
+  a `#`; a remote with no URL. This rule lists what is allowed. It is separate from the warning of
   `share` step 3 in `SKILL.md`, which only tells the user that a remote is
   a folder on this machine and recognises it by the start of the URL (`/`,
   `./`, `../`, `~`, a drive letter such as `C:/` or `C:\`, or `file://`).

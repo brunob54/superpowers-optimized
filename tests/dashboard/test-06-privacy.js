@@ -170,6 +170,15 @@ const SHARED_NAMES = {
   [`ftp://example.com/team/${MARKER}.git`]: NAMED_REF,
   [`codecommit::us-east-1://profile@${MARKER}`]: NAMED_REF,
   [`hg::https://user:${TOKEN}@example.com/${MARKER}`]: NAMED_REF,
+  [`hg::/srv/hg/${MARKER}`]: NAMED_REF,
+  [`gcrypt::/Volumes/backup/${MARKER}`]: NAMED_REF,
+  [`testgit::/srv/git/${MARKER}.git`]: NAMED_REF,
+  [`ext::sh -c /usr/local/bin/${MARKER}`]: NAMED_REF,
+  // White space or a control character inside the URL.
+  [`ab\ncd://example.com/${MARKER}`]: NAMED_REF,
+  [`ab\nfile:///srv/git/${MARKER}`]: NAMED_REF,
+  [`https://exam\tple.com/team/${MARKER}`]: NAMED_REF,
+  [`https://exam\u0007ple.com/team/${MARKER}`]: NAMED_REF,
   // A folder on this machine.
   [`/srv/git/${MARKER}.git`]: NAMED_REF,
   [`./${MARKER}.git`]: NAMED_REF,
@@ -183,13 +192,14 @@ const SHARED_NAMES = {
   [`..\\${MARKER}.git`]: NAMED_REF,
   [`\\\\server\\share\\${MARKER}.git`]: NAMED_REF,
   [`file:///srv/git/${MARKER}.git`]: NAMED_REF,
+  [`file://localhost/srv/git/${MARKER}.git`]: NAMED_REF,
   [`FILE:///srv/git/${MARKER}.git`]: NAMED_REF,
   [`file:/srv/git/${MARKER}.git`]: NAMED_REF,
   [`File:${MARKER}.git`]: NAMED_REF,
 };
 for (const [url, name] of Object.entries(SHARED_NAMES)) {
   h.git(named, 'remote', 'set-url', 'origin', url);
-  sharedCase(`the remote ${url}`, name);
+  sharedCase(`the remote ${JSON.stringify(url)}`, name);
 }
 h.git(named, 'remote', 'set-url', 'origin', 'https://example.com/team/repo.git');
 h.eq('repo.name of the private run is the folder name, also with a network remote', privateName(), FOLDER_NAME);

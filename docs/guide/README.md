@@ -1332,8 +1332,8 @@ pushed branches that have an upstream on the same remote as the shared branch (a
 copy of a branch of the remote repository, such as `origin/main`, updated by
 `git fetch`). One value is not pushed content: the repository name in the
 page title. It comes from the URL of that remote, never from the name of your
-local folder; when the URL does not give a plain name, the title shows the name
-of the shared branch instead. By default the shared branch is the upstream of your default
+local folder; when that remote is a folder on your computer, or its URL does
+not give a plain name, the title shows the name of the shared branch instead. By default the shared branch is the upstream of your default
 branch (the remote-tracking branch that your default branch is set to follow).
 It never reads your working folder. On the Pro and Max plans a public link is the only way to share a
 page, and anyone who has that link can read it; make only the shared page's
