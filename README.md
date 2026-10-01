@@ -25,7 +25,7 @@ This repository is a fork of [obra/superpowers](https://github.com/obra/superpow
 
 ## What this repo adds
 
-Eighteen releases beyond the REPOZY v6.6.1 baseline. The six main additions — full guide with usage, details, and motivations in [docs/FORK-IMPROVEMENTS.md](docs/FORK-IMPROVEMENTS.md):
+The six main additions beyond the REPOZY v6.6.1 baseline — full guide with usage, details, and motivations in [docs/FORK-IMPROVEMENTS.md](docs/FORK-IMPROVEMENTS.md):
 
 - **SDD Batched Autonomous Mode (v6.7.0)** — execute a plan in resumable batches of N tasks, ending each batch at a fixed task cap (the requested count, else the session default (`SUPERPOWERS_BATCH_TASK_CAP`, else 3)) with a `state.md` handoff; say "implement the next 3 tasks", then after `/clear`: "resume the plan". [Details](docs/FORK-IMPROVEMENTS.md#1-sdd-batched-autonomous-mode-v670)
 - **SDD Token-Optimized Review Flow (v6.8.0)** — port of upstream obra v6.0.0: one two-verdict task reviewer, file-based handoffs under `.superpowers/sdd/`, explicit per-dispatch model selection; automatic whenever subagent-driven-development executes a plan (~2x faster, ~50–60% fewer tokens per upstream measurement). [Details](docs/FORK-IMPROVEMENTS.md#2-sdd-token-optimized-review-flow-v680)
