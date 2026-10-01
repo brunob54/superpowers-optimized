@@ -27,6 +27,7 @@
  *         and/or surfacing relevant past decisions
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -58,17 +59,19 @@ const MAX_ENTRY_CHARS = 1500;   // Truncate oversized entries (~250 words / ~375
 // ── Messages the user did not type ────────────────────────────────────────────
 // Claude Code runs UserPromptSubmit for task notifications and for messages
 // from other agents too, and its documented payload has no field that names
-// the sender. These openings are the only signal (measured in transcripts of
-// Claude Code 2.1.284, 2026-09-30).
+// the sender. These openings are the only signal: in 80 transcripts of this
+// repository (Claude Code up to 2.1.284), every such message opened with one
+// of them (1,330 messages), and no other opening was seen.
 const AGENT_MESSAGE_OPENINGS = [
   '<task-notification>',
   'Another Claude session sent a message:',
-  '<agent-message',
-  '<teammate-message',
 ];
 
-// The headings of the recall entries already injected in a session are kept
-// in one file per session id in the temporary folder.
+// The keys of the recall entries already injected in a session are kept in
+// one file per session id in the temporary folder. Nothing resets the file at
+// a compaction, so an entry shown before a compaction is not shown again in
+// that session (an accepted limit: the SessionStart hook re-injects the last
+// session-log entries after a compaction).
 const RECALL_STATE_PREFIX = 'sp-recall-';
 
 // Common English words that produce noisy false-positive matches
@@ -638,38 +641,42 @@ function isAgentMessage(prompt) {
   return AGENT_MESSAGE_OPENINGS.some(marker => opening.startsWith(marker));
 }
 
-/** The path of the file that holds the recall headings of one session. */
+/** The path of the file that holds the recall keys of one session. */
 function recallStatePath(sessionId) {
   const safeId = String(sessionId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
   return path.join(os.tmpdir(), `${RECALL_STATE_PREFIX}${safeId}.json`);
 }
 
-/** The headings already injected in this session; empty when none are known. */
-function readShownHeadings(sessionId) {
+/** The keys already injected in this session; empty when none are known. */
+function readShownKeys(sessionId) {
   if (!sessionId) return new Set();
   try {
-    return new Set(JSON.parse(fs.readFileSync(recallStatePath(sessionId), 'utf8')).headings);
+    const keys = JSON.parse(fs.readFileSync(recallStatePath(sessionId), 'utf8')).keys;
+    return new Set(Array.isArray(keys) ? keys : []);
   } catch {
     return new Set();
   }
 }
 
 /**
- * Records the headings as injected. A write failure only means that an entry
- * may be injected again later, so it is ignored.
+ * Records the keys as injected. A write failure only means that an entry may
+ * be injected again later, so it is ignored.
  */
-function rememberShownHeadings(sessionId, headings) {
+function rememberShownKeys(sessionId, keys) {
   if (!sessionId) return;
   try {
-    fs.writeFileSync(recallStatePath(sessionId), JSON.stringify({ headings: [...headings] }));
+    fs.writeFileSync(recallStatePath(sessionId), JSON.stringify({ keys: [...keys] }));
   } catch {
     // ignored on purpose, see the comment above
   }
 }
 
-/** An entry is identified by its first line, the `## ` heading. */
-function entryHeading(entry) {
-  return entry.split('\n')[0];
+/**
+ * An entry is identified by a hash of its whole text: headings repeat (many
+ * session-log headings carry only a date).
+ */
+function entryKey(entry) {
+  return crypto.createHash('sha1').update(entry).digest('hex');
 }
 
 /**
@@ -684,7 +691,7 @@ function evaluatePrompt(data) {
   // Micro tasks and messages the user did not type skip all enrichment.
   if (!prompt || isMicroTask(prompt) || isAgentMessage(prompt)) return {};
 
-  const cwd = typeof data.cwd === 'string' ? data.cwd : process.cwd();
+  const cwd = typeof data.cwd === 'string' && data.cwd ? data.cwd : process.cwd();
   const sessionId = typeof data.session_id === 'string' ? data.session_id : null;
 
   // Context pressure gate: if the user is about to start implementation and
@@ -707,15 +714,15 @@ function evaluatePrompt(data) {
   // not replaced by a weaker match.
   const matches = matchSkills(prompt);
   const keywords = extractKeywords(prompt);
-  const shown = readShownHeadings(sessionId);
-  const isNew = entry => !shown.has(entryHeading(entry));
+  const shown = readShownKeys(sessionId);
+  const isNew = entry => !shown.has(entryKey(entry));
   const memoryEntries = searchSessionLog(cwd, keywords).filter(isNew);
   const knownIssueEntries = searchKnownIssues(cwd, keywords).filter(isNew);
 
   const recalled = [...memoryEntries, ...knownIssueEntries];
   if (recalled.length > 0) {
-    recalled.forEach(entry => shown.add(entryHeading(entry)));
-    rememberShownHeadings(sessionId, shown);
+    recalled.forEach(entry => shown.add(entryKey(entry)));
+    rememberShownKeys(sessionId, shown);
   }
 
   const skillContext = buildContext(matches);
