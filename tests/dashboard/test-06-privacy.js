@@ -95,8 +95,9 @@ h.eq('a malformed shared ref stops', [shared(d, '../heads/main').code, shared(d,
 const urls = h.repo('remote-urls');
 h.write(urls, 'file.txt', 'x\n');
 h.commit(urls, 'base', ['file.txt']);
+const TOKEN = 'sekrettoken';
 const REMOTE_URLS = {
-  token: ['https://user:sekrettoken@example.com/team/repo.git', 'https://example.com/team/repo.git'],
+  token: [`https://user:${TOKEN}@example.com/team/repo.git`, 'https://example.com/team/repo.git'],
   plain: ['https://example.com/team/repo.git', 'https://example.com/team/repo.git'],
   atpath: ['https://example.com/team/@repo.git', 'https://example.com/team/@repo.git'],
   atquery: ['https://tok@example.com/team/repo.git?u=a@b', 'https://example.com/team/repo.git?u=a@b'],
@@ -105,9 +106,52 @@ for (const [name, [url]] of Object.entries(REMOTE_URLS)) h.git(urls, 'remote', '
 for (const [name, [, cleaned]] of Object.entries(REMOTE_URLS)) {
   const result = run(urls, ['--remote-url', `${name}/main`]);
   h.eq(`--remote-url ${name}/main: the remote and the cleaned URL`, [result.code, result.out.trim()], [0, `remote ${name}\n${cleaned}`]);
-  h.check(`--remote-url ${name}: no token in any output`, !`${result.out}${result.err}`.includes('sekrettoken'));
+  h.check(`--remote-url ${name}: no token in any output`, !`${result.out}${result.err}`.includes(TOKEN));
 }
 h.eq('--remote-url stops on a missing remote and on a bad name', [run(urls, ['--remote-url', 'nothing/main']).code, run(urls, ['--remote-url', "a'b/main"]).code], [2, 2]);
+
+// repo.name of the shared run: the last path part of the URL of the shared
+// ref's remote, never the name of the local folder (the folder name holds
+// MARKER). A remote that is a folder on this machine, or a URL that gives no
+// name, gives the shared ref instead.
+const NAMED_REF = 'origin/main';
+const named = h.repo(`${MARKER}-folder`);
+h.addRemote(named, 'named-remote');
+h.write(named, 'file.txt', 'x\n');
+h.commit(named, 'base', ['file.txt']);
+h.git(named, 'push', '-q', '-u', 'origin', 'main');
+h.eq('repo.name of the private run is the folder name', JSON.parse(run(named, ['--audience', 'private']).out).repo.name, `${MARKER}-folder`);
+const sharedRun = (url) => {
+  h.git(named, 'remote', 'set-url', 'origin', url);
+  return shared(named, NAMED_REF);
+};
+const bareRemote = shared(named, NAMED_REF);
+h.eq('repo.name with the bare fixture remote (an absolute folder path) is the shared ref', JSON.parse(bareRemote.out).repo.name, NAMED_REF);
+h.check('the shared JSON does not hold the local folder name', !bareRemote.out.includes(MARKER));
+const URL_NAME = 'repo';
+const SHARED_NAMES = {
+  'https://example.com/team/repo.git': URL_NAME,
+  'https://example.com/team/repo': URL_NAME,
+  'https://example.com/team/repo.git//': URL_NAME,
+  'ssh://git@example.com/team/repo.git': URL_NAME,
+  'git@example.com:team/repo.git': URL_NAME,
+  'git@example.com:repo.git': URL_NAME,
+  [`https://user:${TOKEN}@example.com/team/repo.git`]: URL_NAME,
+  [`https://example.com/team/repo.git?token=${TOKEN}`]: URL_NAME,
+  [`/srv/git/${MARKER}.git`]: NAMED_REF,
+  [`./${MARKER}.git`]: NAMED_REF,
+  [`../${MARKER}.git`]: NAMED_REF,
+  [`~/${MARKER}.git`]: NAMED_REF,
+  [`C:/git/${MARKER}.git`]: NAMED_REF,
+  [`C:\\git\\${MARKER}.git`]: NAMED_REF,
+  [`file:///srv/git/${MARKER}.git`]: NAMED_REF,
+  'https://example.com/.git': NAMED_REF,
+};
+for (const [url, name] of Object.entries(SHARED_NAMES)) {
+  const result = sharedRun(url);
+  h.eq(`repo.name of the shared run with the remote ${url}`, [result.code, JSON.parse(result.out).repo.name], [0, name]);
+  h.check(`the shared JSON with the remote ${url} holds no folder name and no token`, !result.out.includes(MARKER) && !result.out.includes(TOKEN));
+}
 
 // A remote whose name begins with the shared remote's name and "/": a branch
 // pushed only to it is not on the shared ref's remote (exact remote match).

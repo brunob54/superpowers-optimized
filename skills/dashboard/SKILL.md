@@ -371,7 +371,7 @@ old page's proposals.
    `<remote>` and the printed URL `<URL>`. Print this line:
    `Shared ref: <remote>/<branch>; remote <remote> is <URL>`. When `<URL>` is
    a folder path (it starts with `/`, `./`, `../`, `~` or a drive letter such
-   as `C:/`) or starts with `file://`, also say: "This remote is a folder on
+   as `C:/` or `C:\`) or starts with `file://`, also say: "This remote is a folder on
    this machine: "pushed" here does not mean published anywhere." Ask the
    user to confirm this ref; stop when they do not.
 4. Only after that answer, store `'sharedRef=<ref>'` and then `'sharing=on'`

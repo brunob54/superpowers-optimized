@@ -11,7 +11,8 @@
 //   node dashboard-extract.js --data-dir <path> --config
 //   node dashboard-extract.js --data-dir <path> --config-set <key>=<value>
 // The private run reads the working tree. The shared run reads only the
-// pushed ref refs/remotes/<remote>/<branch> and fails closed. The state folder
+// pushed ref refs/remotes/<remote>/<branch>, and the URL of that remote for
+// repo.name, and fails closed. The state folder
 // <data dir>/dashboard/<repo key>/ lies outside the repository.
 // Exit status: 0 on success; 2 when the command cannot run (not a git
 // repository, no commit, a bad argument, a data folder that is not set, an
@@ -59,6 +60,16 @@ const SHARED_REF_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._/-]+$/;
 // URL that has an authority part. The authority ends at the first "/", "?"
 // or "#"; its user information ends at the last "@" inside it.
 const URL_USER_INFO = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
+// A remote URL that names a folder on this machine: it starts with "/", "./",
+// "../", "~", a drive letter ("C:/" or "C:\") or "file://". SKILL.md, `share`
+// step 3, holds the only other copy of this rule, in prose.
+const LOCAL_FOLDER_URL = /^(?:\/|\.\.?\/|~|[A-Za-z]:[\\/]|file:\/\/)/;
+// The parts of a remote URL that follow the repository name: a query ("?…")
+// or a fragment ("#…"), then trailing "/" characters, then one ".git".
+const URL_NAME_TAIL = [/[?#].*$/, /\/+$/, /\.git$/];
+// The path parts of a URL end at "/"; the scp-like form <user>@<host>:<path>
+// (scp: secure copy) puts ":" before its first path part.
+const URL_PART_END = /[/:]/;
 const TREE = 'tree';
 const BLOB = 'blob';
 const NO_SOURCE = { file: null, heading: null, headingOrdinal: null, line: null, occurrence: null, lineNumber: null };
@@ -377,6 +388,26 @@ function sharedRemote(name) {
   return matches[0];
 }
 
+// The URL of the remote <remote> with the user information removed, or null
+// when git gives no URL. Every reader of a remote URL uses this function, so
+// that a token inside the URL reaches no output.
+function remoteUrl(remote) {
+  const result = git(['remote', 'get-url', remote]);
+  return result.ok ? result.out.replace(URL_USER_INFO, '$1') : null;
+}
+
+// repo.name of the shared run: the last path part of the URL of the shared
+// ref's remote. The name of the local folder is local data and never reaches
+// the shared page. The last part of a folder path on this machine is local
+// data too, so such a remote, a remote with no URL and a URL that gives no
+// name all give the shared ref <sharedName> (<remote>/<branch>) instead.
+function sharedRepoName(sharedName, remote) {
+  const url = remoteUrl(remote);
+  if (url === null || LOCAL_FOLDER_URL.test(url)) return sharedName;
+  const head = URL_NAME_TAIL.reduce((text, tail) => text.replace(tail, ''), url);
+  return head.split(URL_PART_END).pop() || sharedName;
+}
+
 // The shared run lists only local branches whose upstream counts, by the
 // upstream's name and date. The shared ref itself is left out by name; an
 // upstream merged into context.base (the counted upstream of the default
@@ -644,7 +675,7 @@ function extract(audience, sharedName, top) {
     schemaVersion: SCHEMA_VERSION,
     audience,
     generatedAt: parse.localIso(new Date()),
-    repo: { name: path.basename(top) },
+    repo: { name: shared ? sharedRepoName(sharedName, context.remote) : path.basename(top) },
     commit: commitMeta(context),
     sections: buildSections(context),
   };
@@ -704,10 +735,10 @@ function checkSharedRef(name) {
 function printRemoteUrl(name) {
   requireSharedRefForm(name, `--remote-url ${name}`);
   const remote = sharedRemote(name);
-  const result = git(['remote', 'get-url', remote]);
-  if (!result.ok) stop(`the remote ${remote} has no URL`);
+  const url = remoteUrl(remote);
+  if (url === null) stop(`the remote ${remote} has no URL`);
   console.log(`remote ${remote}`);
-  console.log(result.out.replace(URL_USER_INFO, '$1'));
+  console.log(url);
 }
 
 function checkSharedName(name) {

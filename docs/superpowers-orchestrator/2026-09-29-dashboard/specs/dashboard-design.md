@@ -125,7 +125,8 @@ uses the inline block when it is present, and `fetch` otherwise.
 
 `index.html` carries `<meta name="dashboard-audience" content="private">`
 or `content="shared"`, and a title that names the audience:
-`<repo> dashboard — PRIVATE` or `<repo> dashboard — shared`. The private
+`<repo> dashboard — PRIVATE` or `<repo> dashboard — shared`, where `<repo>`
+is `repo.name` of section 5.1. The private
 page also shows a permanent banner: "Private page — do not make it
 public". When the private page is opened by a viewer who is not the owner,
 it shows a warning that this page is not meant to be shared.
@@ -187,7 +188,7 @@ Rules for the units:
   "schemaVersion": 1,
   "audience": "private | shared",
   "generatedAt": "2026-09-29T20:40:00+02:00",
-  "repo": { "name": "<basename of the repository root>" },
+  "repo": { "name": "<private run: basename of the repository root; shared run: the name from the remote's URL, section 5.3>" },
   "commit": { "sha": "<40 hex>", "short": "<7 hex>", "branch": "<name, or null when detached>", "ref": "<HEAD, or the upstream ref for the shared run>", "defaultBranch": "<name, or null>" },
   "sections": { "<section id>": { "status": "ok | not-found | error", "note": "<text>", "items": [ ... ] } }
 }
@@ -369,6 +370,20 @@ anything it cannot place under the rule is left out.
   <remote>/<branch>`. Every shared refresh reads that ref, whatever branch
   is checked out, and the page names it. When the stored ref no longer
   exists, the shared refresh stops with a message and publishes nothing.
+- `repo.name` is never the name of the local folder: that name is local
+  data. It is the last path part of the URL of the shared ref's remote,
+  with a query (`?…`) or fragment (`#…`), trailing `/` characters and one
+  trailing `.git` removed: `https://host/org/repo.git`,
+  `ssh://git@host/org/repo.git` and `git@host:org/repo.git` all give
+  `repo`. The extractor reads the URL with the code of its `--remote-url`
+  option, which removes the user information (user name, password or
+  token), so no credential reaches the name. When the URL names a folder on
+  this machine (it starts with `/`, `./`, `../`, `~`, a drive letter such as
+  `C:/` or `C:\`, or `file://`), or when it gives no name, `repo.name` is
+  the shared ref text `<remote>/<branch>` (for example `origin/main`): the
+  last part of a local folder path is local data too. (Decision after
+  acceptance, 2026-10-01, owner; recorded in
+  `plans/dashboard-open-decisions.md`.)
 - Files are read only with `git show <ref>:<path>`, never from the working
   tree or from `HEAD`. A file that is only in the working tree, only
   staged, or only in unpushed commits does not exist for this run.

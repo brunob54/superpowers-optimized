@@ -90,6 +90,7 @@
 - **Defensible answers:** n/a
 - **Forks:** none; contradiction: none
 - **Resolution:** plan governs: "Output: the JSON document of spec section 5.1 (`schemaVersion` 1, `audience`, `generatedAt` as local time with offset, `repo.name` the basename of the root, `co" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md — spec sections 4 and 5.1 set the page title and `repo.name` to the basename of the root, so any other value departs from the spec; a repository whose root is the home folder names itself that way
+- **Follow-up:** changed for the shared audience on 2026-10-01 by the entry "Decision after acceptance" at the end of this file; the private audience keeps the basename of the root
 
 ## Ruling 11 — 2026-09-30 — phase 4 — [CF5] Cached re-read refused
 
@@ -135,3 +136,12 @@
 - **Defensible answers:** n/a
 - **Forks:** none; contradiction: none
 - **Resolution:** plan governs: "The README release list item (wording artifact): one new last item `… (v7.55.0)` before ` are covered in`. Verification: `node tests/codex/test-version-files.js`." — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md — the stale count was already wrong at BASE 4061d3b and the Task 16 Contract limits the README edit to one new release list item, so correcting it is separate work, not a defect of this branch; listed for the Phase 5 report
+
+## Decision after acceptance — 2026-10-01 — owner — repo.name of the shared page
+
+- **Class:** design (a decision of the owner after the manual acceptance, not an orchestrator ruling)
+- **Item:** n/a skills/dashboard/scripts/dashboard-extract.js — `repo.name` was the basename of the repository root for both audiences, so the shared page, which is public, showed the name of the local folder
+- **Contract clause:** "Output: the document of spec section 5.1 with `audience` `shared`" — docs/superpowers-orchestrator/2026-09-29-dashboard/plans/dashboard.md, Task 6
+- **Defensible answers:** n/a
+- **Forks:** none; contradiction: none
+- **Resolution:** amend spec and plan: spec sections 4, 5.1 and 5.3 and a note on the Task 6 Contract — the private audience keeps the basename of the root; for the shared audience `repo.name` is the last path part of the URL of the shared ref's remote, with a query or fragment, trailing `/` characters and one trailing `.git` removed; the URL is read by the code of `--remote-url` (ruling 13), so its user information never reaches the name; when the URL names a folder on this machine (the rule of `SKILL.md` `share` step 3) or gives no name, `repo.name` is the shared ref text `<remote>/<branch>`, because the last part of a local folder path is local data too; test-06 covers the URL forms, a URL with a token, the folder remote and the private audience. This replaces the resolution of ruling 10 for the shared audience only
