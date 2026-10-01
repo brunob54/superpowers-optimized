@@ -142,10 +142,11 @@ content (section 6).
 Data flow of `sync`:
 
 ```
-ArtifactData (query pending proposals, out_dir = <scratchpad>/dashboard/proposals) → one JSON file per proposal
-   → dashboard-sync.js --check <that folder>  → verdict and diff per proposal
+ArtifactData (query pending proposals, out_dir = <scratchpad>/dashboard/proposals) → one JSON file per proposal (the document body only)
+   → the skill writes the versions file: one line "<id> <version>" for each line of the query's result text
+   → dashboard-sync.js --check <that folder> --versions <versions file>  → verdict and diff per proposal
    → owner answers the questions of section 8
-   → dashboard-sync.js --apply <that folder> <ids>  → Markdown files changed
+   → dashboard-sync.js --apply <that folder> <ids> --versions <versions file>  → Markdown files changed
    → ArtifactData (mark proposals applied or rejected, pinned to each document's version)
 ```
 
@@ -575,9 +576,22 @@ A proposal document:
    through the
    ArtifactData tool's `query` action with `out_dir` set to
    `<scratchpad>/dashboard/proposals` (emptied first). The tool writes one
-   JSON file per document, with its version; the model does not copy
-   proposals by hand. If the call fails, stop before any file is written.
-2. **Check.** Run `dashboard-sync.js --check <that folder>`. For each
+   JSON file per document; the model does not copy proposals by hand. Each
+   saved file holds the document body only; the version of each document
+   is only in the result text, one line per saved file, in the form
+   `"<id>"  <n> bytes  version <v>  "<path>"`. The skill writes the versions
+   file `<scratchpad>/dashboard/proposals-versions.txt` (emptied first too):
+   one line `<id> <v>` for each such result line, and nothing else. A copy
+   error is safe: the script uses the version only as the `if_version` pin
+   of a record, so a wrong number is refused by the platform
+   (`version_mismatch`), never written; a missing or extra line stops the
+   script before any check. (The first form of this step said "one JSON
+   file per document, with its version"; platform check 9 contradicted it:
+   ruling 6 in `plans/dashboard-open-decisions.md`, and
+   `implementation/platform-checks.md`.) If the call fails, stop before any
+   file is written.
+2. **Check.** Run
+   `dashboard-sync.js --check <that folder> --versions <versions file>`. For each
    proposal the script prints one verdict, found in this order:
    1. `invalid: <reason>` — the first failed validation: `kind` is one of
       the two kinds; `file` is relative, contains no `..` and no backslash,
@@ -644,7 +658,8 @@ A proposal document:
    the owner edited that item on the page during the sync: that proposal is
    not applied in this sync and is reported; its new version is handled by
    the next sync. The page allows no edit on an `applying` document.
-5. **Apply.** Run `dashboard-sync.js --apply <that folder> <ids>` for the
+5. **Apply.** Run
+   `dashboard-sync.js --apply <that folder> <ids> --versions <versions file>` for the
    proposals marked in step 4. The script repeats the whole check for each
    one, `held-run` included. It computes every target of one file against
    the file text read before the first write, then writes that file once,
@@ -914,7 +929,13 @@ the user.
    shared page asks for permission each time.
 8. Whether a `claude -p` session has the Artifact tool.
 9. The per-document files written by ArtifactData `query` with `out_dir`
-   carry each document's version.
+   carry each document's version. **The measurement contradicted this
+   check:** a saved file holds the document body only, and the version of
+   each document is only in the tool's result text. The skill therefore
+   writes a versions file from the result lines, and every
+   `dashboard-sync.js` mode takes `--versions <file>` (section 8 step 1;
+   ruling 6 in `plans/dashboard-open-decisions.md`; item 9 of
+   `implementation/platform-checks.md`).
 10. The `_Completed — ` line and the `## STOPPED` heading are the markers
    that the 13 existing orchestration logs use for a finished and a stopped
    run. The extractor fixtures copy real headings.
