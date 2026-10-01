@@ -59,12 +59,29 @@ const MAX_ENTRY_CHARS = 1500;   // Truncate oversized entries (~250 words / ~375
 // ── Messages the user did not type ────────────────────────────────────────────
 // Claude Code runs UserPromptSubmit for task notifications and for messages
 // from other agents too, and its documented payload has no field that names
-// the sender. These openings are the only signal: in 80 transcripts of this
-// repository (Claude Code up to 2.1.284), every such message opened with one
-// of them (1,330 messages), and no other opening was seen.
+// the sender (measured: its seven keys are session_id, transcript_path, cwd,
+// prompt_id, permission_mode, hook_event_name and prompt). The opening of the
+// prompt text is the only signal.
+//
+// The hook input is NOT the text of the transcript. Claude Code writes the
+// line "Another Claude session sent a message:" into the transcript record
+// only. Each opening below states how it was measured (2026-10-01):
 const AGENT_MESSAGE_OPENINGS = [
+  // Hook input logged by a probe hook (Claude Code 2.1.286).
   '<task-notification>',
-  'Another Claude session sent a message:',
+  // Hook input logged by a probe hook: a message that a named subagent sent.
+  '<agent-message',
+  // Not measured as hook input. Transcripts store a teammate message in this
+  // tag, as they store an agent message in the tag above.
+  '<teammate-message',
+  // The report that a subagent hands back reaches the hook as its body alone.
+  // Replay of one orchestrated run (Claude Code 2.1.278): of 42 recorded hook
+  // outputs, 18 are reproduced by this form only, and none by another form only.
+  '[Subagent hand-back]',
+  // The transcript form, without its colon: a second form reads "… sent a
+  // message while you were working:". Kept as a defence; the replays found no
+  // run of this release line in which the hook received it.
+  'Another Claude session sent a message',
 ];
 
 // The keys of the recall entries already injected in a session are kept in
