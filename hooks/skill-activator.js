@@ -59,12 +59,33 @@ const MAX_ENTRY_CHARS = 1500;   // Truncate oversized entries (~250 words / ~375
 // ── Messages the user did not type ────────────────────────────────────────────
 // Claude Code runs UserPromptSubmit for task notifications and for messages
 // from other agents too, and its documented payload has no field that names
-// the sender. These openings are the only signal: in 80 transcripts of this
-// repository (Claude Code up to 2.1.284), every such message opened with one
-// of them (1,330 messages), and no other opening was seen.
+// the sender (measured: its seven keys are session_id, transcript_path, cwd,
+// prompt_id, permission_mode, hook_event_name and prompt). The opening of the
+// prompt text is the only signal.
+//
+// The hook input is NOT the text of the transcript. Claude Code writes the
+// line "Another Claude session sent a message:" into the transcript record
+// only. Each opening below states how it was measured on 2026-10-01. A probe
+// hook is a hook that only logs its input.
 const AGENT_MESSAGE_OPENINGS = [
+  // Logged by a probe hook (Claude Code 2.1.286).
   '<task-notification>',
-  'Another Claude session sent a message:',
+  // Logged by a probe hook: a message that a named subagent sent. The report
+  // that a subagent hands back was not logged. In a replay of one orchestrated
+  // run (Claude Code 2.1.284), all 42 recorded hook outputs for such messages
+  // are reproduced by this tag form and also by the body alone; 21 of them
+  // are not reproduced by the transcript text.
+  '<agent-message',
+  // The opening of the body of a hand-back report, for the case that the hook
+  // receives the body without the tag. The replay cannot tell the two apart.
+  '[Subagent hand-back]',
+  // Not measured. In 44 transcripts, no recorded hook output follows any of
+  // 889 teammate messages, so the hook possibly never runs for them.
+  '<teammate-message',
+  // Not measured as hook input: the transcript form. It is written without
+  // its colon, because a second form reads "… sent a message while you were
+  // working:".
+  'Another Claude session sent a message',
 ];
 
 // The keys of the recall entries already injected in a session are kept in
