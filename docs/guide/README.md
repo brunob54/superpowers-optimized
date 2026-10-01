@@ -1303,7 +1303,7 @@ What you should know:
 
 ### The project dashboard — a status page on claude.ai
 
-Since v7.55.0, the `dashboard` skill shows the status of a repository on a
+Since v7.56.0, the `dashboard` skill shows the status of a repository on a
 claude.ai **Artifact page**: a web page that a Claude Code session publishes to
 claude.ai with its Artifact tool, private to you at first. The page answers two
 questions in two tabs. **Waits for me** lists the unfinished orchestration runs
