@@ -113,12 +113,13 @@ function runHook(script, payload, homeDir) {
   return JSON.parse(result.stdout);
 }
 
-function trackEdit(homeDir, cwdDir, sessionId, toolName, filePath, toolInput) {
+function trackEdit(homeDir, cwdDir, sessionId, toolName, filePath, toolInput, payloadExtra = {}) {
   const output = runHook(TRACK_EDITS, {
     tool_name: toolName,
     tool_input: { file_path: filePath, ...toolInput },
     cwd: cwdDir,
     session_id: sessionId,
+    ...payloadExtra,
   }, homeDir);
   assert.deepStrictEqual(output, JSON.parse(EMPTY_HOOK_OUTPUT), 'track-edits must never block');
 }
@@ -447,6 +448,121 @@ test('T14: an edit without a session id is written to the shared log and counted
   assert.deepStrictEqual(fs.readdirSync(logDir).filter(name => name.startsWith('edit-log')), [SHARED_EDIT_LOG]);
   assert.strictEqual(evaluateInHome(homeDir, STOP_REMINDERS, undefined, 'm.getRecentEdits(id).length'), 1);
 });
+
+// ── Edits inside the session scratchpad are not logged ───────────────────────
+
+console.log('\nEdits inside the session scratchpad');
+
+// Measured on 2026-10-03 (Claude Code 2.1.286, macOS, interactive session): the
+// PostToolUse input of a Write carries `scratchpad_dir` without a trailing
+// slash, in the /private/tmp form, for the main session and for a subagent
+// alike; `file_path` is absolute in the same form. A headless `claude -p`
+// session has no scratchpad and no such field.
+const SCRATCHPAD_FIELD = 'scratchpad_dir';
+const SCRATCH_FILE = 'mutate.js';
+const TDD_REMINDER = 'TDD reminder';
+
+/** The number of lines in the edit log of this session (0 when there is none). */
+function ownEditLogLines(homeDir, sessionId) {
+  const ownLog = evaluateInHome(homeDir, SAVE_MARKER, sessionId, 'm.editLogFile(id)');
+  if (!fs.existsSync(ownLog)) return 0;
+  return fs.readFileSync(ownLog, 'utf8').split('\n').filter(Boolean).length;
+}
+
+/** A Write of a source file at filePath, with the scratchpad named in the payload. */
+function writeWithScratchpad(homeDir, cwdDir, filePath, scratchpadDir) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, '// probe\n');
+  const payloadExtra = scratchpadDir === undefined ? {} : { [SCRATCHPAD_FIELD]: scratchpadDir };
+  trackEdit(homeDir, cwdDir, SESSION_A, 'Write', filePath, { content: '// probe\n' }, payloadExtra);
+}
+
+/** A session scratchpad folder and a sibling folder, both outside the work folder. */
+function makeScratchpad(homeDir) {
+  const scratchpadDir = path.join(homeDir, 'tmp', 'scratchpad');
+  const siblingDir = `${scratchpadDir}-2`;
+  fs.mkdirSync(scratchpadDir, { recursive: true });
+  fs.mkdirSync(siblingDir, { recursive: true });
+  return { scratchpadDir, siblingDir };
+}
+
+test('T19: a Write of a source file inside the scratchpad is not logged and gives no TDD reminder', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  writeWithScratchpad(homeDir, cwdDir, path.join(scratchpadDir, SCRATCH_FILE), scratchpadDir);
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
+  const reason = stop(homeDir, cwdDir, SESSION_A).reason || '';
+  assert.ok(!reason.includes(TDD_REMINDER), `Expected no TDD reminder, got: ${reason}`);
+});
+
+test('T19b: a scratchpad path with a trailing separator is still recognised', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  writeWithScratchpad(homeDir, cwdDir, path.join(scratchpadDir, 'sub', SCRATCH_FILE), scratchpadDir + path.sep);
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
+});
+
+test('T20: without the scratchpad field, a source file outside the work folder is logged as before', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  writeWithScratchpad(homeDir, cwdDir, path.join(scratchpadDir, SCRATCH_FILE), undefined);
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
+  const reason = stop(homeDir, cwdDir, SESSION_A).reason || '';
+  assert.ok(reason.includes(TDD_REMINDER), `Expected a TDD reminder, got: ${reason}`);
+});
+
+test('T21: with the scratchpad field, a source file inside the work folder is logged', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  writeWithScratchpad(homeDir, cwdDir, path.join(cwdDir, 'src', SCRATCH_FILE), scratchpadDir);
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
+});
+
+test('T22: a source file in a sibling folder named scratchpad-2 is logged', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir, siblingDir } = makeScratchpad(homeDir);
+  writeWithScratchpad(homeDir, cwdDir, path.join(siblingDir, SCRATCH_FILE), scratchpadDir);
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
+});
+
+test('T22b: a relative file path is resolved against cwd before the scratchpad check', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  fs.writeFileSync(path.join(cwdDir, SCRATCH_FILE), '// probe\n');
+  trackEdit(homeDir, cwdDir, SESSION_A, 'Write', SCRATCH_FILE, { content: '// probe\n' }, { [SCRATCHPAD_FIELD]: scratchpadDir });
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
+});
+
+/**
+ * A symbolic link to the parent of the scratchpad, so that the same folder has
+ * two names (as /tmp and /private/tmp on macOS). Returns null when the link
+ * cannot be created (Windows without the privilege).
+ */
+function linkedScratchpad(homeDir, scratchpadDir) {
+  const linkDir = path.join(homeDir, 'tmp-link');
+  try {
+    fs.symlinkSync(path.dirname(scratchpadDir), linkDir, 'dir');
+  } catch {
+    return null;
+  }
+  return path.join(linkDir, path.basename(scratchpadDir));
+}
+
+for (const [label, fileThroughLink] of [['the file path', true], ['the scratchpad path', false]]) {
+  test(`T23: the two names of one scratchpad folder match when ${label} goes through a symbolic link`, () => {
+    const { homeDir, cwdDir } = makeHome();
+    const { scratchpadDir } = makeScratchpad(homeDir);
+    const linked = linkedScratchpad(homeDir, scratchpadDir);
+    if (linked === null) {
+      console.log('    (no symbolic link on this platform; the case is not checked)');
+      return;
+    }
+    const fileDir = fileThroughLink ? linked : scratchpadDir;
+    const fieldDir = fileThroughLink ? scratchpadDir : linked;
+    writeWithScratchpad(homeDir, cwdDir, path.join(fileDir, SCRATCH_FILE), fieldDir);
+    assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
+  });
+}
 
 // ── Session statistics: one file per session ─────────────────────────────────
 
