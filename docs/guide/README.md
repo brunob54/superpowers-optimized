@@ -1549,6 +1549,15 @@ the `env` block of `settings.json`, for example
 CLI. The names are `tdd`, `commit`, `decision-log`, `state-md` and
 `session-log-size`; the README lists which reminder text each name removes.
 
+**The test-first reminder names a scratch file.** Example: "TDD reminder: 2
+source file(s) modified without test changes: …/scratchpad/mutate.js", where
+the file is a throwaway script that a reviewer subagent wrote into the
+session scratchpad (the temporary folder that Claude Code gives each session,
+outside the repository). Since v7.57.0 the edit hook logs no file inside that
+folder, so the reminder does not name one; if you still see it, the installed
+copy is older (§1). The reminder still counts a scratch script written
+anywhere else, for example into the repository's `tmp/` folder.
+
 **I updated, but the plugin is still the old version.** Two-step update
 half-done (marketplace refreshed but plugin not updated, or vice versa — §1),
 or the marketplace pointer reverted to a stale repository. Verify what's
