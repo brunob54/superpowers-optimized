@@ -8,6 +8,70 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.57.0 — the edit log skips the session scratchpad
+
+**Problem.** The stop hook's test-first reminder named scratch scripts that
+the main session or a subagent wrote into the session scratchpad (the
+temporary folder that Claude Code gives a session) as modified source
+files, because `track-edits.js` logged every Edit and Write with no folder
+check. Measured: five such reminders in one session, each costing a turn.
+
+**Change.** The edit hook reads `scratchpad_dir` from its input and logs no
+line for a path inside that folder; both paths are resolved through
+symbolic links first. Without the field, every edit is logged as before.
+
+**Effect.** Update the plugin and restart the CLI; scratch files no longer
+trigger the reminder. Nothing to migrate.
+
+The defect was seen on 2026-10-01: a reviewer subagent wrote `attack.js` and
+`mutate.js` into the session scratchpad for a mutation check, and the stop
+hook then printed "TDD reminder: 2 source file(s) modified without test
+changes" four times; a fifth reminder named a scratch script of the main
+session itself. The stop hook decides "source file" by the file extension and
+filters the edit log by time, session id and the subagent worktree pattern
+only, so the fix belongs where the record enters: the edit hook.
+
+The real hook input was measured before any code was written. A headless
+`claude -p` session has no scratchpad folder and no `scratchpad_dir` field
+(Claude Code 2.1.286). In an interactive session the PostToolUse input of a
+Write carries `scratchpad_dir` in the form
+`/private/tmp/claude-<uid>/<project>/<session-id>/scratchpad` (no trailing
+slash) for the main session and for a subagent alike, with the same
+`session_id`; the subagent's input adds `agent_id` and `agent_type`. The
+documentation names `scratchpad_dir` as a common field of every hook event,
+absent when the session has no scratchpad.
+
+`hooks/track-edits.js` gains `isInsideScratchpad`: the scratchpad path and
+the file path are resolved with `fs.realpathSync` (a missing file through its
+parent folder), and the file is inside when `path.relative` gives no `..`
+segment and no absolute path. So `/tmp/...` and `/private/tmp/...` name one
+folder, and a sibling folder `scratchpad-2` is still logged. The check runs
+before the log line and before the save-marker update, so a `session-log.md`
+written into the scratchpad moves no marker. A value in the field that is not
+a non-empty string, and any error in the check, leave the edit logged: three
+reviewers (a correctness reader, an attacker that ran 77 payloads, and a
+mutation tester in a worktree) found that a number or an object in the field
+made `path.relative` throw inside the hook's catch, which silently dropped a
+repository edit from the log; that is fixed. `stop-reminders.js` is not
+changed; its test that a source file outside the working directory is
+counted still holds.
+
+Tests: `tests/codex/test-track-edits.js` grows from 44 to 60 checks (a
+scratch file is not logged and gives no reminder; a trailing separator; the
+field absent; a file in the working folder; the sibling folder; a relative
+path with and without the scratchpad as `cwd`; the two names of one folder
+through a symbolic link, also for a file that does not exist; five non-string
+values; the save marker). Of the 17 mutations tried, the first tests caught
+10; three tests added after the review catch 3 more; the four that remain
+are behaviour-neutral or Windows-only (a file on another drive than the
+scratchpad, which `path.isAbsolute` handles but no test on macOS can pin).
+The hook unit suite stays at 17 suites.
+
+Also in this release, documents only: the dashboard spec no longer states
+that the page pins a write to a document version (platform check 12 found no
+such option on the page's `set` and `update`); sections 7, 8 and 13 describe
+the re-read before each write and the window that remains.
+
 ## v7.56.0 — the dashboard skill: the repository's status on a claude.ai page
 
 **Problem.** What waited for the owner was spread over branches, orchestration

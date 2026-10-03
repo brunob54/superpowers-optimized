@@ -6,8 +6,16 @@
  * to a session-scoped edit log. This log feeds downstream hooks
  * (stop-reminders) to know what was changed during the session.
  *
- * Input:  stdin JSON with { tool_name, tool_input, session_id, cwd, ... }
+ * Input:  stdin JSON with { tool_name, tool_input, session_id, cwd,
+ *         scratchpad_dir, ... }
  * Output: stdout JSON (always {}, never blocks)
+ *
+ * A file inside the session scratchpad (the temporary folder that Claude Code
+ * gives a session for throwaway files; the hook input names it in
+ * `scratchpad_dir`) is not logged: such a file is not a change to the project,
+ * and a logged one made the stop hook ask for tests of a scratch script.
+ * Without the field (a headless session has no scratchpad) every edit is
+ * logged, as before.
  */
 
 const fs = require('fs');
@@ -56,6 +64,49 @@ function addsSavedEntry(toolName, toolInput) {
 }
 
 /**
+ * The path with every symbolic link resolved. On macOS the temporary folder
+ * has two names (/tmp/... and /private/tmp/...), and the hook input may use
+ * either. A path that does not exist is resolved through its parent folder;
+ * when that fails too, the path is returned as given.
+ */
+function realPath(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    try {
+      return path.join(fs.realpathSync(path.dirname(p)), path.basename(p));
+    } catch {
+      return p;
+    }
+  }
+}
+
+/**
+ * True when the absolute path filePath lies inside the folder scratchpadDir.
+ * A sibling folder whose name starts with the scratchpad's name (for example
+ * `scratchpad-2`) is outside; the comparison works on path segments. Any
+ * value that is not a folder path, and any error, gives false: the edit is
+ * then logged as it was before this check existed.
+ */
+function isInsideScratchpad(filePath, scratchpadDir) {
+  if (typeof scratchpadDir !== 'string' || scratchpadDir === '') return false;
+  try {
+    const relative = path.relative(realPath(scratchpadDir), realPath(filePath));
+    return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  } catch {
+    return false;
+  }
+}
+
+/** The file path made absolute against cwd when it is relative. */
+function resolveAgainstCwd(filePath, cwd) {
+  if (filePath && !path.isAbsolute(filePath) && cwd) {
+    return path.resolve(cwd, filePath);
+  }
+  return filePath;
+}
+
+/**
  * Append an entry to the edit log of the session. The log is never rewritten
  * or trimmed here; save-marker.js deletes a log that is older than 7 days.
  * Format: ISO-timestamp | session_id | tool | file_path
@@ -67,11 +118,7 @@ function logEdit(tool, filePath, cwd, sessionId) {
       fs.mkdirSync(LOG_DIR, { recursive: true });
     }
 
-    // Resolve relative paths against cwd
-    let resolved = filePath;
-    if (filePath && !path.isAbsolute(filePath) && cwd) {
-      resolved = path.resolve(cwd, filePath);
-    }
+    const resolved = resolveAgainstCwd(filePath, cwd);
 
     const sid = sessionId || '';
     const entry = `${new Date().toISOString()} | ${sid} | ${tool} | ${resolved}\n`;
@@ -90,7 +137,7 @@ async function main() {
 
   try {
     const data = JSON.parse(input);
-    const { tool_name, tool_input, cwd, session_id } = data;
+    const { tool_name, tool_input, cwd, session_id, scratchpad_dir } = data;
 
     // Only track Edit and Write operations
     if (tool_name !== 'Edit' && tool_name !== 'Write') {
@@ -99,7 +146,9 @@ async function main() {
     }
 
     const filePath = tool_input?.file_path;
-    if (filePath) {
+    // A file inside the session scratchpad is neither logged nor read as a
+    // save of the session log.
+    if (filePath && !isInsideScratchpad(resolveAgainstCwd(filePath, cwd), scratchpad_dir)) {
       logEdit(tool_name, filePath, cwd, session_id);
 
       // Track when a [saved] entry is written to session-log.md so that
