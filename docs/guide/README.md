@@ -1265,7 +1265,8 @@ that you refactor one group after the other. A work log is one Markdown file,
 `docs/worklogs/<slug>.md`, and git tracks it. A project can hold several. The
 slug is the short name of the work log: lowercase ASCII letters (`a` to `z`),
 digits and single hyphens, at most 40 characters, and not one of the command
-words `new`, `update` and `close`.
+words `new`, `update` and `close`. The document [worklog.md](worklog.md)
+explains the commands step by step, with one complete example.
 
 The file has a table of parts, a list of open items, a list of accepted
 limits, and a list of decisions. Its header holds its own update rules, so any
