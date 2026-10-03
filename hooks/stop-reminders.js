@@ -303,6 +303,7 @@ function formatStatsSummary(stats) {
 }
 
 const GIT_TIMEOUT_MS = 5000;
+const GIT_STATUS = ['status', '--porcelain'];
 
 /**
  * Run one git command in `cwd`. Return its standard output without the
@@ -320,7 +321,7 @@ function gitStdout(args, cwd) {
  */
 function getUncommittedCount(cwd) {
   try {
-    const stdout = gitStdout(['status', '--porcelain'], cwd || process.cwd());
+    const stdout = gitStdout(GIT_STATUS, cwd || process.cwd());
     if (stdout === null) return 0;
     const lines = stdout.split('\n').filter(l => l.trim().length > 0);
     return lines.length;
@@ -329,36 +330,28 @@ function getUncommittedCount(cwd) {
   }
 }
 
-/**
- * Return the nearest folder above filePath that exists, or null. A file that
- * was deleted together with its folder still has a folder to run git in.
- */
-function nearestExistingDir(filePath) {
-  let dir = path.dirname(filePath);
-  while (!fs.existsSync(dir)) {
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-  return dir;
-}
-
 // Options for a git command that only reads and that names one file: git
 // does not rewrite the index while it reads, so it cannot collide with a git
-// command of the user, and it reads the file name letter by letter.
+// command of the user, and the characters `*`, `?` and `[` in the file name
+// have no special meaning.
 const GIT_READ_ONE_FILE = ['--no-optional-locks', '--literal-pathspecs'];
 
 const SECOND_MS = 1000;
 
 /**
- * Return true when git shows that an edited file is back at its committed
- * state: `git status` reports no change for it, and no commit changed it
- * since the edit. Such a file was edited and then restored, or it was created
- * and then deleted. A file that was committed after the edit gives false, and
- * so does every case that git cannot judge: a file that git ignores, a folder
- * that is not a git repository, a repository with no commit, a git error.
- * git runs in the folder of the file, so the repository of the file decides,
- * not the session folder.
+ * Return true when git gives positive proof that an edited file is back at
+ * its committed state. Three conditions must hold:
+ *   - `git status` reports no change for the file;
+ *   - git tracks the file under exactly this name;
+ *   - no commit that any branch or the stash can reach changed the file since
+ *     the edit.
+ * Such a file was edited and then restored. Every other case gives false,
+ * because the change of the session may still exist: a file committed after
+ * the edit, also on another branch or in a worktree that was removed; a file
+ * that git does not track (git cannot tell a deleted file from a moved one);
+ * a file that git ignores; a file whose folder is gone or is not in a git
+ * repository; a git error or time-out. git runs in the folder of the file,
+ * so the repository of the file decides, not the session folder.
  *
  * `firstEditTimeMs` is the time of the first edit of the file that the
  * reminder counts. git stores a commit time in whole seconds, so the time is
@@ -366,17 +359,17 @@ const SECOND_MS = 1000;
  */
 function isBackAtCommittedState(filePath, firstEditTimeMs, cwd) {
   const absolutePath = path.resolve(cwd, filePath);
-  const dir = nearestExistingDir(absolutePath);
-  if (!dir) return false;
-
   const gitForFile = (...args) => gitStdout(
-    [...GIT_READ_ONE_FILE, ...args, '--', path.relative(dir, absolutePath).split(path.sep).join('/')],
-    dir
+    [...GIT_READ_ONE_FILE, ...args, '--', path.basename(absolutePath)],
+    path.dirname(absolutePath)
   );
   // --ignored lists a file that git ignores, and --untracked-files=all lists
   // a new file even when the configuration of the user hides untracked files.
-  if (gitForFile('status', '--porcelain', '--ignored', '--untracked-files=all') !== '') return false;
-  return gitForFile('log', '-1', '--format=%H', `--since=${Math.floor(firstEditTimeMs / SECOND_MS)}`) === '';
+  // `ls-files` prints the name only when git tracks the file; null (git
+  // failed) and the empty text both mean "no proof".
+  return gitForFile(...GIT_STATUS, '--ignored', '--untracked-files=all') === '' &&
+    Boolean(gitForFile('ls-files')) &&
+    gitForFile('log', '--all', '-1', '--format=%H', `--since=${Math.floor(firstEditTimeMs / SECOND_MS)}`) === '';
 }
 
 /**

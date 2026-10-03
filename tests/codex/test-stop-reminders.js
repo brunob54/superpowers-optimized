@@ -641,11 +641,11 @@ const REMINDER_SCENARIOS = [
     text: 'Commit reminder',
     arrange: ({ logDir, cwdDir }) => {
       const files = ['a', 'b', 'c', 'd', 'e', 'f'].map(name => `${name}.txt`);
-      spawnSync('git', ['init', '-q'], { cwd: cwdDir });
+      git(cwdDir, ['init', '-q']);
       for (const file of files) fs.writeFileSync(path.join(cwdDir, file), 'x', 'utf8');
       // Staged files are listed by `git status` even when the user's git
       // configuration hides untracked files (status.showUntrackedFiles=no).
-      spawnSync('git', ['add', '.'], { cwd: cwdDir });
+      git(cwdDir, ['add', '.']);
       writeRecentEdits(logDir, files.map(file => path.join(cwdDir, file)));
     },
   },
@@ -769,13 +769,15 @@ test('The TDD reminder names at most five files and counts the rest', () => {
 // Reported by a user: a session edited a source file and then removed the
 // edit. `git diff` was empty, but every later stop inside the 30-minute window
 // named the file again, because the reminder read the edit log only. The
-// reminder now asks git. It leaves a file out when git reports no change for
-// it and no commit changed it since the edit. A file that was committed
-// without a test is still named, and so is every file that git cannot judge.
+// reminder now asks git. It leaves a file out only when git gives positive
+// proof: git tracks the file, reports no change for it, and no commit on any
+// branch changed it since the edit. A file that was committed without a test
+// is still named, and so is every file that git cannot judge.
 
 console.log('\nTDD reminder leaves out a file that is back at its committed state');
 
 const SOURCE_NAME = path.join('src', 'app.js');
+const OTHER_SOURCE_NAME = path.join('src', 'other.js');
 const NEW_SOURCE_NAME = path.join('src', 'new.js');
 const COMMITTED_TEXT = 'module.exports = 1;\n';
 const EDITED_TEXT = 'module.exports = 2;\n';
@@ -785,6 +787,10 @@ const SECOND_MS = 1000;
 // date gets the current time, which is later than the edit.
 const EDIT_AGE_MINUTES = 10;
 const FIRST_COMMIT_AGE_MS = 60 * MINUTE_MS;
+// For a file with two edit records: the commit lies between the two edits.
+const MIDDLE_COMMIT_AGE_MS = 15 * MINUTE_MS;
+const EDIT_BEFORE_MIDDLE_COMMIT_MINUTES = 25;
+const EDIT_AFTER_MIDDLE_COMMIT_MINUTES = 5;
 
 function git(repoDir, args, env = {}) {
   const result = spawnSync('git', args, { cwd: repoDir, encoding: 'utf8', env: { ...process.env, ...env } });
@@ -832,6 +838,12 @@ function repoWithCommittedSource(repoDir, name = SOURCE_NAME) {
 
 function recordEdits(logDir, files) {
   writeRecentEdits(logDir, files, EDIT_AGE_MINUTES);
+}
+
+/** Write one edit record per [file, age in minutes] pair. */
+function recordEditsAtAges(logDir, fileAgePairs) {
+  writeEditLog(logDir, fileAgePairs.map(([file, ageMinutes]) =>
+    editLogLine(TEST_SESSION_ID, file, ageMinutes * MINUTE_MS)));
 }
 
 function assertNoReminder(result) {
@@ -884,17 +896,20 @@ test('A commit in the same second as the edit counts as a commit after the edit'
   }), SOURCE_NAME);
 });
 
+// git has no record of a file that it never tracked. It cannot tell a file
+// that was deleted from a file that was moved to another name, so the
+// reminder stays.
 const DELETED_NEW_FILES = [
   ['in a folder that still exists', NEW_SOURCE_NAME],
   ['in a folder that was deleted too', path.join('scratch', 'deep', 'new.js')],
 ];
 
 for (const [label, name] of DELETED_NEW_FILES) {
-  test(`A new file that was written and then deleted, ${label}, gets no reminder`, () => {
-    assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+  test(`A new file that was written and then deleted, ${label}, is still named`, () => {
+    assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
       repoWithCommittedSource(cwdDir);
       recordEdits(logDir, [path.join(cwdDir, name)]);
-    }));
+    }), name);
   });
 }
 
@@ -924,14 +939,13 @@ test('A file that git ignores is named: git cannot say whether it changed', () =
 });
 
 test('Of a restored file and a modified file, the reminder counts and names only the modified file', () => {
-  const modifiedName = path.join('src', 'other.js');
   assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
     initRepo(cwdDir);
-    const files = [SOURCE_NAME, modifiedName].map(name => writeRepoFile(cwdDir, name));
+    const files = [SOURCE_NAME, OTHER_SOURCE_NAME].map(name => writeRepoFile(cwdDir, name));
     commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
     fs.writeFileSync(files[1], EDITED_TEXT, 'utf8');
     recordEdits(logDir, files);
-  }), modifiedName);
+  }), OTHER_SOURCE_NAME);
 });
 
 test('A restored file in a repository that is not the session folder gets no reminder', () => {
@@ -947,11 +961,138 @@ test('A restored file whose record holds a relative path gets no reminder', () =
   }));
 });
 
-test('In a repository with no commit, a file that does not exist is still named: git log fails', () => {
+test('In a repository with no commit, a file that does not exist is still named', () => {
   assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
     initRepo(cwdDir);
     recordEdits(logDir, [path.join(cwdDir, SOURCE_NAME)]);
   }), SOURCE_NAME);
+});
+
+// Each state leaves the working file equal to the last commit of the current
+// branch, or leaves no working file, but the change of the session still
+// exists in the repository.
+const CHANGE_STILL_IN_REPOSITORY = [
+  ['whose change is staged and then removed from the working file', (repoDir, file) => {
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    git(repoDir, ['add', '-A']);
+    fs.writeFileSync(file, COMMITTED_TEXT, 'utf8');
+  }],
+  ['that the session deleted', (repoDir, file) => fs.rmSync(file)],
+  ['that was committed on another branch before the first branch was checked out again', (repoDir, file) => {
+    git(repoDir, ['checkout', '-q', '-b', 'feature']);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    commitAll(repoDir);
+    git(repoDir, ['checkout', '-q', '-']);
+  }],
+  ['whose change was put away with git stash', (repoDir, file) => {
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    git(repoDir, ['stash', '-q']);
+  }],
+];
+
+for (const [label, change] of CHANGE_STILL_IN_REPOSITORY) {
+  test(`A tracked file ${label} is still named`, () => {
+    assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+      const file = repoWithCommittedSource(cwdDir);
+      change(cwdDir, file);
+      recordEdits(logDir, [file]);
+    }), SOURCE_NAME);
+  });
+}
+
+// Reported by two reviewers: the session edits and commits a file inside a
+// git worktree (a second working folder of the same repository), and the
+// worktree is removed afterwards. The folder of the file no longer exists.
+test('A file committed in a worktree that was removed afterwards is still named', () => {
+  const worktreeName = path.join('.claude', 'worktrees', 'feature');
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithCommittedSource(cwdDir);
+    const worktreeDir = path.join(cwdDir, worktreeName);
+    git(cwdDir, ['worktree', 'add', '-q', '-b', 'feature', worktreeName]);
+    const file = writeRepoFile(worktreeDir, SOURCE_NAME, EDITED_TEXT);
+    commitAll(worktreeDir);
+    git(cwdDir, ['worktree', 'remove', worktreeName]);
+    recordEdits(logDir, [file]);
+  }), path.join(worktreeName, SOURCE_NAME));
+});
+
+// On a file system that ignores letter case (the default on macOS), a record
+// can name the file in another case than git stores. git then reports nothing
+// for the name, also while the file is modified.
+test('A modified file whose record differs in letter case from the tracked name is still named', () => {
+  const recordedName = path.join('src', 'APP.js');
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    fs.writeFileSync(repoWithCommittedSource(cwdDir), EDITED_TEXT, 'utf8');
+    recordEdits(logDir, [path.join(cwdDir, recordedName)]);
+  }), recordedName);
+});
+
+// The file has two edit records. The commit lies between them, so only the
+// first record is earlier than the commit.
+test('A file that was edited, committed, edited again and restored is still named: the first edit counts', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    const file = repoWithCommittedSource(cwdDir);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    commitAll(cwdDir, Date.now() - MIDDLE_COMMIT_AGE_MS);
+    recordEditsAtAges(logDir, [[file, EDIT_BEFORE_MIDDLE_COMMIT_MINUTES], [file, EDIT_AFTER_MIDDLE_COMMIT_MINUTES]]);
+  }), SOURCE_NAME);
+});
+
+// The commit changed the second file before the first edit of that file, and
+// after the edit of the first file. Each file is judged with its own edit time.
+test('The first edit time is taken per file: an earlier edit of another file does not keep the reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    const [first, second] = [SOURCE_NAME, OTHER_SOURCE_NAME].map(name => writeRepoFile(cwdDir, name));
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    fs.writeFileSync(second, EDITED_TEXT, 'utf8');
+    commitAll(cwdDir, Date.now() - MIDDLE_COMMIT_AGE_MS);
+    recordEditsAtAges(logDir, [[first, EDIT_BEFORE_MIDDLE_COMMIT_MINUTES], [second, EDIT_AFTER_MIDDLE_COMMIT_MINUTES]]);
+  }));
+});
+
+test('A restored file gets no reminder when a commit after the edit changed only another file', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const file = repoWithCommittedSource(cwdDir);
+    writeRepoFile(cwdDir, 'README.md', '# readme\n');
+    commitAll(cwdDir);
+    recordEdits(logDir, [file]);
+  }));
+});
+
+// git reads `[id]` in a file name as a pattern that matches the one letter
+// `i` or `d`, unless it is told that such characters have no special meaning.
+test('A restored file whose name holds pattern characters is judged alone, not with the files that the pattern matches', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    const [restored, matchedByPattern] = [path.join('pages', '[id].js'), path.join('pages', 'i.js')]
+      .map(name => writeRepoFile(cwdDir, name));
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    fs.writeFileSync(matchedByPattern, EDITED_TEXT, 'utf8');
+    recordEdits(logDir, [restored]);
+  }));
+});
+
+// The index is the file in which git stores the state of every tracked file.
+// A new modification time makes the index entry of the file out of date, and
+// a plain `git status` then writes the index again. The hook must not write
+// into the repository of the user.
+test('The check of a restored file does not rewrite the index of the repository', () => {
+  let indexFile;
+  let indexBefore;
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const file = repoWithCommittedSource(cwdDir);
+    setFileAge(file, EDIT_AGE_MINUTES * MINUTE_MS);
+    recordEdits(logDir, [file]);
+    indexFile = path.join(cwdDir, '.git', 'index');
+    indexBefore = fs.readFileSync(indexFile);
+  }, () => assert.ok(indexBefore.equals(fs.readFileSync(indexFile)), 'Expected the index file to be unchanged')));
+});
+
+test('The commit reminder states the number of files that git reports', () => {
+  const result = evaluateStop(REMINDER_SCENARIOS.find(s => s.name === 'commit').arrange);
+  assert.ok((result.reason || '').includes('Commit reminder: 6 files with uncommitted changes'),
+    `Expected a count of 6 files, got: ${result.reason}`);
 });
 
 // ── checkSessionLogSize hard cap ─────────────────────────────────────────────
