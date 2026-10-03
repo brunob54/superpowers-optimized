@@ -8,6 +8,109 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.58.0 — the test-first reminder leaves out a restored file
+
+**Problem.** The stop hook's test-first reminder read only the edit log (the
+list of files that the session edited). A source file that the session
+edited and then restored, so that `git diff` was empty, was named again at
+every stop inside the next 30 minutes. Each such reminder cost one turn.
+
+**Change.** The stop hook now asks git about each file it would name. It
+leaves a file out only when git tracks the file, `git status` reports no
+change for it, and no commit on any branch changed it since the edit.
+
+**Effect.** Update the plugin and restart the CLI; a restored file no longer
+triggers the reminder. Every other file is named as before. Nothing to
+migrate.
+
+The defect was reported from a second computer: the reminder named
+`task_runner_network_handler.py` although its `git diff` was empty, and the
+assistant answered that it was "the same out-of-date reminder". The same
+thing was reproduced here on 2026-10-03: a control file was written into the
+repository and deleted again, and the next stop still named it.
+
+The cause is in `hooks/stop-reminders.js`. The reminder took every source
+file with an edit record of the last 30 minutes and never looked at the
+current state of the file. The stop guard silences the hook for 2 minutes
+only, so every later stop inside the window repeated the reminder. The edit
+record is correct at the time it is written; the file changes afterwards.
+The check therefore belongs where the record is read, in the stop hook, and
+git is the authoritative source. The commit reminder of the same hook was
+corrected in the same way earlier.
+
+The rule. A file is left out of the reminder only when all three hold:
+
+- `git status --porcelain --ignored --untracked-files=all` prints nothing for
+  the file;
+- `git ls-files` prints the file, which means that git tracks it under
+  exactly this name;
+- `git log --all --reflog --since=<first counted edit>` prints no commit that
+  changed the file. `--all` reads every branch, every tag and the newest
+  stash entry. `--reflog` adds the commits of the reflogs (a reflog is the
+  list that git keeps of the earlier values of a reference): an older stash
+  entry, and a commit whose branch was deleted. The edit time is rounded
+  down to a whole second, because git stores commit times in whole seconds;
+  a commit in the same second counts.
+
+A symbolic link (a file that points to another file) is replaced by the file
+it points to before git is asked, because an edit through a link changes
+that file. git runs in the folder of the file, so the repository of the file
+decides, not the session folder. git runs with `--no-optional-locks`, so the hook does
+not rewrite the index (the file in which git stores the state of every
+tracked file), and with `--literal-pathspecs`, so the characters `*`, `?` and
+`[` in a file name have no special meaning. git runs only when the reminder
+is due.
+
+Still named, as before this release: a file that is still modified or
+staged; a file that the session deleted; a file committed after the edit,
+also on another branch, on a branch that was deleted, in the stash, or in a
+worktree that was removed afterwards; a new file that git does not track, also when it was deleted
+again; a file that git ignores; a file outside a git repository; every file
+for which a git command fails or reaches its time-out of 5 seconds.
+
+The first version of the fix (commit `1a78eb2`) also left out a new file that
+was created and then deleted, and it read commits of the current branch
+only. Three independent reviews (correctness, adversarial replay of about 95
+file states, mutation testing with 30 changed copies of the code) found four
+states in which that version left out a file although the change of the
+session still existed: a commit in a worktree that was removed afterwards, a
+commit on another branch or a `git stash`, a record that differs in letter
+case from the tracked name on a file system that ignores case, and a new
+file moved to another name with `mv`. git has no record of a file that it
+never tracked, so it cannot tell "deleted" from "moved". The rule was
+therefore narrowed to positive proof (commit `985bcd8`): a new file that was
+created and then deleted is named again for 30 minutes, as before. A fourth
+review replayed 80 states against the narrowed rule. It confirmed that the
+four states are closed and found two more: a change in a stash entry that is
+not the newest one, and a tracked symbolic link that was edited through the
+link. The `--reflog` option and the replacement of a link by its target
+close them.
+
+Cost, measured with the real hook in a scratch repository: about 9 ms for
+each file that is still modified (one git call) and about 26 ms for each
+restored file (three git calls). 10 restored files took 269 ms; 200 took
+5.2 s.
+
+Known limits, each accepted and not fixed:
+
+- A commit that the session made and then removed again with a hard reset
+  stays in the reflog, so the file is still named. This is one reminder too
+  many, not a missing one.
+- A commit whose committer date was forced to a time before the edit is not
+  seen.
+- A change that exists only under another file name (the edited file was
+  copied, then restored) is not seen, because the copy has no edit record.
+- A merge made with the strategy `ours`, which keeps the commit of the
+  session in the history but none of its content, is not seen once its
+  branch is deleted.
+- A git command that hangs costs 5 seconds per file. `hooks/hooks.json` sets
+  no time-out for the stop hook.
+
+Tests: `tests/codex/test-stop-reminders.js` has 29 new tests (65 before, 94
+now). The 15 fast suites pass. `getUncommittedCount` now uses the new helper
+`gitStdout`; one of the new tests pins the number that the commit reminder
+prints, which no test read before.
+
 ## v7.57.0 — the edit log skips the session scratchpad
 
 **Problem.** The stop hook's test-first reminder named scratch scripts that

@@ -302,23 +302,92 @@ function formatStatsSummary(stats) {
   return `Session summary: ${stats.totalSkillCalls} skill invocations [${skillNames}]`;
 }
 
+const GIT_TIMEOUT_MS = 5000;
+const GIT_STATUS = ['status', '--porcelain'];
+
+/**
+ * Run one git command in `cwd`. Return its standard output without the
+ * surrounding white space, or null when git failed or could not be started.
+ */
+function gitStdout(args, cwd) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
+  if (result.status !== 0 || result.error) return null;
+  return (result.stdout || '').trim();
+}
+
 /**
  * Generate contextual reminders based on edit history and session stats.
  * Returns array of reminder strings.
  */
 function getUncommittedCount(cwd) {
   try {
-    const result = spawnSync('git', ['status', '--porcelain'], {
-      cwd: cwd || process.cwd(),
-      encoding: 'utf8',
-      timeout: 5000,
-    });
-    if (result.status !== 0 || result.error) return 0;
-    const lines = (result.stdout || '').split('\n').filter(l => l.trim().length > 0);
+    const stdout = gitStdout(GIT_STATUS, cwd || process.cwd());
+    if (stdout === null) return 0;
+    const lines = stdout.split('\n').filter(l => l.trim().length > 0);
     return lines.length;
   } catch {
     return 0;
   }
+}
+
+// Options for a git command that only reads and that names one file: git
+// does not rewrite the index while it reads, so it cannot collide with a git
+// command of the user, and the characters `*`, `?` and `[` in the file name
+// have no special meaning.
+const GIT_READ_ONE_FILE = ['--no-optional-locks', '--literal-pathspecs'];
+
+const SECOND_MS = 1000;
+
+/**
+ * Return true when git gives positive proof that an edited file is back at
+ * its committed state. Three conditions must hold:
+ *   - `git status` reports no change for the file;
+ *   - git tracks a file of exactly this name in the folder of the file;
+ *   - no commit that a branch, a tag, the stash or a reflog can reach changed
+ *     the file since the edit. A reflog is the list that git keeps of the
+ *     earlier values of a reference; it holds an older stash entry and a
+ *     commit whose branch was deleted.
+ * Such a file was edited and then restored. Every other case gives false,
+ * because the change of the session may still exist: a file committed after
+ * the edit, also on another branch; a file that git does not track (git
+ * cannot tell a deleted file from a moved one); a file that git ignores; a
+ * file that no longer exists, for example in a worktree that was removed; a
+ * file outside a git repository; a git error or time-out.
+ *
+ * A symbolic link is replaced by the file it points to, because an edit
+ * through a link changes that file. git runs in the folder of the file, so
+ * the repository of the file decides, not the session folder.
+ *
+ * `firstEditTimeMs` is the time of the first edit of the file that the
+ * reminder counts. git stores a commit time in whole seconds, so the time is
+ * rounded down: a commit in the same second counts as a commit since the edit.
+ */
+function isBackAtCommittedState(filePath, firstEditTimeMs, cwd) {
+  let realPath;
+  try {
+    realPath = fs.realpathSync(path.resolve(cwd, filePath));
+  } catch {
+    return false;
+  }
+  const gitForFile = (...args) => gitStdout(
+    [...GIT_READ_ONE_FILE, ...args, '--', path.basename(realPath)],
+    path.dirname(realPath)
+  );
+  // --ignored lists a file that git ignores, and --untracked-files=all lists
+  // a new file even when the configuration of the user hides untracked files.
+  // `ls-files` prints the name only when git tracks it; null (git failed)
+  // and the empty text both mean "no proof".
+  return gitForFile(...GIT_STATUS, '--ignored', '--untracked-files=all') === '' &&
+    Boolean(gitForFile('ls-files')) &&
+    gitForFile('log', '--all', '--reflog', '-1', '--format=%H',
+      `--since=${Math.floor(firstEditTimeMs / SECOND_MS)}`) === '';
+}
+
+/**
+ * Return the time, in milliseconds, of the first of `edits` that names filePath.
+ */
+function firstEditTimeMs(edits, filePath) {
+  return Math.min(...edits.filter(e => e.filePath === filePath).map(e => new Date(e.timestamp).getTime()));
 }
 
 // The TDD reminder names at most this many files, so that a long session
@@ -357,14 +426,20 @@ function generateReminders(edits, cwd, sessionId) {
   const sourceFiles = editedPaths.filter(isSourceFile);
   const testFiles = editedPaths.filter(isTestFile);
 
-  // TDD reminder: source files changed without corresponding tests
+  // TDD reminder: source files changed without corresponding tests. The edit
+  // log says that a file was edited, not that it is still changed, so git is
+  // asked about each file. git runs only when the reminder is due.
   const untestedSources = sourceFiles.filter(src => !isTestFile(src));
   if (isReminderOn(REMINDER.TDD) && untestedSources.length > 0 && testFiles.length === 0) {
-    reminders.push(
-      `TDD reminder: ${untestedSources.length} source file(s) modified without test changes: ` +
-      `${formatFileList(untestedSources, cwd)}. ` +
-      `Consider running tests or invoking TDD workflow if behavior changed.`
-    );
+    const changedSources = untestedSources.filter(src =>
+      !isBackAtCommittedState(src, firstEditTimeMs(edits, src), cwd));
+    if (changedSources.length > 0) {
+      reminders.push(
+        `TDD reminder: ${changedSources.length} source file(s) modified without test changes: ` +
+        `${formatFileList(changedSources, cwd)}. ` +
+        `Consider running tests or invoking TDD workflow if behavior changed.`
+      );
+    }
   }
 
   // Commit reminder: check actual uncommitted changes via git, not just session edits.

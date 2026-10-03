@@ -1558,6 +1558,20 @@ folder, so the reminder does not name one; if you still see it, the installed
 copy is older (§1). The reminder still counts a scratch script written
 anywhere else, for example into the repository's `tmp/` folder.
 
+**The test-first reminder names a file that has no change.** Example: "TDD
+reminder: 1 source file(s) modified without test changes: src/handler.py",
+where the assistant edited the file and then removed the edit, so `git diff`
+is empty. Before v7.58.0 the reminder read only the edit log (the list of
+files that the session edited in the last 30 minutes), so it named the file
+again at every stop. Since v7.58.0 the stop hook asks git about each file and
+leaves out a file only when git proves that it is back at its committed
+state: git tracks the file, `git status` reports no change for it, and no
+commit on any branch changed it since the edit. The reminder still names a
+file that was committed after the edit, a new file that was deleted or moved
+(git has no record of it), a file that git ignores, and a file outside a git
+repository, because git cannot prove that such a file is unchanged. If you
+still see the reminder for a restored file, the installed copy is older (§1).
+
 **I updated, but the plugin is still the old version.** Two-step update
 half-done (marketplace refreshed but plugin not updated, or vice versa — §1),
 or the marketplace pointer reverted to a stale repository. Verify what's
