@@ -84,12 +84,26 @@ function realPath(p) {
 /**
  * True when the absolute path filePath lies inside the folder scratchpadDir.
  * A sibling folder whose name starts with the scratchpad's name (for example
- * `scratchpad-2`) is outside; the comparison works on path segments.
+ * `scratchpad-2`) is outside; the comparison works on path segments. Any
+ * value that is not a folder path, and any error, gives false: the edit is
+ * then logged as it was before this check existed.
  */
 function isInsideScratchpad(filePath, scratchpadDir) {
-  if (!scratchpadDir) return false;
-  const relative = path.relative(realPath(scratchpadDir), realPath(filePath));
-  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  if (typeof scratchpadDir !== 'string' || scratchpadDir === '') return false;
+  try {
+    const relative = path.relative(realPath(scratchpadDir), realPath(filePath));
+    return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  } catch {
+    return false;
+  }
+}
+
+/** The file path made absolute against cwd when it is relative. */
+function resolveAgainstCwd(filePath, cwd) {
+  if (filePath && !path.isAbsolute(filePath) && cwd) {
+    return path.resolve(cwd, filePath);
+  }
+  return filePath;
 }
 
 /**
@@ -97,21 +111,14 @@ function isInsideScratchpad(filePath, scratchpadDir) {
  * or trimmed here; save-marker.js deletes a log that is older than 7 days.
  * Format: ISO-timestamp | session_id | tool | file_path
  * (Legacy format without session_id is still accepted on read)
- * A file inside the session scratchpad is not logged.
  */
-function logEdit(tool, filePath, cwd, sessionId, scratchpadDir) {
+function logEdit(tool, filePath, cwd, sessionId) {
   try {
-    // Resolve relative paths against cwd
-    let resolved = filePath;
-    if (filePath && !path.isAbsolute(filePath) && cwd) {
-      resolved = path.resolve(cwd, filePath);
-    }
-
-    if (isInsideScratchpad(resolved, scratchpadDir)) return;
-
     if (!fs.existsSync(LOG_DIR)) {
       fs.mkdirSync(LOG_DIR, { recursive: true });
     }
+
+    const resolved = resolveAgainstCwd(filePath, cwd);
 
     const sid = sessionId || '';
     const entry = `${new Date().toISOString()} | ${sid} | ${tool} | ${resolved}\n`;
@@ -139,8 +146,10 @@ async function main() {
     }
 
     const filePath = tool_input?.file_path;
-    if (filePath) {
-      logEdit(tool_name, filePath, cwd, session_id, scratchpad_dir);
+    // A file inside the session scratchpad is neither logged nor read as a
+    // save of the session log.
+    if (filePath && !isInsideScratchpad(resolveAgainstCwd(filePath, cwd), scratchpad_dir)) {
+      logEdit(tool_name, filePath, cwd, session_id);
 
       // Track when a [saved] entry is written to session-log.md so that
       // stop-reminders can ask "any significant edits since last [saved]?"

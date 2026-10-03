@@ -458,9 +458,15 @@ console.log('\nEdits inside the session scratchpad');
 // slash, in the /private/tmp form, for the main session and for a subagent
 // alike; `file_path` is absolute in the same form. A headless `claude -p`
 // session has no scratchpad and no such field.
+// A scratch file must not be logged, because the stop hook's test-first
+// reminder (the "TDD reminder"; TDD is test-driven development) names every
+// logged source file that has no test change next to it.
 const SCRATCHPAD_FIELD = 'scratchpad_dir';
 const SCRATCH_FILE = 'mutate.js';
 const TDD_REMINDER = 'TDD reminder';
+// Values that the documented input never holds in this field. Each one must
+// leave the hook logging as if the field were absent.
+const NON_STRING_FIELD_VALUES = [42, { a: 1 }, ['/x'], true, null];
 
 /** The number of lines in the edit log of this session (0 when there is none). */
 function ownEditLogLines(homeDir, sessionId) {
@@ -533,6 +539,34 @@ test('T22b: a relative file path is resolved against cwd before the scratchpad c
   assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
 });
 
+test('T22c: a relative file path with the scratchpad as cwd is not logged', () => {
+  const { homeDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  fs.writeFileSync(path.join(scratchpadDir, SCRATCH_FILE), '// probe\n');
+  trackEdit(homeDir, scratchpadDir, SESSION_A, 'Write', SCRATCH_FILE, { content: '// probe\n' }, { [SCRATCHPAD_FIELD]: scratchpadDir });
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
+});
+
+for (const value of NON_STRING_FIELD_VALUES) {
+  test(`T24: with the field set to ${JSON.stringify(value)}, a source file in the work folder is logged`, () => {
+    const { homeDir, cwdDir } = makeHome();
+    writeWithScratchpad(homeDir, cwdDir, path.join(cwdDir, 'src', SCRATCH_FILE), value);
+    assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
+  });
+}
+
+test('T25: a session log with a [saved] entry written into the scratchpad does not move the save marker', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  trackEdit(homeDir, cwdDir, SESSION_A, 'Edit', SIGNIFICANT_FILE, { old_string: 'a', new_string: 'b' });
+  const scratchLog = path.join(scratchpadDir, SESSION_LOG);
+  fs.writeFileSync(scratchLog, SAVED_HEADING);
+  trackEdit(homeDir, cwdDir, SESSION_A, 'Write', scratchLog, { content: SAVED_HEADING }, { [SCRATCHPAD_FIELD]: scratchpadDir });
+  const result = stop(homeDir, cwdDir, SESSION_A);
+  assert.ok((result.reason || '').includes(DECISION_LOG),
+    `Expected the decision-log block to stay, got: ${JSON.stringify(result)}`);
+});
+
 /**
  * A symbolic link to the parent of the scratchpad, so that the same folder has
  * two names (as /tmp and /private/tmp on macOS). Returns null when the link
@@ -563,6 +597,18 @@ for (const [label, fileThroughLink] of [['the file path', true], ['the scratchpa
     assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
   });
 }
+
+test('T23b: a scratch file that does not exist is matched through its parent folder', () => {
+  const { homeDir, cwdDir } = makeHome();
+  const { scratchpadDir } = makeScratchpad(homeDir);
+  const linked = linkedScratchpad(homeDir, scratchpadDir);
+  if (linked === null) {
+    console.log('    (no symbolic link on this platform; the case is not checked)');
+    return;
+  }
+  trackEdit(homeDir, cwdDir, SESSION_A, 'Write', path.join(linked, 'gone.js'), { content: '' }, { [SCRATCHPAD_FIELD]: scratchpadDir });
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
+});
 
 // ── Session statistics: one file per session ─────────────────────────────────
 
