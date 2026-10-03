@@ -342,34 +342,45 @@ const SECOND_MS = 1000;
  * Return true when git gives positive proof that an edited file is back at
  * its committed state. Three conditions must hold:
  *   - `git status` reports no change for the file;
- *   - git tracks the file under exactly this name;
- *   - no commit that any branch or the stash can reach changed the file since
- *     the edit.
+ *   - git tracks a file of exactly this name in the folder of the file;
+ *   - no commit that a branch, a tag, the stash or a reflog can reach changed
+ *     the file since the edit. A reflog is the list that git keeps of the
+ *     earlier values of a reference; it holds an older stash entry and a
+ *     commit whose branch was deleted.
  * Such a file was edited and then restored. Every other case gives false,
  * because the change of the session may still exist: a file committed after
- * the edit, also on another branch or in a worktree that was removed; a file
- * that git does not track (git cannot tell a deleted file from a moved one);
- * a file that git ignores; a file whose folder is gone or is not in a git
- * repository; a git error or time-out. git runs in the folder of the file,
- * so the repository of the file decides, not the session folder.
+ * the edit, also on another branch; a file that git does not track (git
+ * cannot tell a deleted file from a moved one); a file that git ignores; a
+ * file that no longer exists, for example in a worktree that was removed; a
+ * file outside a git repository; a git error or time-out.
+ *
+ * A symbolic link is replaced by the file it points to, because an edit
+ * through a link changes that file. git runs in the folder of the file, so
+ * the repository of the file decides, not the session folder.
  *
  * `firstEditTimeMs` is the time of the first edit of the file that the
  * reminder counts. git stores a commit time in whole seconds, so the time is
  * rounded down: a commit in the same second counts as a commit since the edit.
  */
 function isBackAtCommittedState(filePath, firstEditTimeMs, cwd) {
-  const absolutePath = path.resolve(cwd, filePath);
+  let realPath;
+  try {
+    realPath = fs.realpathSync(path.resolve(cwd, filePath));
+  } catch {
+    return false;
+  }
   const gitForFile = (...args) => gitStdout(
-    [...GIT_READ_ONE_FILE, ...args, '--', path.basename(absolutePath)],
-    path.dirname(absolutePath)
+    [...GIT_READ_ONE_FILE, ...args, '--', path.basename(realPath)],
+    path.dirname(realPath)
   );
   // --ignored lists a file that git ignores, and --untracked-files=all lists
   // a new file even when the configuration of the user hides untracked files.
-  // `ls-files` prints the name only when git tracks the file; null (git
-  // failed) and the empty text both mean "no proof".
+  // `ls-files` prints the name only when git tracks it; null (git failed)
+  // and the empty text both mean "no proof".
   return gitForFile(...GIT_STATUS, '--ignored', '--untracked-files=all') === '' &&
     Boolean(gitForFile('ls-files')) &&
-    gitForFile('log', '--all', '-1', '--format=%H', `--since=${Math.floor(firstEditTimeMs / SECOND_MS)}`) === '';
+    gitForFile('log', '--all', '--reflog', '-1', '--format=%H',
+      `--since=${Math.floor(firstEditTimeMs / SECOND_MS)}`) === '';
 }
 
 /**

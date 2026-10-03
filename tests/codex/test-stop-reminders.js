@@ -978,15 +978,36 @@ const CHANGE_STILL_IN_REPOSITORY = [
     fs.writeFileSync(file, COMMITTED_TEXT, 'utf8');
   }],
   ['that the session deleted', (repoDir, file) => fs.rmSync(file)],
+  // The reflogs are emptied, so only the branch itself still leads to the commit.
   ['that was committed on another branch before the first branch was checked out again', (repoDir, file) => {
     git(repoDir, ['checkout', '-q', '-b', 'feature']);
     fs.writeFileSync(file, EDITED_TEXT, 'utf8');
     commitAll(repoDir);
     git(repoDir, ['checkout', '-q', '-']);
+    git(repoDir, ['reflog', 'expire', '--expire=now', '--all']);
   }],
   ['whose change was put away with git stash', (repoDir, file) => {
     fs.writeFileSync(file, EDITED_TEXT, 'utf8');
     git(repoDir, ['stash', '-q']);
+  }],
+  // Only the newest stash entry is a reference. git keeps an older entry in
+  // the reflog (the list of the earlier values of a reference).
+  ['whose change is in a stash entry that is not the newest one', (repoDir, file) => {
+    const otherFile = writeRepoFile(repoDir, OTHER_SOURCE_NAME);
+    git(repoDir, ['add', '-A']);
+    git(repoDir, ['stash', '-q']);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    git(repoDir, ['stash', '-q']);
+    fs.writeFileSync(otherFile, EDITED_TEXT, 'utf8');
+    git(repoDir, ['add', '-A']);
+    git(repoDir, ['stash', '-q']);
+  }],
+  ['that was committed on a branch that was deleted afterwards', (repoDir, file) => {
+    git(repoDir, ['checkout', '-q', '-b', 'feature']);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    commitAll(repoDir);
+    git(repoDir, ['checkout', '-q', '-']);
+    git(repoDir, ['branch', '-q', '-D', 'feature']);
   }],
 ];
 
@@ -1025,6 +1046,32 @@ test('A modified file whose record differs in letter case from the tracked name 
     fs.writeFileSync(repoWithCommittedSource(cwdDir), EDITED_TEXT, 'utf8');
     recordEdits(logDir, [path.join(cwdDir, recordedName)]);
   }), recordedName);
+});
+
+// A symbolic link is a file that points to another file. An edit through the
+// link changes the other file, and git reports no change for the link itself.
+test('A tracked symbolic link whose target was edited through the link is still named', () => {
+  const linkName = path.join('src', 'link.js');
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    const target = writeRepoFile(cwdDir, SOURCE_NAME);
+    const link = path.join(cwdDir, linkName);
+    fs.symlinkSync(path.basename(target), link);
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    fs.writeFileSync(link, EDITED_TEXT, 'utf8');
+    recordEdits(logDir, [link]);
+  }), linkName);
+});
+
+test('A tracked symbolic link whose target was edited through the link and then restored gets no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    const target = writeRepoFile(cwdDir, SOURCE_NAME);
+    const link = path.join(cwdDir, 'src', 'link.js');
+    fs.symlinkSync(path.basename(target), link);
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    recordEdits(logDir, [link]);
+  }));
 });
 
 // The file has two edit records. The commit lies between them, so only the
