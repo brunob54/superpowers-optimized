@@ -765,6 +765,195 @@ test('The TDD reminder names at most five files and counts the rest', () => {
   assert.ok(!reason.includes('f.js'), `Expected no sixth name, got: ${reason}`);
 });
 
+// ── TDD reminder leaves out a file that is back at its committed state ───────
+// Reported by a user: a session edited a source file and then removed the
+// edit. `git diff` was empty, but every later stop inside the 30-minute window
+// named the file again, because the reminder read the edit log only. The
+// reminder now asks git. It leaves a file out when git reports no change for
+// it and no commit changed it since the edit. A file that was committed
+// without a test is still named, and so is every file that git cannot judge.
+
+console.log('\nTDD reminder leaves out a file that is back at its committed state');
+
+const SOURCE_NAME = path.join('src', 'app.js');
+const NEW_SOURCE_NAME = path.join('src', 'new.js');
+const COMMITTED_TEXT = 'module.exports = 1;\n';
+const EDITED_TEXT = 'module.exports = 2;\n';
+const SECOND_MS = 1000;
+// The edit record is 10 minutes old and the first commit is one hour old, so
+// that commit is earlier than the edit. A commit that a test makes without a
+// date gets the current time, which is later than the edit.
+const EDIT_AGE_MINUTES = 10;
+const FIRST_COMMIT_AGE_MS = 60 * MINUTE_MS;
+
+function git(repoDir, args, env = {}) {
+  const result = spawnSync('git', args, { cwd: repoDir, encoding: 'utf8', env: { ...process.env, ...env } });
+  assert.strictEqual(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`);
+}
+
+/** The date of a commit in the raw form of git: whole seconds and a time zone. */
+function gitDate(timeMs) {
+  return `${Math.floor(timeMs / SECOND_MS)} +0000`;
+}
+
+function initRepo(repoDir) {
+  fs.mkdirSync(repoDir, { recursive: true });
+  git(repoDir, ['init', '-q']);
+  for (const [key, value] of [['user.email', 'test@example.com'], ['user.name', 'Test'], ['commit.gpgsign', 'false']]) {
+    git(repoDir, ['config', key, value]);
+  }
+}
+
+/** Write one file below repoDir, with its folders. Returns the full path. */
+function writeRepoFile(repoDir, name, text = COMMITTED_TEXT) {
+  const file = path.join(repoDir, name);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text, 'utf8');
+  return file;
+}
+
+/** Commit every file of repoDir. Without a time, the commit is made "now". */
+function commitAll(repoDir, timeMs = Date.now()) {
+  const date = gitDate(timeMs);
+  git(repoDir, ['add', '-A']);
+  git(repoDir, ['commit', '-q', '-m', 'commit'], { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date });
+}
+
+/**
+ * Make repoDir a repository whose only commit is one hour old and holds the
+ * source file. Returns the full path of the source file.
+ */
+function repoWithCommittedSource(repoDir, name = SOURCE_NAME) {
+  initRepo(repoDir);
+  const file = writeRepoFile(repoDir, name);
+  commitAll(repoDir, Date.now() - FIRST_COMMIT_AGE_MS);
+  return file;
+}
+
+function recordEdits(logDir, files) {
+  writeRecentEdits(logDir, files, EDIT_AGE_MINUTES);
+}
+
+function assertNoReminder(result) {
+  assert.deepStrictEqual(result, {}, `Expected no reminder, got: ${JSON.stringify(result)}`);
+}
+
+function assertReminderNames(result, name) {
+  const reason = result.reason || '';
+  assert.ok(reason.includes(TDD_SCENARIO.text) && reason.includes(`1 source file(s) modified without test changes: ${name}.`),
+    `Expected the TDD reminder to name only ${name}, got: ${JSON.stringify(result)}`);
+}
+
+test('A tracked file that was edited and then restored gets no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const file = repoWithCommittedSource(cwdDir);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    fs.writeFileSync(file, COMMITTED_TEXT, 'utf8');
+    recordEdits(logDir, [file]);
+  }));
+});
+
+test('A tracked file that is still modified is named', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    const file = repoWithCommittedSource(cwdDir);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    recordEdits(logDir, [file]);
+  }), SOURCE_NAME);
+});
+
+test('A file that was committed after the edit, without a test, is still named', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    const file = repoWithCommittedSource(cwdDir);
+    fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+    commitAll(cwdDir);
+    recordEdits(logDir, [file]);
+  }), SOURCE_NAME);
+});
+
+// git stores a commit time in whole seconds, and the edit log stores
+// milliseconds. A commit in the same second as the edit counts as "after the
+// edit": a doubtful case keeps the reminder.
+test('A commit in the same second as the edit counts as a commit after the edit', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    const commitTimeMs = Math.floor(Date.now() / SECOND_MS) * SECOND_MS - EDIT_AGE_MINUTES * MINUTE_MS;
+    const editTimeMs = commitTimeMs + 900;
+    initRepo(cwdDir);
+    const file = writeRepoFile(cwdDir, SOURCE_NAME);
+    commitAll(cwdDir, commitTimeMs);
+    writeEditLog(logDir, [editLogLine(TEST_SESSION_ID, file, Date.now() - editTimeMs)]);
+  }), SOURCE_NAME);
+});
+
+const DELETED_NEW_FILES = [
+  ['in a folder that still exists', NEW_SOURCE_NAME],
+  ['in a folder that was deleted too', path.join('scratch', 'deep', 'new.js')],
+];
+
+for (const [label, name] of DELETED_NEW_FILES) {
+  test(`A new file that was written and then deleted, ${label}, gets no reminder`, () => {
+    assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+      repoWithCommittedSource(cwdDir);
+      recordEdits(logDir, [path.join(cwdDir, name)]);
+    }));
+  });
+}
+
+test('A new file that git does not track yet is named', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithCommittedSource(cwdDir);
+    recordEdits(logDir, [writeRepoFile(cwdDir, NEW_SOURCE_NAME)]);
+  }), NEW_SOURCE_NAME);
+});
+
+test('A new file is named when the git configuration of the user hides untracked files', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithCommittedSource(cwdDir);
+    git(cwdDir, ['config', 'status.showUntrackedFiles', 'no']);
+    recordEdits(logDir, [writeRepoFile(cwdDir, NEW_SOURCE_NAME)]);
+  }), NEW_SOURCE_NAME);
+});
+
+test('A file that git ignores is named: git cannot say whether it changed', () => {
+  const ignoredName = path.join('build', 'out.js');
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    writeRepoFile(cwdDir, '.gitignore', 'build/\n');
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    recordEdits(logDir, [writeRepoFile(cwdDir, ignoredName)]);
+  }), ignoredName);
+});
+
+test('Of a restored file and a modified file, the reminder counts and names only the modified file', () => {
+  const modifiedName = path.join('src', 'other.js');
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    const files = [SOURCE_NAME, modifiedName].map(name => writeRepoFile(cwdDir, name));
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    fs.writeFileSync(files[1], EDITED_TEXT, 'utf8');
+    recordEdits(logDir, files);
+  }), modifiedName);
+});
+
+test('A restored file in a repository that is not the session folder gets no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    recordEdits(logDir, [repoWithCommittedSource(path.join(cwdDir, 'nested-repo'))]);
+  }));
+});
+
+test('A restored file whose record holds a relative path gets no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithCommittedSource(cwdDir);
+    recordEdits(logDir, [SOURCE_NAME]);
+  }));
+});
+
+test('In a repository with no commit, a file that does not exist is still named: git log fails', () => {
+  assertReminderNames(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    recordEdits(logDir, [path.join(cwdDir, SOURCE_NAME)]);
+  }), SOURCE_NAME);
+});
+
 // ── checkSessionLogSize hard cap ─────────────────────────────────────────────
 
 console.log('\ncheckSessionLogSize hard cap');
