@@ -311,10 +311,11 @@ const ALL_UNTRACKED_FILES = '--untracked-files=all';
 
 /**
  * Run one git command in `cwd`. Return its standard output without the
- * surrounding white space, or null when git failed or could not be started.
+ * surrounding white space, or null when git failed, could not be started, or
+ * did not end within `timeoutMs` milliseconds.
  */
-function gitStdout(args, cwd) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
+function gitStdout(args, cwd, timeoutMs = GIT_TIMEOUT_MS) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: timeoutMs });
   if (result.status !== 0 || result.error) return null;
   return (result.stdout || '').trim();
 }
@@ -326,17 +327,31 @@ function gitStdout(args, cwd) {
 const GIT_READ_ONE_FILE = ['--no-optional-locks', '--literal-pathspecs'];
 
 /**
+ * Return the nearest folder that exists: `folder` itself, or the first
+ * folder above it that exists.
+ */
+function nearestExistingFolder(folder) {
+  let existing = folder;
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) {
+    existing = path.dirname(existing);
+  }
+  return existing;
+}
+
+/**
  * Return a function that runs one read-only git command about one file.
  * `realPath` is the full path of the file with every symbolic link resolved.
  * git runs in the folder of the file, so the repository of the file decides,
- * not the session folder. The name of the file is always the one path of the
- * command: a `git status` with no path would report the whole repository.
+ * not the session folder. When that folder no longer exists (it was renamed
+ * or deleted), git runs in the nearest folder that exists and gets the rest
+ * of the path, with `/` as the separator on every platform. The file is
+ * always the one path of the command: a `git status` with no path would
+ * report the whole repository. Each call may take `timeoutMs` milliseconds.
  */
-function gitReaderForFile(realPath) {
-  return (...args) => gitStdout(
-    [...GIT_READ_ONE_FILE, ...args, '--', path.basename(realPath)],
-    path.dirname(realPath)
-  );
+function gitReaderForFile(realPath, timeoutMs = GIT_TIMEOUT_MS) {
+  const folder = nearestExistingFolder(path.dirname(realPath));
+  const pathFromFolder = path.relative(folder, realPath).split(path.sep).join('/');
+  return (...args) => gitStdout([...GIT_READ_ONE_FILE, ...args, '--', pathFromFolder], folder, timeoutMs);
 }
 
 const SECOND_MS = 1000;
@@ -414,22 +429,36 @@ function formatFileList(filePaths, cwd) {
  * Return the full path of a logged file as the file system stores it: every
  * symbolic link is resolved, and on a file system that ignores letter case
  * the path has the stored letter case (git reports nothing for a name in
- * another letter case). A file that no longer exists is resolved through its
- * folder, so that git can still report a deleted file. The result is null
- * when the folder does not exist either.
+ * another letter case). A file that no longer exists is resolved through the
+ * nearest folder above it that exists, and the rest of the path is added
+ * unchanged, so that git can still report a file that was deleted, or whose
+ * folder was renamed or deleted. The result is null only when the path
+ * cannot be resolved at all (for example a drive that does not exist).
  */
 function storedPath(filePath, cwd) {
+  let resolved;
   try {
-    const resolved = path.resolve(cwd, filePath);
-    try {
-      return fs.realpathSync.native(resolved);
-    } catch {
-      return path.join(fs.realpathSync.native(path.dirname(resolved)), path.basename(resolved));
-    }
+    resolved = path.resolve(cwd, filePath);
   } catch {
     return null;
   }
+  let existing = resolved;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(existing), path.relative(existing, resolved));
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return null;
+      existing = parent;
+    }
+  }
 }
+
+// The whole count of the commit reminder may take this long. Each git call
+// has its own limit of GIT_TIMEOUT_MS, so without a limit for the whole count
+// a git that hangs would block the stop for that time once per logged file
+// (measured: 30 seconds for 6 files).
+const COMMIT_COUNT_TIME_LIMIT_MS = GIT_TIMEOUT_MS;
 
 /**
  * Count the files of `editedPaths` for which git reports a change that is not
@@ -438,13 +467,19 @@ function storedPath(filePath, cwd) {
  * and an empty list runs no git command. A file is counted once, also when
  * the list names it under two paths. Not counted: a file that git ignores
  * (it cannot be committed), a file outside a git repository, and a file for
- * which git fails.
+ * which git fails. When COMMIT_COUNT_TIME_LIMIT_MS is used up, the count
+ * stops, and the result is the number of files counted until then.
  */
 function countFilesWithUncommittedChanges(editedPaths, cwd) {
   const storedPaths = new Set(editedPaths.map(filePath => storedPath(filePath, cwd)).filter(Boolean));
-  return [...storedPaths]
-    .filter(file => Boolean(gitReaderForFile(file)(...GIT_STATUS, ALL_UNTRACKED_FILES)))
-    .length;
+  const deadlineMs = Date.now() + COMMIT_COUNT_TIME_LIMIT_MS;
+  let count = 0;
+  for (const file of storedPaths) {
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs <= 0) break;
+    if (gitReaderForFile(file, remainingMs)(...GIT_STATUS, ALL_UNTRACKED_FILES)) count += 1;
+  }
+  return count;
 }
 
 const SUBAGENT_TASK_TYPE = 'subagent';
