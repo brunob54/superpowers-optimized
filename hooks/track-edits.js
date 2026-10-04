@@ -20,7 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { excludeFromGit } = require('./git-exclude');
+const { excludeFromGit, git } = require('./git-exclude');
 const { LOG_DIR, editLogFile, markerFile, writeTimeFile } = require('./save-marker');
 
 // AI-generated workspace artifacts that should never be committed
@@ -29,10 +29,16 @@ const AI_ARTIFACTS = ['project-map.md', 'session-log.md', 'state.md', 'known-iss
 /**
  * Keep an AI artifact file out of `git status` without editing a tracked file.
  * Called after every Edit or Write; it acts only when the file name is in
- * AI_ARTIFACTS.
+ * AI_ARTIFACTS and the file lies directly in the top folder of its git work
+ * tree (the folder that holds the checked-out files; a linked worktree has
+ * its own top folder). The skills write these files only there. A file with
+ * the same name in a subfolder, for example `docs/known-issues.md`, is a
+ * document of the user's project: an exclude entry would leave it out of
+ * `git add -A` and of the commit with no message.
  */
 function excludeArtifact(filePath) {
   if (!AI_ARTIFACTS.includes(path.basename(filePath))) return;
+  if (!isInTopFolderOfWorkTree(filePath)) return;
   excludeFromGit(filePath);
 }
 
@@ -78,6 +84,21 @@ function realPath(p) {
     } catch {
       return p;
     }
+  }
+}
+
+/**
+ * True when git reports the real folder of filePath as the top folder of a
+ * work tree. `git rev-parse --show-prefix` prints the path of the folder from
+ * that top folder: an empty line for the top folder itself, and a path that
+ * ends in `/` for a subfolder. Outside a git repository the command fails,
+ * and the result is false.
+ */
+function isInTopFolderOfWorkTree(filePath) {
+  try {
+    return git(['rev-parse', '--show-prefix'], realPath(path.dirname(filePath))).trim() === '';
+  } catch {
+    return false;
   }
 }
 

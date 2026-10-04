@@ -26,6 +26,12 @@ const TRACK_EDITS = path.join(HOOKS_DIR, 'track-edits.js');
 const CONTEXT_ENGINE = path.join(HOOKS_DIR, 'context-engine.js');
 const GITIGNORE = '.gitignore';
 const STATE_FILE = 'state.md';
+const KNOWN_ISSUES_FILE = 'known-issues.md';
+// The four workspace files that the skills of the plugin write.
+const WORKSPACE_FILES = [STATE_FILE, KNOWN_ISSUES_FILE, 'session-log.md', 'project-map.md'];
+const DOCS_FOLDER = 'docs';
+// A folder name that holds three characters with a meaning in a gitignore pattern.
+const PATTERN_CHARACTERS_FOLDER = 'a[1]*?';
 const SNAPSHOT_FILE = 'context-snapshot.json';
 const FILE_TEXT = 'content\n';
 const EMPTY_HOOK_OUTPUT = '{}';
@@ -129,6 +135,28 @@ function status(cwd) {
   return git(cwd, 'status', '--porcelain', '--untracked-files=all');
 }
 
+/** The path as git prints it: with `/` between the folders, also on Windows. */
+function gitPath(relativePath) {
+  return relativePath.split(path.sep).join('/');
+}
+
+/** The line that `git status --porcelain` prints for an untracked file. */
+function untrackedLine(relativePath) {
+  return `?? ${gitPath(relativePath)}\n`;
+}
+
+/**
+ * Write the file with the tool, then check that the hook hid nothing: the
+ * exclude file is unchanged and `git status` in `repo` lists the file at
+ * `relativePath` (its real place in the repository) as untracked.
+ */
+function assertStaysVisible(repo, filePath, relativePath) {
+  const excludeBefore = excludeContent(repo);
+  assert.strictEqual(writeWithTool(repo, filePath), EMPTY_HOOK_OUTPUT);
+  assert.strictEqual(excludeContent(repo), excludeBefore);
+  assert.strictEqual(status(repo), untrackedLine(relativePath));
+}
+
 function excludePath(cwd) {
   return path.resolve(cwd, git(cwd, 'rev-parse', '--git-path', 'info/exclude').trim());
 }
@@ -157,19 +185,39 @@ test('an artifact at the repository root is ignored at that path only', () => {
   assert.ok(!isIgnored(repo, path.join('sub', STATE_FILE)), 'sub/state.md is ignored too');
 });
 
-test('an artifact in a subfolder is ignored at that path only', () => {
-  const repo = makeRepo();
-  writeWithTool(repo, path.join('sub', STATE_FILE));
-  assert.strictEqual(status(repo), '');
-  assert.ok(!fs.existsSync(path.join(repo, 'sub', GITIGNORE)), GITIGNORE_CREATED);
-  assert.ok(!isIgnored(repo, path.join('other', STATE_FILE)), 'other/state.md is ignored too');
-});
+for (const name of WORKSPACE_FILES) {
+  test(`${name} at the repository root gets an entry`, () => {
+    const repo = makeRepo();
+    writeWithTool(repo, name);
+    assert.strictEqual(status(repo), '');
+    assert.ok(isIgnored(repo, name), `${name} is not ignored`);
+  });
+}
 
-test('a folder name with gitignore pattern characters is matched literally', () => {
+// A file with the name of a workspace file in a subfolder is a document of the
+// user's project. An entry would leave it out of `git add -A` with no message.
+for (const relativePath of [
+  path.join(DOCS_FOLDER, KNOWN_ISSUES_FILE),
+  path.join(DOCS_FOLDER, 'guides', STATE_FILE),
+]) {
+  test(`${gitPath(relativePath)} gets no entry and stays in git status`, () => {
+    const repo = makeRepo();
+    assertStaysVisible(repo, relativePath, relativePath);
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'add the document');
+    assert.ok(
+      git(repo, 'ls-files').split('\n').includes(gitPath(relativePath)),
+      'the commit lacks the document'
+    );
+  });
+}
+
+test('a subfolder file gets no entry when the session folder is that subfolder', () => {
   const repo = makeRepo();
-  writeWithTool(repo, path.join('a[1]*?', STATE_FILE));
-  assert.strictEqual(status(repo), '');
-  assert.ok(!isIgnored(repo, path.join('a1xy', STATE_FILE)), 'the pattern matched another folder');
+  const docs = path.join(repo, DOCS_FOLDER);
+  fs.mkdirSync(docs);
+  writeWithTool(docs, STATE_FILE);
+  assert.strictEqual(status(repo), untrackedLine(path.join(DOCS_FOLDER, STATE_FILE)));
 });
 
 test('an existing exclude file keeps its entries, also when its last line has no newline', () => {
@@ -239,15 +287,40 @@ test('an artifact in a linked worktree is ignored there, and no .gitignore is cr
   assert.ok(!fs.existsSync(path.join(worktree, GITIGNORE)), GITIGNORE_CREATED);
 });
 
-test('an artifact reached through a symbolic link to a subfolder is ignored in its repository', () => {
+test('an artifact at the top level of a linked worktree inside the main work tree is ignored there', () => {
   const repo = makeRepo();
-  const realFolder = path.join(repo, 'real', 'deep');
-  fs.mkdirSync(realFolder, { recursive: true });
-  const link = path.join(repo, 'alias');
-  fs.symlinkSync(realFolder, link);
-  writeWithTool(repo, path.join(link, STATE_FILE));
-  assert.ok(isIgnored(repo, path.join('real', 'deep', STATE_FILE)), 'the real path is not ignored');
+  const worktree = path.join(repo, '.worktrees', 'export');
+  git(repo, 'worktree', 'add', '-q', worktree);
+  writeWithTool(worktree, STATE_FILE);
+  assert.strictEqual(status(worktree), '');
+});
+
+test('a subfolder file in a linked worktree gets no entry and stays in git status', () => {
+  const repo = makeRepo();
+  const worktree = `${repo}-linked`;
+  git(repo, 'worktree', 'add', '-q', worktree);
+  const relativePath = path.join(DOCS_FOLDER, KNOWN_ISSUES_FILE);
+  assertStaysVisible(worktree, relativePath, relativePath);
+});
+
+test('an artifact at the repository root, reached through a symbolic link, is ignored in its repository', () => {
+  const repo = makeRepo();
+  const link = `${repo}-alias`;
+  fs.symlinkSync(repo, link);
+  writeWithTool(link, STATE_FILE);
+  assert.strictEqual(status(repo), '');
+  assert.ok(isIgnored(repo, STATE_FILE), 'the real path is not ignored');
   assert.ok(!fs.existsSync(path.join(WORK_ROOT, '.git')), 'a .git folder was created above the repository');
+});
+
+test('a subfolder file reached through a symbolic link gets no entry and stays in git status', () => {
+  const repo = makeRepo();
+  fs.mkdirSync(path.join(repo, DOCS_FOLDER));
+  // The link sits outside the repository, so the path of the file does not
+  // show that the file is in a subfolder; only the real path shows it.
+  const link = `${repo}-docs-alias`;
+  fs.symlinkSync(path.join(repo, DOCS_FOLDER), link);
+  assertStaysVisible(repo, path.join(link, STATE_FILE), path.join(DOCS_FOLDER, STATE_FILE));
 });
 
 test('an artifact inside the .git folder gets no entry', () => {
@@ -290,6 +363,16 @@ test('a snapshot written from a subfolder is ignored, and a tracked .gitignore i
   assert.ok(fs.existsSync(path.join(sub, SNAPSHOT_FILE)), 'no snapshot was written');
   assert.strictEqual(status(repo), '');
   assert.strictEqual(fs.readFileSync(path.join(repo, GITIGNORE), 'utf8'), gitignoreText);
+});
+
+test('a folder name with gitignore pattern characters is matched literally', () => {
+  const repo = makeRepo();
+  const sub = path.join(repo, PATTERN_CHARACTERS_FOLDER);
+  fs.mkdirSync(sub);
+  runHook(CONTEXT_ENGINE, sub, { cwd: sub });
+  assert.ok(fs.existsSync(path.join(sub, SNAPSHOT_FILE)), 'no snapshot was written');
+  assert.strictEqual(status(repo), '');
+  assert.ok(!isIgnored(repo, path.join('a1xy', SNAPSHOT_FILE)), 'the pattern matched another folder');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
