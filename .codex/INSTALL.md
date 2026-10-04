@@ -135,7 +135,7 @@ Confirm `codex --version` reports `0.118.0` or newer. That floor comes from the 
 ## Hook behavior notes
 
 **What the hooks are intended to do (not confirmed live):**
-- **SessionStart:** Inject project context (project map, state, known issues, using-superpowers skill) at session start. Check for plugin updates (non-destructive: only applies if the clone is clean and can fast-forward to `origin/main`).
+- **SessionStart:** Inject project context (project map, state, known issues, using-superpowers skill) at session start. Check for plugin updates (non-destructive: only applies if the clone is clean and can fast-forward to `origin/main`). Since v7.59.0 the check runs only when the plugin folder is itself the top level of a git work tree (the folder that holds the checked-out files) and branch `main` is checked out. A clone with another branch checked out, or with a detached HEAD (a checked-out commit with no branch), gets no automatic update and no notice; update it with `git pull`.
 - **UserPromptSubmit:** Proactive skill routing — analyzes each prompt and injects skill suggestions before the model responds.
 - **PreToolUse (Bash):** Safety dispatcher — blocks dangerous shell commands (rm -rf ~, curl|sh, fork bombs, etc.) and secret exfiltration attempts before execution.
 - **PostToolUse (Bash):** Reactive smart-compress — replaces verbose Bash output after execution with a compressed summary when an existing compression rule matches and the summary is materially smaller.
