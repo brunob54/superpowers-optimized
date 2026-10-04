@@ -1,0 +1,47 @@
+I001 [*] Import block is un-sorted or un-formatted
+ --> demo.py:1:1
+  |
+1 | / import os
+2 | | import sys
+  | |__________^
+3 |
+4 |   def function_1(value):
+  |
+help: Organize imports
+  |
+3 |
+4 +
+5 | def function_1(value):
+  |
+
+F401 [*] `os` imported but unused
+ --> demo.py:1:8
+  |
+1 | import os
+  |        ^^
+2 | import sys
+  |
+help: Remove unused import: `os`
+  |
+  - import os
+1 | import sys
+  |
+
+F401 [*] `sys` imported but unused
+ --> demo.py:2:8
+  |
+1 | import os
+2 | import sys
+  |        ^^^
+3 |
+4 | def function_1(value):
+  |
+help: Remove unused import: `sys`
+  |
+1 | import os
+  - import sys
+2 |
+  |
+
+Found 3 errors.
+[*] 3 fixable with the `--fix` option.

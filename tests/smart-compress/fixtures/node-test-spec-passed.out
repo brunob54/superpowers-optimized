@@ -1,0 +1,36 @@
+
+> pass@1.0.0 test
+> node --test
+
+✔ case 1 (0.317708ms)
+✔ case 2 (0.0475ms)
+✔ case 3 (0.042167ms)
+✔ case 4 (0.25925ms)
+✔ case 5 (0.03775ms)
+✔ case 6 (0.026958ms)
+✔ case 7 (0.028167ms)
+✔ case 8 (0.025666ms)
+✔ case 9 (0.03925ms)
+✔ case 10 (0.067791ms)
+✔ case 11 (0.035292ms)
+✔ case 12 (0.031709ms)
+✔ case 13 (0.036208ms)
+✔ case 14 (0.02025ms)
+✔ case 15 (0.0255ms)
+✔ case 16 (0.023458ms)
+✔ case 17 (0.025042ms)
+✔ case 18 (0.024792ms)
+✔ case 19 (0.034625ms)
+✔ case 20 (0.029334ms)
+✔ case 21 (0.016041ms)
+✔ case 22 (0.015333ms)
+✔ case 23 (0.013459ms)
+✔ case 24 (0.01325ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 30.740333

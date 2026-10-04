@@ -1,0 +1,30 @@
+PASS jest24-pass/s13.test.js
+PASS jest24-pass/s12.test.js
+PASS jest24-pass/s21.test.js
+PASS jest24-pass/s10.test.js
+PASS jest24-pass/s6.test.js
+PASS jest24-pass/s20.test.js
+PASS jest24-pass/s17.test.js
+PASS jest24-pass/s16.test.js
+PASS jest24-pass/s3.test.js
+PASS jest24-pass/s4.test.js
+PASS jest24-pass/s7.test.js
+PASS jest24-pass/s22.test.js
+PASS jest24-pass/s1.test.js
+PASS jest24-pass/s15.test.js
+PASS jest24-pass/s23.test.js
+PASS jest24-pass/s18.test.js
+PASS jest24-pass/s19.test.js
+PASS jest24-pass/s14.test.js
+PASS jest24-pass/s8.test.js
+PASS jest24-pass/s2.test.js
+PASS jest24-pass/s5.test.js
+PASS jest24-pass/s24.test.js
+PASS jest24-pass/s9.test.js
+PASS jest24-pass/s11.test.js
+
+Test Suites: 24 passed, 24 total
+Tests:       24 passed, 24 total
+Snapshots:   0 total
+Time:        0.295 s, estimated 1 s
+Ran all test suites.

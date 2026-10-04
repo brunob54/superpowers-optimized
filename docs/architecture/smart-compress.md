@@ -11,7 +11,7 @@ Every time Claude runs a shell command, the full raw output flows into its conte
 - `git add .` produces nothing useful — Claude already knows what it staged
 - `git status` includes 4-5 hint lines ("use git add...", "use git restore...") that serve no purpose for an AI
 - `npm install` dumps hundreds of "added package X" lines when all Claude needs is "installed, 150 packages, no errors"
-- Passing test suites print every individual test name when "42 tests passed" conveys the same information
+- Passing test suites print every individual test name when the summary lines of the test runner ("Tests: 42 passed, 42 total") convey the same information
 
 In a typical 30-minute session, Claude runs ~80 Bash commands. The raw output from those commands can consume 50,000-120,000 tokens — often more than the actual code Claude reads and writes.
 
@@ -59,7 +59,7 @@ Before this design, the hook ran on `PreToolUse` and replaced the command with a
 ║   smart-compress Implementation Summary   
 ╠═══════════════════════════════════════════
 ║ Compression rules: 17 
-║ Never-compress patterns: 9 
+║ Never-compress patterns: 11 
 ║ Min output threshold: 200 chars 
 ╠═══════════════════════════════════════════
 ║ Tier 1 (near-lossless): 9 
@@ -92,6 +92,8 @@ Before this design, the hook ran on `PreToolUse` and replaced the command with a
 ║   - ^\s*(vim|nano|emacs|vi)\s+            
 ║   - ^\s*(node|python3?|ruby|php|perl)\s+-e\ 
 ║   - ^\s*(echo|printf)\s+                  
+║   - ^git\s+(add|commit)\b.*\s--dry-run(\s|$) 
+║   - ^git\s+add\b.*\s-[a-zA-Z]*n[a-zA-Z]*(\s|$) 
 ╚═══════════════════════════════════════════
 
 ### Tier 1: Near-Lossless
@@ -120,14 +122,19 @@ These commands produce output where some lines are signal and others are noise. 
 |---|---|---|
 | `git status` | Hint lines ("use git add...", "use git restore..."), "no changes added to commit" | Branch info, file lists |
 | `git log` (>40 lines) | Entries beyond the first 30 | First 30 entries + count of remaining |
-| Test runners (passing) | Individual "PASS" lines | Summary lines ("Tests: 100 passed, 100 total") + warnings |
+| Test runners (passing), only for output with a summary line that the rule reads | Individual "PASS" lines | Summary lines ("Tests: 100 passed, 100 total"; for mocha "8 passing" and "16 pending") + warnings |
 | Build commands (success) | Compilation progress, bundling steps | Summary + warnings |
-| Lint output (>30 lines) of a run that ends with exit status 0 | Repeated similar warnings | Error/warning counts, the lines with the word "error" (25 at most), the first 5 warnings, and the alert lines |
+| Lint output (>30 lines) of a run that ends with exit status 0, only when the counts cover every message | Repeated similar warnings | Error/warning counts, the lines with the word "error" (25 at most), the first 5 warnings, and the alert lines |
 | `ls` (>50 entries) | Entries beyond 50 | First 50 + count of remaining |
 | `find` (>60 results) | Results beyond 60 | First 60 + count of remaining |
 | `docker build` (success) | Layer download/extract progress | Step headers + final result |
 
 **Lint runs that fail are no longer compressed.** Most lint tools end with a non-zero exit status when they report an error. Claude Code sends no `PostToolUse` event for such a run, so the hook does not see it and the output stays raw. The earlier design compressed that output too (the lint rule is the only rule that does not look at the exit status). This saving is lost. The same holds for a test run that fails, which was raw before as well.
+
+**A rule states only what the output states.** Exit status 0 does not prove that a test ran or that a lint tool found nothing. Two rules therefore leave output raw that they cannot read:
+
+- **Test runs without a summary line.** The test rule reads the summary lines of jest, mocha, cargo, rspec, phpunit and Python's unittest. When the output holds none of them, the output stays raw. Measured examples: `node --test` (spec and TAP reporter, Node 24.13.1), `pytest -v` (9.1.1) and `vitest run --reporter=verbose` (5.0.3) print a summary in another form, so their output stays raw, also when every test passed. An earlier version replaced such output with the sentence "all tests passed", which was false for a run with 24 skipped tests and for a run with no test.
+- **Lint output with messages that the rule cannot count.** The lint rule counts the lines that hold the word "error" or "warning". The output stays raw when the rule counts no line, and when a line that is not counted names a position (`line:column`). Measured examples: the messages of `pylint --exit-zero` (4.1.2) and `ruff check --exit-zero` (0.16.10) hold neither word, so their output stays raw. The output of eslint (10.12.0, default format) is still compressed: each message holds the word "error" or "warning". An earlier version printed "0 error(s), 0 warning(s)" for pylint output with 36 messages.
 
 ---
 
@@ -144,6 +151,8 @@ These commands always pass through with raw, unmodified output — regardless of
 | `curl`, `wget`, `httpie` | API responses should not be truncated |
 | `echo`, `printf` | User is constructing specific output |
 | `node -e`, `python -e`, `ruby -e` | Inline script output is the point |
+| A dry run of `git add` (`--dry-run`, `-n`, also in a group of short options such as `-An`) or of `git commit` (`--dry-run`) | The command changes nothing, so the result that the rule states (`ok`, `committed`) would be false. Quotes are not parsed, so a commit message that holds ` --dry-run` also stops compression. |
+| A test run whose output holds no summary line that the test rule reads; lint output with messages that the lint rule cannot count | The rule cannot read the result, and exit status 0 does not prove it (see "A rule states only what the output states") |
 | **Any command that fails** (non-zero exit code) | Error output must be seen in full |
 | Output shorter than 200 characters | Not worth the compression overhead |
 | Output that the replacement would not make shorter (not fewer lines, or not fewer characters than the `stdout` text of the response) | Nothing to gain (see "The Size Rule"); every replaced output carries the marker |

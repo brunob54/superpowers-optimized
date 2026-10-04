@@ -50,6 +50,13 @@ const NEVER_COMPRESS = [
 
   // Echo/printf — user constructing specific output
   /^\s*(echo|printf)\s+/,
+
+  // Dry runs of `git add` and `git commit` — the command changes nothing, so
+  // the result that the rule states ("ok", "committed") would be false.
+  // `git add` also has the short option `-n`, alone or in a group of short
+  // options (`-An`). For `git commit`, `-n` is `--no-verify` and not a dry run.
+  /^git\s+(add|commit)\b.*\s--dry-run(\s|$)/,
+  /^git\s+add\b.*\s-[a-zA-Z]*n[a-zA-Z]*(\s|$)/,
 ];
 
 // Minimum output length (chars) to bother compressing.
@@ -276,10 +283,11 @@ const RULES = [
       // "Tests: 100 passed, 100 total" is a summary (signal).
       const summaryPatterns = [
         /\d+\s+passing\b/i,                       // mocha: "5 passing (3s)"
+        /^\s*\d+\s+pending\s*$/,                    // mocha: "2 pending", on its own line
         /Tests?:\s+\d+/i,                          // jest: "Tests: 100 passed, 100 total"
         /Test Suites?:\s+\d+/i,                     // jest: "Test Suites: 5 passed"
         /test result:\s/i,                          // cargo: "test result: ok"
-        /\bOK\s*\(\d+/i,                           // pytest: "OK (42 tests)"
+        /\bOK\s*\(\d+/i,                           // phpunit: "OK (42 tests, 80 assertions)"
         /\d+\s+passed,?\s+\d+\s+total/i,           // generic: "100 passed, 100 total"
         /\d+\s+tests?\s+passed/i,                   // generic: "42 tests passed"
         /All\s+\d+\s+tests/i,                       // generic
@@ -292,16 +300,14 @@ const RULES = [
       const summaryLines = lines.filter(l =>
         summaryPatterns.some(p => p.test(l))
       );
+      // Without a summary line, the output does not state a result: exit
+      // status 0 does not prove that a test ran (skipped tests, no test file)
+      if (!summaryLines.length) return null;
 
       // Collect warnings
       const warningLines = lines.filter(l => /\bwarn|deprecat/i.test(l));
 
-      const result = [];
-      if (summaryLines.length) {
-        result.push(...summaryLines);
-      } else {
-        result.push(`all tests passed (${lines.length} lines of output)`);
-      }
+      const result = [...summaryLines];
       if (warningLines.length) {
         result.push('', 'Warnings:');
         result.push(...warningLines.slice(0, 10));
@@ -350,8 +356,17 @@ const RULES = [
       if (lines.length <= 30) return null;
 
       // Count by severity
-      const errors = lines.filter(l => /\berror\b/i.test(l));
-      const warnings = lines.filter(l => /\bwarn(ing)?\b/i.test(l) && !/\berror\b/i.test(l));
+      const isError = l => /\berror\b/i.test(l);
+      const isWarning = l => /\bwarn(ing)?\b/i.test(l);
+      const errors = lines.filter(isError);
+      const warnings = lines.filter(l => isWarning(l) && !isError(l));
+
+      // The counts are true only when they cover every message of the tool.
+      // They do not when no line is counted, or when a line that is not
+      // counted names a position (line:column): pylint, ruff and flake8 print
+      // messages without the words "error" and "warning". Such output stays raw.
+      if (!errors.length && !warnings.length) return null;
+      if (lines.some(l => !isError(l) && !isWarning(l) && /\d+:\d+/.test(l))) return null;
 
       const result = [];
       result.push(`${errors.length} error(s), ${warnings.length} warning(s)`);
