@@ -143,6 +143,7 @@ module.exports = {
   LOG_DIR,
   MARKER_COMMAND,
   MAX_AGE_MS,
+  cleanSessionId,
   editLogFile,
   guardFile,
   markerFile,

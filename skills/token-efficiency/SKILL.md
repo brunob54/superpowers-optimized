@@ -106,7 +106,7 @@ The plugin automatically compresses noisy Bash output before it enters your cont
 
 ### What gets compressed
 
-- **Tier 1 (near-lossless):** git add/commit/push/pull/clone/fetch, npm/pip/cargo install — reduced to one-line summaries
+- **Tier 1 (near-lossless):** git add/commit/push/pull/clone/fetch, npm/pip/cargo install — reduced to one-line summaries. A removed line that holds an alert word (error, warning, fatal, failed, conflict, denied, incompatible, deprecated, cannot, not found) is added below the summary, under the heading `Removed lines with an alert word:`
 - **Tier 2 (smart filtering):** git status (hint lines removed), git log (truncated), passing tests (summary only), successful builds (summary only), lint output (grouped by severity), large ls/find results (truncated)
 
 ### What is NEVER compressed

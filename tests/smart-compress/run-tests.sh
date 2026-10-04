@@ -13,6 +13,10 @@
 # Stop the suite when a command is not found; the file explains the reason.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/undefined-command-guard.sh"
 
+# The caller's environment must not turn the hook off: remove every SP_*
+# variable that the hook reads
+unset SP_NO_COMPRESS
+
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HOOK="$PLUGIN_ROOT/hooks/bash-compress-hook.js"
 PASS=0
@@ -106,9 +110,20 @@ build_input() {
   echo "$file"
 }
 
-# Run the hook with the input in the file $1, print its standard output
+# Run the hook with the input in the file $1, print its standard output.
+# Claude Code reads exit status 2 as a blocking error and shows standard error
+# to Claude, so a run with another exit status than 0, or with text on
+# standard error, prints a text that no check expects.
 run_hook_file() {
-  TMPDIR="$TRACK_DIR" TEMP="$TRACK_DIR" TMP="$TRACK_DIR" node "$HOOK" < "$1"
+  local err_file out status
+  err_file=$(mktmp)
+  out=$(TMPDIR="$TRACK_DIR" TEMP="$TRACK_DIR" TMP="$TRACK_DIR" node "$HOOK" < "$1" 2> "$err_file")
+  status=$?
+  if [ "$status" -ne 0 ] || [ -s "$err_file" ]; then
+    echo "HOOK FAILED: exit status $status, standard error: $(cat "$err_file")"
+  else
+    printf '%s\n' "$out"
+  fi
 }
 
 # Run the hook for one Bash call. The arguments are those of build_input.
@@ -134,7 +149,7 @@ compressed_text() { hook_value "$1" 'updated ? updated.stdout : ""'; }
 
 # The rule named in the marker line of the replaced output; "none" when the
 # hook replaced nothing
-rule_type() { hook_value "$1" '((updated ? updated.stdout : "").match(/\| ([\w-]+)\]$/) || [0, "none"])[1]'; }
+rule_type() { hook_value "$1" '((updated ? updated.stdout : "").match(/\| ([\w-]+)( \| raw output: .*)?\]$/) || [0, "none"])[1]'; }
 
 # Output with 100 lines: long enough for every rule except git-status, which
 # removes hint lines only
@@ -173,6 +188,10 @@ bold "\n2. NEVER-COMPRESS CLASSIFICATION"
 # The output is long, so only the command can be the reason for raw output
 check_never() { is_compressed "$(run_hook "$1" "$NOISY" "never-$$-$RANDOM")"; }
 
+# No rule matches the next 9 commands: every rule starts with another program
+# name. The checks state the documented result; they cannot show which of the
+# two reasons (the never-compress list, or no rule) keeps the output raw.
+
 assert "git diff passes through"            "$(check_never 'git diff HEAD')"            "no"
 assert "git diff --staged passes through"   "$(check_never 'git diff --staged')"        "no"
 assert "cat file passes through"            "$(check_never 'cat README.md')"            "no"
@@ -183,19 +202,22 @@ assert "wget passes through"                "$(check_never 'wget https://example
 assert "echo passes through"                "$(check_never 'echo hello')"               "no"
 assert "printf passes through"              "$(check_never 'printf hello')"             "no"
 assert "piped grep passes through"          "$(check_never 'git log | grep fix')"       "no"
-assert "piped awk passes through"           "$(check_never 'cat file | awk NF')"        "no"
+assert "piped awk passes through"           "$(check_never 'npm test | awk NF')"        "no"
 
 # A compound command runs several commands, and a rule matches only the first
 # one, so compressing it can remove the output of the later commands (row 36).
+# In each command below, a rule matches the first command and compresses the
+# 100 lines, so only the separator keeps the output raw.
 assert "&& chain passes through"            "$(check_never 'git add . && git commit -m msg && git log --oneline -1')" "no"
 assert "|| chain passes through"            "$(check_never 'git log || true')"         "no"
-assert "; chain passes through"             "$(check_never 'git status; git log')"     "no"
+assert "; chain passes through"             "$(check_never 'git log; git status')"     "no"
 assert "pipe into tail passes through"      "$(check_never 'git push origin main | tail -5')" "no"
 assert "new-line chain passes through"      "$(check_never $'git add .\ngit log')"     "no"
 assert "background & passes through"        "$(check_never 'npm install & wait')"      "no"
 assert "background & before < passes through" "$(check_never 'npm install &<in wait')"  "no"
 assert "--verbose passes through"           "$(check_never 'npm install --verbose')"    "no"
 assert "--debug passes through"             "$(check_never 'cargo build --debug')"      "no"
+# No rule matches the next 2 commands (see above)
 assert "node -e passes through"             "$(check_never 'node -e console.log(1)')"  "no"
 assert "rtk command passes through"         "$(check_never 'rtk git status')"           "no"
 
@@ -213,9 +235,12 @@ assert "git commit → git-commit rule"        "$(check_rule 'git commit -m msg'
 assert "git push → git-push rule"            "$(check_rule 'git push origin main')" "git-push"
 assert "git pull → git-pull rule"            "$(check_rule 'git pull')"             "git-pull"
 assert "git clone → git-clone rule"          "$(check_rule 'git clone https://github.com/x/y')" "git-clone"
+assert "git fetch → git-fetch rule"          "$(check_rule 'git fetch origin')"     "git-fetch"
 assert "git status → git-status rule"        "$(check_rule 'git status' "$STATUS_OUT")" "git-status"
 assert "git log → git-log rule"              "$(check_rule 'git log')"              "git-log"
 assert "npm install → npm-install rule"      "$(check_rule 'npm install')"          "npm-install"
+assert "pip install → pip-install rule"      "$(check_rule 'pip install requests')" "pip-install"
+assert "cargo install → cargo-install rule"  "$(check_rule 'cargo install ripgrep')" "cargo-install"
 assert "npm test → test-pass rule"           "$(check_rule 'npm test')"             "test-pass"
 assert "cargo test → test-pass rule"         "$(check_rule 'cargo test')"           "test-pass"
 assert "pytest → test-pass rule"             "$(check_rule 'pytest')"               "test-pass"
@@ -387,16 +412,30 @@ assert "replacement: a stderr field that is not empty stays unchanged" \
 out=$(run_hook "git status" "$STATUS_OUT" "crlf-$$-$RANDOM" 'input.tool_response.stdout = input.tool_response.stdout.replace(/\n/g, "\r\n");')
 assert_not_contains "replacement: hint lines with Windows line ends are removed" "$(compressed_text "$out")" '(use "git'
 assert "replacement: output with Windows line ends gets the marker" "$(compressed_text "$out" | tail -1)" "$STATUS_MARKER"
+assert "replacement: the text has no carriage return character" \
+  "$(hook_value "$out" 'updated ? updated.stdout.includes("\r") : "not replaced"')" "false"
 
-# Real output of a real command. An untracked probe file makes `git status`
-# print hint lines on a clean tree too. Must not end in .txt (.gitignore
-# covers *.txt).
-PROBE_FILE="$PLUGIN_ROOT/.sp-test-probe.tmp"
-touch "$PROBE_FILE"
-real_status=$(git status 2>&1)
-rm -f "$PROBE_FILE"
+# The rule receives the `stderr` field: the git-add rule reports the warning
+out=$(run_hook "git add ." "$NOISY" "stderr-rule-$$-$RANDOM" 'input.tool_response.stderr = "warning: CRLF will be replaced by LF in a.txt\n";')
+assert_contains "replacement: the rule receives the stderr field" "$(compressed_text "$out")" "ok (1 warning(s))"
+
+# Real output of a real command, in a repository of the suite: one changed
+# file and one untracked file make `git status` print hint lines.
+FIXTURE_REPO="$WORK/repo"
+mkdir "$FIXTURE_REPO"
+real_status=$(
+  cd "$FIXTURE_REPO" &&
+  git -c init.defaultBranch=main init -q . &&
+  echo one > tracked.txt &&
+  git add tracked.txt &&
+  git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false commit -q -m first &&
+  echo two >> tracked.txt &&
+  echo new > untracked.md &&
+  LC_ALL=C git status 2>&1
+)
 text=$(compressed_text "$(run_hook "git status" "$real_status" "real-$$-$RANDOM")")
 assert_contains     "real git status: the compressed text contains branch info"  "$text" "On branch"
+assert_contains     "real git status: the compressed text keeps the changed file" "$text" "tracked.txt"
 assert_not_contains "real git status: hint lines are removed"                     "$text" '(use "git'
 assert_contains     "real git status: has [compressed] marker"                    "$text" "[compressed:"
 
@@ -413,7 +452,8 @@ PERSISTED='
 out=$(run_hook "find . -name '*.js'" "" "persisted-$$-$RANDOM" "$PERSISTED")
 text=$(compressed_text "$out")
 assert_contains "saved output: the rule counts the lines of the whole output" "$text" "... 2940 more results"
-assert "saved output: the marker counts the lines of the whole output" "$(echo "$text" | tail -1)" "[compressed: 3000->61 lines | find-large]"
+assert "saved output: the marker counts the lines of the whole output and names the saved file" \
+  "$(echo "$text" | tail -1)" "[compressed: 3000->61 lines | find-large | raw output: $(node -e 'console.log(process.env.FULL_FILE)')]"
 assert "saved output: the replacement has no persistedOutputPath and no persistedOutputSize" \
   "$(hook_value "$out" 'updated ? Object.keys(updated).join(",") : "not replaced"')" "stdout,stderr,interrupted,isImage,noOutputExpected"
 
@@ -430,10 +470,58 @@ assert "saved output: a file above 10 MB → {}" \
   "$(FULL_FILE="$BIG_FILE" untouched "$PERSISTED" "" "find . -name '*.js'")" "{}"
 rm -f "$BIG_FILE"
 
+# The hook reads the saved file only when it is a regular file: a named pipe
+# in its place would make the hook wait for ever
+if ln -s "$FULL_FILE" "$WORK/saved-link" 2>/dev/null && [ -L "$WORK/saved-link" ]; then
+  assert "saved output: a path that is a symbolic link, not a regular file → {}" \
+    "$(FULL_FILE="$WORK/saved-link" untouched "$PERSISTED" "" "find . -name '*.js'")" "{}"
+else
+  echo "  SKIP: this system makes no symbolic link; the regular-file check is not tested"
+fi
+
+# The size rule: the hook replaces the output only when the replacement is
+# shorter than the `stdout` text that Claude Code sent, and at most 30,000
+# characters long.
+MANY_FILE=$(mktmp)
+node -e '
+  const lines = ["On branch main", "Changes not staged for commit:", "  (use \"git add <file>...\" to update what will be committed)"];
+  for (let i = 1; i <= 3000; i++) lines.push("\tmodified:   src/some/long/folder/name/changed-file-number-" + i + ".js");
+  lines.push("", "no changes added to commit (use \"git add\" and/or \"git commit -a\")");
+  console.log(lines.join("\n"));
+' > "$MANY_FILE"
+assert "size rule: saved output whose replacement is longer than the cut stdout → {}" \
+  "$(FULL_FILE="$MANY_FILE" untouched "$PERSISTED")" "{}"
+assert "size rule: a replacement longer than the stdout that Claude Code sent → {}" \
+  "$(untouched 'input.tool_response.stdout = "On branch main\nChanges not staged for commit:\n  (use \"git x\")\n" + "\tmodified:   src/folder/changed-file.js\n".repeat(6);')" "{}"
+assert "size rule: a replacement above 30,000 characters → {}" \
+  "$(untouched 'input.tool_response.stdout = "On branch main\n" + ("\tmodified:   src/folder/changed-file.js\n" + "  (use \"git add <file>...\" to update what will be committed)\n").repeat(1500);')" "{}"
+
+# Fields that Claude Code adds to the response of a command that ended with
+# exit status 0. The shapes of the first three come from recorded tool results
+# of Claude Code 2.1.289; the fourth is the `dangerouslyDisableSandbox` field
+# of the tool input (read in the program text). The hook returns each unchanged.
+kept_field() {
+  local out
+  out=$(run_hook "$1" "$NOISY" "field-$$-$RANDOM" "input.tool_response.$2 = $3;")
+  hook_value "$out" "updated ? JSON.stringify(updated.$2) === JSON.stringify($3) : 'not replaced'"
+}
+assert "known field: gitOperation of a commit is returned unchanged" \
+  "$(kept_field 'git commit -m msg' gitOperation '{ commit: { branch: "main", kind: "committed", sha: "abc1234" } }')" "true"
+assert "known field: gitOperation of a push is returned unchanged" \
+  "$(kept_field 'git push origin main' gitOperation '{ push: { branch: "main" } }')" "true"
+assert "known field: bashEditDiff is returned unchanged" \
+  "$(kept_field 'npm install' bashEditDiff '{ changedFiles: ["package-lock.json"], files: [{ filePath: "package-lock.json", hunks: [] }], moreFiles: 0 }')" "true"
+assert "known field: staleReadFileStateHint is returned unchanged" \
+  "$(kept_field 'git pull' staleReadFileStateHint '"a file changed after it was read"')" "true"
+assert "known field: dangerouslyDisableSandbox is returned unchanged" \
+  "$(kept_field 'npm install' dangerouslyDisableSandbox 'true')" "true"
+
 assert "untouched: a call moved to the background by run_in_background → {}" \
   "$(untouched 'input.tool_input.run_in_background = true; input.tool_response.backgroundTaskId = "bsenraxvw";')" "{}"
 assert "untouched: a call moved to the background at its time-out → {}" \
   "$(untouched 'input.tool_input.timeout = 2000; input.tool_response.backgroundTaskId = "bjan2dvyw"; input.tool_response.timedOutAfterMs = 2000;')" "{}"
+assert "untouched: a timedOutAfterMs field without a backgroundTaskId field → {}" \
+  "$(untouched 'input.tool_response.timedOutAfterMs = 2000;')" "{}"
 assert "untouched: an interrupted call → {}" \
   "$(untouched 'input.tool_response.interrupted = true;')" "{}"
 assert "untouched: image output → {}" \
@@ -448,6 +536,8 @@ assert "untouched: a stdout field that is not text → {}" \
   "$(untouched 'input.tool_response.stdout = null;')" "{}"
 assert "untouched: no stderr field → {}" \
   "$(untouched 'delete input.tool_response.stderr;')" "{}"
+assert "untouched: no isImage field → {}" \
+  "$(untouched 'delete input.tool_response.isImage;')" "{}"
 assert "untouched: no interrupted field → {}" \
   "$(untouched 'delete input.tool_response.interrupted;')" "{}"
 assert "untouched: a tool response that is text → {}" \
@@ -461,13 +551,105 @@ assert "untouched: no tool response → {}" \
 assert "untouched: the PostToolUseFailure input of a failed command → {}" \
   "$(untouched 'input.hook_event_name = "PostToolUseFailure"; input.error = "Exit code 3\n" + input.tool_response.stdout; input.is_interrupt = false; delete input.tool_response;')" "{}"
 
+# The next 3 inputs keep every field of a call that the hook would compress,
+# so only the event name or the tool name can be the reason for {}
+assert "untouched: the event PostToolUseFailure, with a complete tool response → {}" \
+  "$(untouched 'input.hook_event_name = "PostToolUseFailure";')" "{}"
+assert "untouched: the event PreToolUse, with a complete tool response → {}" \
+  "$(untouched 'input.hook_event_name = "PreToolUse";')" "{}"
+assert "untouched: a tool that is not Bash, with the same input and response → {}" \
+  "$(untouched 'input.tool_name = "Read";')" "{}"
+
 # Raw output for reasons in the output itself
-assert "short output (below 200 characters) → {}" \
-  "$(run_hook 'git status' 'On branch main' "short-$$-$RANDOM")" "{}"
+# The git-add rule turns any output into one line, so only the length limit
+# of 200 characters keeps the first output raw
+line_block() { node -e 'process.stdout.write(("x".repeat(Number(process.argv[1]) / 5 - 1) + "\n").repeat(5).slice(0, -1) + "y".repeat(Number(process.argv[2])))' "$1" "$2"; }
+short_199=$(line_block 200 0)
+short_200=$(line_block 200 1)
+assert "the two length fixtures have 199 and 200 characters" "${#short_199} ${#short_200}" "199 200"
+assert "short output (199 characters) → {}" \
+  "$(run_hook 'git add .' "$short_199" "short-$$-$RANDOM")" "{}"
+assert "output of 200 characters is compressed" \
+  "$(is_compressed "$(run_hook 'git add .' "$short_200" "short-$$-$RANDOM")")" "yes"
 assert "a rule that returns null (git log with 40 lines or fewer) → {}" \
   "$(run_hook 'git log' "$(echo "$NOISY" | head -40)" "null-$$-$RANDOM")" "{}"
 assert "output from which the rule removes no line (git status without hint lines) → {}" \
   "$(run_hook 'git status' "$NOISY" "same-$$-$RANDOM")" "{}"
+
+# ── Alert lines ──
+# Claude Code merges standard error into `stdout`. A line that holds an alert
+# word (error, warning, conflict, ...) and that a rule removed must stay
+# visible: the hook adds it below the compressed text, under one heading.
+ALERT_HEADING='Removed lines with an alert word:'
+
+IFS= read -r -d '' PIP_OUT <<'FIXTURE'
+Collecting flask
+  Downloading flask-3.0.0-py3-none-any.whl (101 kB)
+Collecting requests
+  Downloading requests-2.31.0-py3-none-any.whl (62 kB)
+Installing collected packages: requests, flask
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+somepkg 1.0 requires requests<2.0, but you have requests 2.31.0 which is incompatible.
+Successfully installed flask-3.0.0 requests-2.31.0
+FIXTURE
+text=$(compressed_text "$(run_hook "pip install -r requirements.txt" "$PIP_OUT" "alert-$$-$RANDOM")")
+assert_contains "alert lines: pip install keeps the summary of the rule"      "$text" "ok: installed 2 package(s)"
+assert_contains "alert lines: pip install keeps the ERROR line"               "$text" "ERROR: pip's dependency resolver"
+assert_contains "alert lines: pip install keeps the line with 'incompatible'" "$text" "which is incompatible."
+assert_contains "alert lines: the heading stands above the kept lines"        "$text" "$ALERT_HEADING"
+assert "alert lines: the marker counts the kept lines and is the last line" \
+  "$(echo "$text" | tail -1)" "[compressed: 8->4 lines | pip-install]"
+
+IFS= read -r -d '' PULL_OUT <<'FIXTURE'
+remote: Enumerating objects: 5, done.
+remote: Counting objects: 100% (5/5), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 3 (delta 2), reused 0 (delta 0), pack-reused 0
+Unpacking objects: 100% (3/3), 312 bytes | 104.00 KiB/s, done.
+Updating abc1234..def5678
+Fast-forward
+ src/app.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+Applying autostash resulted in conflicts.
+Your changes are safe in the stash.
+FIXTURE
+text=$(compressed_text "$(run_hook "git pull --rebase --autostash" "$PULL_OUT" "alert-$$-$RANDOM")")
+assert_contains "alert lines: git pull keeps the summary of the rule" "$text" "ok, 1 file changed"
+assert_contains "alert lines: git pull keeps the autostash conflict"  "$text" "Applying autostash resulted in conflicts."
+
+NPM_NOISE=$(node -e 'for (let i = 1; i <= 30; i++) console.log("npm http fetch GET 200 https://registry.npmjs.org/package-" + i + " 12ms")')
+NPM_TAIL=$(printf '\nadded 150 packages, and audited 151 packages in 12s\n\nfound 0 vulnerabilities')
+text=$(compressed_text "$(run_hook "npm install" "npm warn EBADENGINE Unsupported engine { package: 'left-pad@1.3.0', required: { node: '>=20' } }
+$NPM_NOISE$NPM_TAIL" "alert-$$-$RANDOM")")
+assert_contains "alert lines: npm install keeps the summary of the rule" "$text" "ok, added 150 packages"
+assert_contains "alert lines: npm install keeps the EBADENGINE warning"  "$text" "npm warn EBADENGINE Unsupported engine"
+
+# At most 40 alert lines are added; with more, the output stays as it is
+deprecated_lines() { node -e 'for (let i = 1; i <= Number(process.argv[1]); i++) console.log("npm warn deprecated package-" + i + "@1.0.0: this version is no longer supported")' "$1"; }
+out=$(run_hook "npm install" "$(deprecated_lines 40)
+$NPM_NOISE$NPM_TAIL" "alert-$$-$RANDOM")
+assert "alert lines: 40 alert lines are all added" \
+  "$(compressed_text "$out" | grep -c 'npm warn deprecated')" "40"
+assert "alert lines: 41 alert lines → {}" \
+  "$(run_hook "npm install" "$(deprecated_lines 41)
+$NPM_NOISE$NPM_TAIL" "alert-$$-$RANDOM")" "{}"
+
+# An alert line that the compressed text already holds is not added again
+out=$(run_hook "git add ." "warning: CRLF will be replaced by LF in a.txt
+$NOISY" "alert-$$-$RANDOM")
+text=$(compressed_text "$out")
+assert "alert lines: a line that the rule kept appears once" "$(echo "$text" | grep -c 'warning: CRLF')" "1"
+assert_not_contains "alert lines: no heading when the rule kept every alert line" "$text" "$ALERT_HEADING"
+
+# A file name that holds an alert word is not an alert line
+out=$(run_hook "find . -name '*.js'" "$(node -e 'for (let i = 1; i <= 70; i++) console.log("./src/file-" + i + ".js"); console.log("./src/errors.js\n./src/error.js\n./lib/fail/handler.js\n./lib/warn-once.js\n./logs/error\n./tmp/run.failed\nerror.log\nwarnings/list.txt\nfail-fast.js")')" "alert-$$-$RANDOM")
+text=$(compressed_text "$out")
+assert_contains     "alert lines: find output with such file names is compressed" "$text" "... 19 more results"
+assert_not_contains "alert lines: a file name with an alert word adds no line"    "$text" "$ALERT_HEADING"
+
+# Output without an alert word: nothing is added (the text of section 5 above)
+assert_not_contains "alert lines: a clean git status has no heading" \
+  "$(compressed_text "$(run_hook "git status" "$STATUS_OUT" "alert-$$-$RANDOM")")" "$ALERT_HEADING"
 
 # ═══════════════════════════════════════════════════════
 bold "\n6. HOOK I/O PROTOCOL"
@@ -507,6 +689,36 @@ rl1=$(run_hook "git log" "$NOISY" "$SESSION")
 rl2=$(run_hook "git log" "$NOISY" "$SESSION")
 assert "re-run: different command 1st run compressed" "$(is_compressed "$rl1")" "yes"
 assert "re-run: different command 2nd run raw"        "$rl2"                    "{}"
+
+# The 60 seconds count from the last compressed run to the START of the
+# re-run. write_record stores a compressed run of `git status` that ended $2
+# milliseconds ago; the re-run in $3 ran for `duration_ms` milliseconds.
+write_record() {
+  RECORD_FILE="$TRACK_DIR/sp-compress-$1.json" node -e '
+    require("fs").writeFileSync(process.env.RECORD_FILE,
+      JSON.stringify({ "git status": { compressed: true, ts: Date.now() - Number(process.argv[1]) } }));
+  ' "$2"
+}
+rerun_after() {
+  local session="timing-$$-$RANDOM"
+  write_record "$session" "$1"
+  run_hook "git status" "$STATUS_OUT" "$session" "input.duration_ms = $2;"
+}
+assert "re-run: a 90-second re-run that started 0.5 seconds after the first run is raw" \
+  "$(rerun_after 90500 90000)" "{}"
+assert "re-run: a re-run that started 3 minutes after the first run is compressed" \
+  "$(is_compressed "$(rerun_after 180000 12)")" "yes"
+assert "re-run: a re-run that started 61 seconds after the first run is compressed" \
+  "$(is_compressed "$(rerun_after 61000 12)")" "yes"
+assert "re-run: a re-run that started 50 seconds after the first run is raw" \
+  "$(rerun_after 50000 12)" "{}"
+
+# A session id cannot name a folder: the record stays in the temporary folder
+run_hook "git status" "$STATUS_OUT" "../../../escaped3" > /dev/null
+assert "session record: an id with path characters names a file inside the temporary folder" \
+  "$(ls "$TRACK_DIR" | grep -c '^sp-compress-_________escaped3\.json$')" "1"
+assert "session record: no file is written outside the temporary folder" \
+  "$(find "$WORK" -name 'escaped3.json' | wc -l | tr -d ' ')" "0"
 
 # The hook writes its record of compressed commands into one file per session
 OTHER_SESSION="rerun-other-$$"
@@ -638,6 +850,19 @@ result=$(node -e "
   console.log(entry.matcher);
 ")
 assert "hooks.json: the bash-compress-hook entry matches the Bash tool only" "$result" "Bash"
+
+result=$(PLUGIN_ROOT="$PLUGIN_ROOT" HOOK="$HOOK" node -e '
+  const fs = require("fs");
+  const hooks = JSON.parse(fs.readFileSync("hooks/hooks.json", "utf8")).hooks;
+  const commands = Object.values(hooks).flat().flatMap(entry => (entry.hooks || []).map(h => h.command))
+    .filter(command => command.includes("bash-compress-hook"));
+  const named = commands.map(command => (command.match(/"([^"]+)"/) || [])[1] || "")
+    .map(file => file.split("${CLAUDE_PLUGIN_ROOT}").join(process.env.PLUGIN_ROOT));
+  const same = named.length === 1 && fs.existsSync(named[0]) &&
+    fs.realpathSync(named[0]) === fs.realpathSync(process.env.HOOK);
+  console.log(same ? "ok" : "entries=" + commands.length + " files=" + named.join(","));
+')
+assert "hooks.json: one entry starts bash-compress-hook, and the file it names is the hook" "$result" "ok"
 
 assert "hooks-cursor.json: bash-compress-hook is not registered" "$(compress_events hooks/hooks-cursor.json)" "none"
 

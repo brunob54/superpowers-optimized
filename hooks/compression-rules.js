@@ -455,9 +455,13 @@ function countNonEmptyLines(text) {
   return text.split('\n').filter(line => line.trim().length > 0).length;
 }
 
-/** The marker line that tells the reader that a rule removed lines. */
-function compressionMarker(originalLines, compressedLines, ruleType) {
-  return `[compressed: ${originalLines}->${compressedLines} lines | ${ruleType}]`;
+/**
+ * The marker line that tells the reader that a rule removed lines. With
+ * `savedPath`, the marker also names the file that holds the raw output.
+ */
+function compressionMarker(originalLines, compressedLines, ruleType, savedPath) {
+  const rawOutput = savedPath ? ` | raw output: ${savedPath}` : '';
+  return `[compressed: ${originalLines}->${compressedLines} lines | ${ruleType}${rawOutput}]`;
 }
 
 module.exports = {

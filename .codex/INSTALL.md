@@ -141,7 +141,7 @@ Confirm `codex --version` reports `0.118.0` or newer. That floor comes from the 
 - **PostToolUse (Bash):** Reactive smart-compress — replaces verbose Bash output after execution with a compressed summary when an existing compression rule matches and the summary is materially smaller.
 - **Stop:** Discipline reminders — TDD warning if source files changed without test changes, commit reminder if many files are uncommitted, decision log prompt if core files were modified. Treat visible live surfacing as a required post-install verification step until confirmed in the actual installed environment.
 
-Hooks are helpful Codex guardrails, not full Claude Code parity. Codex still does not expose Claude's `PostToolUse(Edit|Write|Skill)`, `SubagentStop`, `Read/Edit/Write` interception, or Claude's pre-execution Bash rewrite path. The Codex `PostToolUse(Bash)` smart-compress hook is reactive: it replaces noisy Bash output after execution, which improves context usage but is not the same mechanism as Claude's `PreToolUse` rewrite.
+Hooks are helpful Codex guardrails, not full Claude Code parity. Codex still does not expose Claude's `PostToolUse(Edit|Write|Skill)`, `SubagentStop`, or `Read/Edit/Write` interception. The Codex `PostToolUse(Bash)` smart-compress hook replaces noisy Bash output after execution. The Claude Code hook now does the same: it no longer rewrites the command before execution.
 
 **Windows:** Codex lifecycle hooks are disabled on Windows native. This is a Codex platform limitation. Skills still work. Use WSL for hook functionality on Windows.
 
