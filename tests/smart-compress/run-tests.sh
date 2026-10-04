@@ -1,33 +1,40 @@
 #!/usr/bin/env bash
 # smart-compress test suite
-# Tests: classification, never-compress, compression quality, hook I/O, edge cases, token savings
+# Tests: classification, never-compress, compression quality, output
+# replacement, hook I/O, edge cases, token savings, hook wiring
+#
+# The hook is tested through its public interface: it runs as a process and
+# reads the PostToolUse input of Claude Code as JSON on standard input. The
+# inputs built here have the shape measured on Claude Code 2.1.289.
 #
 # Windows note: avoids /dev/stdin (not available in Git Bash on Windows).
-# All node JSON parsing uses temp files instead.
+# All node JSON parsing uses temp files or environment variables instead.
 
 # Stop the suite when a command is not found; the file explains the reason.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/undefined-command-guard.sh"
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+HOOK="$PLUGIN_ROOT/hooks/bash-compress-hook.js"
 PASS=0
 FAIL=0
 ERRORS=()
-TMPFILES=()
+
+# Every temporary file of the suite is inside this folder
+WORK=$(mktemp -d)
+# The hook writes one record file for each session into the temporary folder
+# of the operating system. The suite gives the hook this folder instead.
+TRACK_DIR="$WORK/track"
+mkdir "$TRACK_DIR"
 
 # Cleanup on exit
-cleanup() { for f in "${TMPFILES[@]}"; do rm -f "$f" 2>/dev/null; done; }
+cleanup() { rm -rf "$WORK" 2>/dev/null; }
 trap cleanup EXIT
 
 green() { printf '\033[0;32m%s\033[0m\n' "$1"; }
 red()   { printf '\033[0;31m%s\033[0m\n' "$1"; }
 bold()  { printf '\033[1m%s\033[0m\n' "$1"; }
 
-mktmp() {
-  local f
-  f=$(mktemp)
-  TMPFILES+=("$f")
-  echo "$f"
-}
+mktmp() { mktemp "$WORK/file.XXXXXX"; }
 
 assert() {
   local desc="$1" result="$2" expected="$3"
@@ -45,7 +52,7 @@ assert() {
 
 assert_contains() {
   local desc="$1" haystack="$2" needle="$3"
-  if echo "$haystack" | grep -qF "$needle"; then
+  if echo "$haystack" | grep -qF -- "$needle"; then
     green "  PASS: $desc"
     ((PASS++))
   else
@@ -58,7 +65,7 @@ assert_contains() {
 
 assert_not_contains() {
   local desc="$1" haystack="$2" needle="$3"
-  if echo "$haystack" | grep -qF "$needle"; then
+  if echo "$haystack" | grep -qF -- "$needle"; then
     red "  FAIL: $desc (must NOT contain: '$needle')"
     ERRORS+=("$desc")
     ((FAIL++))
@@ -68,54 +75,75 @@ assert_not_contains() {
   fi
 }
 
-# Run the PreToolUse hook for a Bash command, return its stdout.
-# Optional third argument: more tool_input fields as a JSON fragment that
-# starts with a comma, for example ',"run_in_background":true'.
-run_hook() {
-  local cmd="$1" session="${2:-test-$$}" extra_fields="${3:-}"
-  local tmpfile
-  tmpfile=$(mktmp)
-  # Write JSON input to a temp file, then feed it via stdin redirect
-  printf '{"session_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"%s},"cwd":"%s"}' \
-    "$session" "$cmd" "$extra_fields" "$PLUGIN_ROOT" > "$tmpfile"
-  node "$PLUGIN_ROOT/hooks/bash-compress-hook.js" < "$tmpfile"
+# Write the PostToolUse input of one Bash call that ended with success into a
+# new file, and print the name of the file.
+#   $1  the command
+#   $2  the output of the command (the `stdout` field of the tool response)
+#   $3  optional: the session id
+#   $4  optional: JavaScript statements that change the object `input`
+#       (`require` is available), for an input with another shape
+build_input() {
+  local file
+  file=$(mktmp)
+  FIX_COMMAND="$1" FIX_STDOUT="$2" FIX_SESSION="${3:-test-$$}" FIX_CHANGE="${4:-}" FIX_CWD="$PLUGIN_ROOT" node -e '
+    const e = process.env;
+    const input = {
+      session_id: e.FIX_SESSION,
+      transcript_path: "/tmp/transcript.jsonl",
+      cwd: e.FIX_CWD,
+      prompt_id: "37f4ba1d-0597-4d96-95d1-03a5df40c52e",
+      permission_mode: "default",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: e.FIX_COMMAND },
+      tool_response: { stdout: e.FIX_STDOUT, stderr: "", interrupted: false, isImage: false, noOutputExpected: false },
+      tool_use_id: "toolu_01KdJScQWwQGSFb4wonFyB9p",
+      duration_ms: 12,
+    };
+    new Function("input", "require", e.FIX_CHANGE)(input, require);
+    require("fs").writeFileSync(process.argv[1], JSON.stringify(input));
+  ' "$file"
+  echo "$file"
 }
 
-# Base64-encode a string on one line (GNU base64 needs -w 0; macOS has no -w)
-b64_encode() {
-  printf '%s' "$1" | base64 -w 0 2>/dev/null || printf '%s' "$1" | base64
+# Run the hook with the input in the file $1, print its standard output
+run_hook_file() {
+  TMPDIR="$TRACK_DIR" TEMP="$TRACK_DIR" TMP="$TRACK_DIR" node "$HOOK" < "$1"
 }
 
-# Run the optimizer directly (executes real command + compresses)
-run_optimizer() {
-  local cmd="$1" type="$2"
-  node "$PLUGIN_ROOT/hooks/bash-optimizer.js" "$(b64_encode "$cmd")" "$type" 2>/dev/null
+# Run the hook for one Bash call. The arguments are those of build_input.
+run_hook() { run_hook_file "$(build_input "$@")"; }
+
+# Print one value of a hook output.
+#   $1  the hook output (JSON)
+#   $2  a JavaScript expression; `out` is the output, `updated` is its
+#       updatedToolOutput object (undefined when the hook replaced nothing)
+hook_value() {
+  HOOK_OUT="$1" node -e '
+    const out = JSON.parse(process.env.HOOK_OUT);
+    const updated = out.hookSpecificOutput && out.hookSpecificOutput.updatedToolOutput;
+    console.log(eval(process.argv[1]));
+  ' "$2"
 }
 
-# Parse JSON hook output to check if it contains updatedInput (i.e., was rewritten)
-is_rewritten() {
-  local json="$1"
-  local tmpfile
-  tmpfile=$(mktmp)
-  printf '%s' "$json" > "$tmpfile"
-  node -e "
-    const d = JSON.parse(require('fs').readFileSync('$tmpfile','utf8'));
-    console.log(d.hookSpecificOutput && d.hookSpecificOutput.updatedInput ? 'yes' : 'no');
-  " 2>/dev/null
-}
+# "yes" when the hook replaced the output, "no" otherwise
+is_compressed() { hook_value "$1" 'updated ? "yes" : "no"'; }
 
-# Parse JSON hook output to get permissionDecisionReason (the rule type)
-get_rule_type() {
-  local json="$1"
-  local tmpfile
-  tmpfile=$(mktmp)
-  printf '%s' "$json" > "$tmpfile"
-  node -e "
-    const d = JSON.parse(require('fs').readFileSync('$tmpfile','utf8'));
-    const reason = (d.hookSpecificOutput && d.hookSpecificOutput.permissionDecisionReason) || '';
-    console.log(reason.replace('smart-compress: ',''));
-  " 2>/dev/null
-}
+# The text that replaces the output; empty when the hook replaced nothing
+compressed_text() { hook_value "$1" 'updated ? updated.stdout : ""'; }
+
+# The rule named in the marker line of the replaced output; "none" when the
+# hook replaced nothing
+rule_type() { hook_value "$1" '((updated ? updated.stdout : "").match(/\| ([\w-]+)\]$/) || [0, "none"])[1]'; }
+
+# Output with 100 lines: long enough for every rule except git-status, which
+# removes hint lines only
+NOISY=$(node -e 'for (let i = 1; i <= 100; i++) console.log("noisy output line " + i + " of the command")')
+
+# Output of `git status` with 4 hint lines: 10 lines that are not empty, 6 of
+# them stay
+STATUS_OUT=$(printf 'On branch main\nChanges not staged for commit:\n  (use "git add <file>..." to update what will be committed)\n  (use "git restore <file>..." to discard changes in working directory)\n\tmodified:   hooks/hooks.json\n\tmodified:   README.md\n\nUntracked files:\n  (use "git add <file>..." to include in what will be committed)\n\tnotes.md\n\nno changes added to commit (use "git add" and/or "git commit -a")')
+STATUS_MARKER='[compressed: 10->6 lines | git-status]'
 
 cd "$PLUGIN_ROOT"
 
@@ -125,9 +153,6 @@ bold "\n1. SYNTAX & MODULE LOADING"
 
 result=$(node -c hooks/compression-rules.js 2>&1 && echo "ok")
 assert "compression-rules.js syntax valid" "$result" "ok"
-
-result=$(node -c hooks/bash-optimizer.js 2>&1 && echo "ok")
-assert "bash-optimizer.js syntax valid" "$result" "ok"
 
 result=$(node -c hooks/bash-compress-hook.js 2>&1 && echo "ok")
 assert "bash-compress-hook.js syntax valid" "$result" "ok"
@@ -145,11 +170,8 @@ assert "9 never-compress patterns defined" "$result" "9"
 bold "\n2. NEVER-COMPRESS CLASSIFICATION"
 # ═══════════════════════════════════════════════════════
 
-check_never() {
-  local out
-  out=$(run_hook "$1")
-  is_rewritten "$out"
-}
+# The output is long, so only the command can be the reason for raw output
+check_never() { is_compressed "$(run_hook "$1" "$NOISY" "never-$$-$RANDOM")"; }
 
 assert "git diff passes through"            "$(check_never 'git diff HEAD')"            "no"
 assert "git diff --staged passes through"   "$(check_never 'git diff --staged')"        "no"
@@ -165,13 +187,11 @@ assert "piped awk passes through"           "$(check_never 'cat file | awk NF')"
 
 # A compound command runs several commands, and a rule matches only the first
 # one, so compressing it can remove the output of the later commands (row 36).
-# In '\n' below, run_hook writes a backslash and n into the JSON input, which
-# the hook reads as a new line.
 assert "&& chain passes through"            "$(check_never 'git add . && git commit -m msg && git log --oneline -1')" "no"
 assert "|| chain passes through"            "$(check_never 'git log || true')"         "no"
 assert "; chain passes through"             "$(check_never 'git status; git log')"     "no"
 assert "pipe into tail passes through"      "$(check_never 'git push origin main | tail -5')" "no"
-assert "new-line chain passes through"      "$(check_never 'git add .\ngit log')"      "no"
+assert "new-line chain passes through"      "$(check_never $'git add .\ngit log')"     "no"
 assert "background & passes through"        "$(check_never 'npm install & wait')"      "no"
 assert "background & before < passes through" "$(check_never 'npm install &<in wait')"  "no"
 assert "--verbose passes through"           "$(check_never 'npm install --verbose')"    "no"
@@ -180,52 +200,33 @@ assert "node -e passes through"             "$(check_never 'node -e console.log(
 assert "rtk command passes through"         "$(check_never 'rtk git status')"           "no"
 
 # ═══════════════════════════════════════════════════════
-bold "\n3. RULE MATCHING (commands that SHOULD be rewritten)"
+bold "\n3. RULE MATCHING (commands whose output SHOULD be compressed)"
 # ═══════════════════════════════════════════════════════
 
-check_compressed() {
-  local out
-  out=$(run_hook "$1")
-  is_rewritten "$out"
-}
+# The rule that compressed the output of a command; "none" when the output
+# stayed raw. A new session id for each call: the hook leaves the second run
+# of a command in one session raw.
+check_rule() { rule_type "$(run_hook "$1" "${2:-$NOISY}" "rule-$$-$RANDOM")"; }
 
-check_rule() {
-  local out
-  # Fresh session id per call: the hook skips re-compressing a command it has
-  # already rewritten in the same session (shouldSkipForRerun), and each
-  # command was already run through check_compressed under the shared session.
-  out=$(run_hook "$1" "rule-$$-$RANDOM")
-  get_rule_type "$out"
-}
-
-assert "git add . → compressed"              "$(check_compressed 'git add .')"          "yes"
-assert "git add . → git-add rule"            "$(check_rule       'git add .')"          "git-add"
-assert "git commit → compressed"             "$(check_compressed 'git commit -m msg')"  "yes"
-assert "git commit → git-commit rule"        "$(check_rule       'git commit -m msg')"  "git-commit"
-assert "git push → compressed"               "$(check_compressed 'git push origin main')" "yes"
-assert "git push → git-push rule"            "$(check_rule       'git push origin main')" "git-push"
-assert "git pull → compressed"               "$(check_compressed 'git pull')"           "yes"
-assert "git pull → git-pull rule"            "$(check_rule       'git pull')"           "git-pull"
-assert "git clone → compressed"              "$(check_compressed 'git clone https://github.com/x/y')" "yes"
-assert "git clone → git-clone rule"          "$(check_rule       'git clone https://github.com/x/y')" "git-clone"
-assert "git status → compressed"             "$(check_compressed 'git status')"         "yes"
-assert "git status → git-status rule"        "$(check_rule       'git status')"         "git-status"
-assert "git log → compressed"                "$(check_compressed 'git log')"            "yes"
-assert "git log → git-log rule"              "$(check_rule       'git log')"            "git-log"
-assert "npm install → compressed"            "$(check_compressed 'npm install')"        "yes"
-assert "npm install → npm-install rule"      "$(check_rule       'npm install')"        "npm-install"
-assert "npm test → compressed"               "$(check_compressed 'npm test')"           "yes"
-assert "cargo test → compressed"             "$(check_compressed 'cargo test')"         "yes"
-assert "pytest → compressed"                 "$(check_compressed 'pytest')"             "yes"
-assert "ls → compressed"                     "$(check_compressed 'ls')"                 "yes"
-assert "ls-large rule"                       "$(check_rule       'ls')"                 "ls-large"
-assert "cargo build → compressed"            "$(check_compressed 'cargo build')"        "yes"
-assert "eslint → compressed"                 "$(check_compressed 'eslint src/')"        "yes"
-assert "docker build → compressed"           "$(check_compressed 'docker build .')"     "yes"
+assert "git add . → git-add rule"            "$(check_rule 'git add .')"            "git-add"
+assert "git commit → git-commit rule"        "$(check_rule 'git commit -m msg')"    "git-commit"
+assert "git push → git-push rule"            "$(check_rule 'git push origin main')" "git-push"
+assert "git pull → git-pull rule"            "$(check_rule 'git pull')"             "git-pull"
+assert "git clone → git-clone rule"          "$(check_rule 'git clone https://github.com/x/y')" "git-clone"
+assert "git status → git-status rule"        "$(check_rule 'git status' "$STATUS_OUT")" "git-status"
+assert "git log → git-log rule"              "$(check_rule 'git log')"              "git-log"
+assert "npm install → npm-install rule"      "$(check_rule 'npm install')"          "npm-install"
+assert "npm test → test-pass rule"           "$(check_rule 'npm test')"             "test-pass"
+assert "cargo test → test-pass rule"         "$(check_rule 'cargo test')"           "test-pass"
+assert "pytest → test-pass rule"             "$(check_rule 'pytest')"               "test-pass"
+assert "ls → ls-large rule"                  "$(check_rule 'ls')"                   "ls-large"
+assert "cargo build → build-success rule"    "$(check_rule 'cargo build')"          "build-success"
+assert "eslint → lint-output rule"           "$(check_rule 'eslint src/')"          "lint-output"
+assert "docker build → docker-build rule"    "$(check_rule 'docker build .')"       "docker-build"
 # Redirects contain '&' but join no commands, so they do not stop compression.
-assert "npm test 2>&1 → compressed"          "$(check_compressed 'npm test 2>&1')"      "yes"
-assert "npm test &>file → compressed"        "$(check_compressed 'npm test &>test.log')" "yes"
-assert "npm test <&0 → compressed"           "$(check_compressed 'npm test <&0')"       "yes"
+assert "npm test 2>&1 → compressed"          "$(check_rule 'npm test 2>&1')"        "test-pass"
+assert "npm test &>file → compressed"        "$(check_rule 'npm test &>test.log')"  "test-pass"
+assert "npm test <&0 → compressed"           "$(check_rule 'npm test <&0')"         "test-pass"
 
 # ═══════════════════════════════════════════════════════
 bold "\n4. COMPRESSION QUALITY (unit tests on compress functions)"
@@ -356,168 +357,136 @@ console.log(c && c.includes('more lines') ? 'ok' : 'no-truncation-marker');
 assert "git-log long output → truncated with 'more lines' marker" "$result" "ok"
 
 # ═══════════════════════════════════════════════════════
-bold "\n5. END-TO-END: REAL COMMAND EXECUTION VIA OPTIMIZER"
+bold "\n5. OUTPUT REPLACEMENT"
 # ═══════════════════════════════════════════════════════
 
-# Seed an untracked probe file: on a pristine tree `git status` is 2 lines with
-# no hint lines to strip, so the optimizer would not compress and no marker
-# would appear. Must not end in .txt (.gitignore covers *.txt).
+# The hook output for a compressed call holds the whole tool response, with
+# only the `stdout` field changed.
+out=$(run_hook "git status" "$STATUS_OUT" "replace-$$-$RANDOM")
+result=$(hook_value "$out" '
+  JSON.stringify(Object.keys(out)) === "[\"hookSpecificOutput\"]" &&
+  JSON.stringify(Object.keys(out.hookSpecificOutput)) === "[\"hookEventName\",\"updatedToolOutput\"]" &&
+  out.hookSpecificOutput.hookEventName === "PostToolUse" ? "ok" : JSON.stringify(out)')
+assert "replacement: the output holds hookEventName PostToolUse and updatedToolOutput, nothing else" "$result" "ok"
+result=$(hook_value "$out" '
+  JSON.stringify({ ...updated, stdout: "" }) ===
+  JSON.stringify({ stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false }) ? "ok" : JSON.stringify(updated)')
+assert "replacement: every other field of the tool response is unchanged" "$result" "ok"
+text=$(compressed_text "$out")
+assert_contains     "replacement: the compressed text keeps the branch line"   "$text" "On branch main"
+assert_contains     "replacement: the compressed text keeps the file list"     "$text" "modified:   README.md"
+assert_not_contains "replacement: the compressed text has no hint line"        "$text" '(use "git'
+assert "replacement: the last line is the marker" "$(echo "$text" | tail -1)" "$STATUS_MARKER"
+
+# A `stderr` field that is not empty goes to the rule and stays as it is
+out=$(run_hook "git status" "$STATUS_OUT" "stderr-$$-$RANDOM" 'input.tool_response.stderr = "warning: something\n";')
+assert "replacement: a stderr field that is not empty stays unchanged" \
+  "$(hook_value "$out" 'updated ? JSON.stringify(updated.stderr) : "not replaced"')" '"warning: something\n"'
+
+# Windows line ends do not stop a rule
+out=$(run_hook "git status" "$STATUS_OUT" "crlf-$$-$RANDOM" 'input.tool_response.stdout = input.tool_response.stdout.replace(/\n/g, "\r\n");')
+assert_not_contains "replacement: hint lines with Windows line ends are removed" "$(compressed_text "$out")" '(use "git'
+assert "replacement: output with Windows line ends gets the marker" "$(compressed_text "$out" | tail -1)" "$STATUS_MARKER"
+
+# Real output of a real command. An untracked probe file makes `git status`
+# print hint lines on a clean tree too. Must not end in .txt (.gitignore
+# covers *.txt).
 PROBE_FILE="$PLUGIN_ROOT/.sp-test-probe.tmp"
 touch "$PROBE_FILE"
-TMPFILES+=("$PROBE_FILE")
-
-output=$(run_optimizer "git status" "git-status")
-assert_contains     "optimizer: real git status contains branch info"    "$output" "On branch"
-assert_not_contains "optimizer: real git status removes hint lines"       "$output" '(use "git'
-assert_contains     "optimizer: real git status has [compressed] marker"  "$output" "[compressed:"
-
+real_status=$(git status 2>&1)
 rm -f "$PROBE_FILE"
+text=$(compressed_text "$(run_hook "git status" "$real_status" "real-$$-$RANDOM")")
+assert_contains     "real git status: the compressed text contains branch info"  "$text" "On branch"
+assert_not_contains "real git status: hint lines are removed"                     "$text" '(use "git'
+assert_contains     "real git status: has [compressed] marker"                    "$text" "[compressed:"
 
-# git log — real repo. Assert on the current HEAD subject, not a hardcoded
-# message: hardcoded history scrolls out of the truncated window as commits land.
-head_subject=$(git log -1 --format=%s)
-output=$(run_optimizer "git log --oneline -5" "git-log")
-assert_contains "optimizer: git log runs and returns commits" "$output" "$head_subject"
+# Above 30,000 characters Claude Code cuts `stdout` and saves the whole output
+# in a file. The hook must compress the whole output, not the cut part.
+FULL_FILE=$(mktmp)
+node -e 'for (let i = 1; i <= 3000; i++) console.log("./src/folder/file-" + i + ".js")' > "$FULL_FILE"
+export FULL_FILE
+PERSISTED='
+  const full = require("fs").readFileSync(process.env.FULL_FILE, "utf8");
+  input.tool_response.stdout = full.slice(0, 30000);
+  input.tool_response.persistedOutputPath = process.env.FULL_FILE;
+  input.tool_response.persistedOutputSize = Buffer.byteLength(full);'
+out=$(run_hook "find . -name '*.js'" "" "persisted-$$-$RANDOM" "$PERSISTED")
+text=$(compressed_text "$out")
+assert_contains "saved output: the rule counts the lines of the whole output" "$text" "... 2940 more results"
+assert "saved output: the marker counts the lines of the whole output" "$(echo "$text" | tail -1)" "[compressed: 3000->61 lines | find-large]"
+assert "saved output: the replacement has no persistedOutputPath and no persistedOutputSize" \
+  "$(hook_value "$out" 'updated ? Object.keys(updated).join(",") : "not replaced"')" "stdout,stderr,interrupted,isImage,noOutputExpected"
 
-# Exit code preservation
-exit_code=$(node -e "
-  const b64 = Buffer.from('exit 42').toString('base64');
-  const {spawnSync} = require('child_process');
-  const r = spawnSync('node', ['hooks/bash-optimizer.js', b64, 'git-add'], {encoding:'utf8'});
-  console.log(r.status);
-")
-assert "optimizer preserves exit code (exit 42)" "$exit_code" "42"
+# A response that the hook cannot prove safe to replace stays as it is
+untouched() { run_hook "${3:-git status}" "${2:-$STATUS_OUT}" "untouched-$$-$RANDOM" "$1"; }
 
-# Short output passes through without marker
-output=$(run_optimizer "echo test-output-short" "git-add")
-assert_contains     "optimizer: short output passes through"   "$output" "test-output-short"
-assert_not_contains "optimizer: short output has no marker"   "$output" "[compressed:"
+assert "saved output: a file that cannot be read → {}" \
+  "$(untouched "$PERSISTED"' input.tool_response.persistedOutputPath += ".missing";' "" "find . -name '*.js'")" "{}"
+assert "saved output: a file that does not start with the cut output → {}" \
+  "$(untouched "$PERSISTED"' input.tool_response.stdout = "other output\n" + input.tool_response.stdout;' "" "find . -name '*.js'")" "{}"
+BIG_FILE=$(mktmp)
+node -e 'require("fs").writeFileSync(process.argv[1], "./file.js\n".repeat(1100000))' "$BIG_FILE"
+assert "saved output: a file above 10 MB → {}" \
+  "$(FULL_FILE="$BIG_FILE" untouched "$PERSISTED" "" "find . -name '*.js'")" "{}"
+rm -f "$BIG_FILE"
 
-# Fail-open: invalid base64 exits cleanly
-exit_code=$(node -e "
-  const {spawnSync} = require('child_process');
-  const r = spawnSync('node', ['hooks/bash-optimizer.js', '!!!bad!!!', 'git-add'], {encoding:'utf8'});
-  console.log(r.status !== null ? 'handled' : 'crashed');
-")
-assert "optimizer handles invalid base64 without crashing" "$exit_code" "handled"
+assert "untouched: a call moved to the background by run_in_background → {}" \
+  "$(untouched 'input.tool_input.run_in_background = true; input.tool_response.backgroundTaskId = "bsenraxvw";')" "{}"
+assert "untouched: a call moved to the background at its time-out → {}" \
+  "$(untouched 'input.tool_input.timeout = 2000; input.tool_response.backgroundTaskId = "bjan2dvyw"; input.tool_response.timedOutAfterMs = 2000;')" "{}"
+assert "untouched: an interrupted call → {}" \
+  "$(untouched 'input.tool_response.interrupted = true;')" "{}"
+assert "untouched: image output → {}" \
+  "$(untouched 'input.tool_response.isImage = true;')" "{}"
+assert "untouched: an exit status that is not 0 and that Claude Code accepts (returnCodeInterpretation) → {}" \
+  "$(untouched 'input.tool_response.returnCodeInterpretation = "Some directories were inaccessible";')" "{}"
+assert "untouched: a field that the hook does not know → {}" \
+  "$(untouched 'input.tool_response.someNewField = 1;')" "{}"
+assert "untouched: no stdout field → {}" \
+  "$(untouched 'delete input.tool_response.stdout;')" "{}"
+assert "untouched: a stdout field that is not text → {}" \
+  "$(untouched 'input.tool_response.stdout = null;')" "{}"
+assert "untouched: no stderr field → {}" \
+  "$(untouched 'delete input.tool_response.stderr;')" "{}"
+assert "untouched: no interrupted field → {}" \
+  "$(untouched 'delete input.tool_response.interrupted;')" "{}"
+assert "untouched: a tool response that is text → {}" \
+  "$(untouched 'input.tool_response = input.tool_response.stdout;')" "{}"
+assert "untouched: a tool response that is a list → {}" \
+  "$(untouched 'input.tool_response = [input.tool_response];')" "{}"
+assert "untouched: no tool response → {}" \
+  "$(untouched 'delete input.tool_response;')" "{}"
+# A command that fails does not reach PostToolUse: Claude Code sends the
+# PostToolUseFailure event, with an `error` text and no tool response.
+assert "untouched: the PostToolUseFailure input of a failed command → {}" \
+  "$(untouched 'input.hook_event_name = "PostToolUseFailure"; input.error = "Exit code 3\n" + input.tool_response.stdout; input.is_interrupt = false; delete input.tool_response;')" "{}"
 
-# A command still running at the Bash call's time-out: Claude Code moves the
-# call to the background and does not end it. At that time the optimizer must
-# write the output it holds, then pass later output through unchanged, as a
-# command that the hook did not rewrite would do.
-#
-# run_past_time_out <sleep-seconds> <time-out-argument> [VARIABLE=value ...]
-# runs a command that prints one line, sleeps, and prints a second line. It
-# prints "early=true" when the first line arrived at least 1 second before the
-# command ended, plus complete=, raw= and exit= results.
-run_past_time_out() {
-  local sleep_seconds="$1" time_out_arg="$2"
-  shift 2
-  local cmd="git status; echo part-before-time-out; sleep $sleep_seconds; echo part-after-time-out"
-  env "$@" SWITCH_B64="$(b64_encode "$cmd")" OPTIMIZER="$PLUGIN_ROOT/hooks/bash-optimizer.js" \
-    TIME_OUT_ARG="$time_out_arg" SLEEP_MS="$((sleep_seconds * 1000))" node -e "
-    const { spawn } = require('child_process');
-    const started = Date.now();
-    const child = spawn('node', [process.env.OPTIMIZER, process.env.SWITCH_B64, 'git-status', process.env.TIME_OUT_ARG]);
-    let stdout = '';
-    let firstPartMs = null;
-    child.stdout.on('data', chunk => {
-      stdout += chunk;
-      if (firstPartMs === null && stdout.includes('part-before-time-out')) firstPartMs = Date.now() - started;
-    });
-    child.on('close', code => {
-      const early = firstPartMs !== null && firstPartMs < Number(process.env.SLEEP_MS) - 1000;
-      const complete = stdout.includes('part-after-time-out');
-      const raw = !stdout.includes('[compressed:');
-      console.log('early=' + early + ' complete=' + complete + ' raw=' + raw + ' exit=' + code);
-    });
-  "
-}
-
-# The time-out argument lowers the time-out to 1 second; the command runs 3 seconds
-switch_result=$(run_past_time_out 3 1000)
-assert_contains "optimizer: output held at the time-out is written before the command ends" "$switch_result" "early=true"
-assert_contains "optimizer: output after the time-out still arrives"                       "$switch_result" "complete=true"
-assert_contains "optimizer: output after the time-out is not compressed"                   "$switch_result" "raw=true"
-assert_contains "optimizer: a command past the time-out keeps its exit code"               "$switch_result" "exit=0"
-
-# Claude Code lowers a time-out above its maximum (BASH_MAX_TIMEOUT_MS, and
-# never below the default) to that maximum, so the optimizer must do the same
-switch_result=$(run_past_time_out 3 1800000 BASH_DEFAULT_TIMEOUT_MS=500 BASH_MAX_TIMEOUT_MS=1000)
-assert_contains "optimizer: a time-out above the maximum is lowered to the maximum" "$switch_result" "early=true"
-
-# CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS moves a call to the background earlier,
-# but never before 2000 ms
-switch_result=$(run_past_time_out 4 60000 CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS=100)
-assert_contains "optimizer: the automatic background time-out applies, at 2000 ms or more" "$switch_result" "early=true"
-
-# Output written raw must arrive whole through a pipe. On macOS, process.exit()
-# right after a large write to a pipe ends the process before the write ends.
-large_bytes=$(node "$PLUGIN_ROOT/hooks/bash-optimizer.js" "$(b64_encode "head -c 200000 /dev/zero | tr '\\0' a")" "no-such-rule" | wc -c | tr -d ' ')
-assert "optimizer: 200000 bytes of raw output arrive whole through a pipe" "$large_bytes" "200000"
+# Raw output for reasons in the output itself
+assert "short output (below 200 characters) → {}" \
+  "$(run_hook 'git status' 'On branch main' "short-$$-$RANDOM")" "{}"
+assert "a rule that returns null (git log with 40 lines or fewer) → {}" \
+  "$(run_hook 'git log' "$(echo "$NOISY" | head -40)" "null-$$-$RANDOM")" "{}"
+assert "output from which the rule removes no line (git status without hint lines) → {}" \
+  "$(run_hook 'git status' "$NOISY" "same-$$-$RANDOM")" "{}"
 
 # ═══════════════════════════════════════════════════════
 bold "\n6. HOOK I/O PROTOCOL"
 # ═══════════════════════════════════════════════════════
 
-# Valid PreToolUse JSON structure
-# Fresh session id: 'git status' was already compressed under the shared
-# session in section 3, and the hook skips re-compression per session.
-raw=$(run_hook "git status" "io-$$-$RANDOM")
-tmpf=$(mktmp)
-printf '%s' "$raw" > "$tmpf"
-result=$(node -e "
-  const d = JSON.parse(require('fs').readFileSync('$tmpf','utf8'));
-  const h = d.hookSpecificOutput;
-  const ok = h &&
-    h.hookEventName === 'PreToolUse' &&
-    h.permissionDecision === 'allow' &&
-    h.updatedInput &&
-    typeof h.updatedInput.command === 'string' &&
-    h.updatedInput.command.includes('bash-optimizer');
-  console.log(ok ? 'ok' : 'invalid: ' + JSON.stringify(h));
-")
-assert "hook returns valid PreToolUse JSON with updatedInput" "$result" "ok"
-
-# Original tool_input fields preserved alongside rewritten command
-# Unique session id: a constant one leaves a rerun-tracking file in the OS
-# tmpdir that persists across test runs and makes this test fail on run 2+.
-inp='{"session_id":"io2-'"$$-$RANDOM"'","tool_name":"Bash","tool_input":{"command":"git status","description":"my desc","timeout":60000},"cwd":"'"$PLUGIN_ROOT"'"}'
-tmpf=$(mktmp)
-printf '%s' "$inp" > "$tmpf"
-raw=$(node "$PLUGIN_ROOT/hooks/bash-compress-hook.js" < "$tmpf")
-tmpf2=$(mktmp)
-printf '%s' "$raw" > "$tmpf2"
-result=$(node -e "
-  const d = JSON.parse(require('fs').readFileSync('$tmpf2','utf8'));
-  const u = d.hookSpecificOutput && d.hookSpecificOutput.updatedInput;
-  console.log(u && u.description === 'my desc' && u.timeout === 60000 ? 'ok' : 'fields-not-preserved');
-")
-assert "hook preserves all original tool_input fields alongside rewritten command" "$result" "ok"
-result=$(node -e "
-  const d = JSON.parse(require('fs').readFileSync('$tmpf2','utf8'));
-  const u = d.hookSpecificOutput && d.hookSpecificOutput.updatedInput;
-  console.log(u && u.command.endsWith(' \"60000\"') ? 'ok' : 'time-out-not-passed: ' + (u && u.command));
-")
-assert "hook passes the call's time-out to the optimizer" "$result" "ok"
-
-# A background call is not rewritten. Claude Code writes the output of a
-# background call to a file while the command runs; the optimizer holds output
-# for compression, so that file would stay empty until the command ends.
-assert "background call passes through as {}" \
-  "$(run_hook 'git status' "bg-$$-$RANDOM" ',"run_in_background":true')" "{}"
-assert "call with run_in_background false is still rewritten" \
-  "$(is_rewritten "$(run_hook 'git status' "fg-$$-$RANDOM" ',"run_in_background":false')")" "yes"
-
 # Non-Bash tool → passthrough
-inp2='{"session_id":"x","tool_name":"Read","tool_input":{"file_path":"/tmp/test"},"cwd":"'"$PLUGIN_ROOT"'"}'
-tmpf3=$(mktmp)
-printf '%s' "$inp2" > "$tmpf3"
-result=$(node "$PLUGIN_ROOT/hooks/bash-compress-hook.js" < "$tmpf3")
-assert "non-Bash tool passes through as {}" "$result" "{}"
+assert "non-Bash tool passes through as {}" \
+  "$(untouched 'input.tool_name = "Read"; input.tool_input = { file_path: "/tmp/test" };')" "{}"
 
 # Unknown command → passthrough
-assert "unknown command passes through as {}" "$(run_hook 'some-obscure-tool --flags')" "{}"
+assert "unknown command passes through as {}" "$(run_hook 'some-obscure-tool --flags' "$NOISY")" "{}"
+
+# Empty command → passthrough
+assert "empty command passes through as {}" "$(run_hook '' "$NOISY")" "{}"
+
+# Input that is not JSON → passthrough
+bad_input=$(mktmp)
+printf 'not json' > "$bad_input"
+assert "input that is not JSON passes through as {}" "$(run_hook_file "$bad_input")" "{}"
 
 # ═══════════════════════════════════════════════════════
 bold "\n7. ADAPTIVE RE-RUN DETECTION"
@@ -525,40 +494,51 @@ bold "\n7. ADAPTIVE RE-RUN DETECTION"
 
 SESSION="rerun-$$"
 
-r1=$(run_hook "git status" "$SESSION")
-r2=$(run_hook "git status" "$SESSION")
-r3=$(run_hook "git status" "$SESSION")
+r1=$(run_hook "git status" "$STATUS_OUT" "$SESSION")
+r2=$(run_hook "git status" "$STATUS_OUT" "$SESSION")
+r3=$(run_hook "git status" "$STATUS_OUT" "$SESSION")
 
-assert "re-run: 1st run is compressed"       "$(is_rewritten "$r1")" "yes"
-assert "re-run: 2nd run passes through raw"  "$(is_rewritten "$r2")" "no"
-assert "re-run: 3rd run compressed again"    "$(is_rewritten "$r3")" "yes"
+assert "re-run: 1st run is compressed"       "$(is_compressed "$r1")" "yes"
+assert "re-run: 2nd run passes through raw"  "$r2"                    "{}"
+assert "re-run: 3rd run compressed again"    "$(is_compressed "$r3")" "yes"
 
 # Different commands track independently
-rl1=$(run_hook "git log" "$SESSION")
-rl2=$(run_hook "git log" "$SESSION")
-assert "re-run: different command 1st run compressed" "$(is_rewritten "$rl1")" "yes"
-assert "re-run: different command 2nd run raw"        "$(is_rewritten "$rl2")" "no"
+rl1=$(run_hook "git log" "$NOISY" "$SESSION")
+rl2=$(run_hook "git log" "$NOISY" "$SESSION")
+assert "re-run: different command 1st run compressed" "$(is_compressed "$rl1")" "yes"
+assert "re-run: different command 2nd run raw"        "$rl2"                    "{}"
 
-rm -f "/tmp/sp-compress-${SESSION}.json" 2>/dev/null
+# The hook writes its record of compressed commands into one file per session
+OTHER_SESSION="rerun-other-$$"
+run_hook "npm install" "$NOISY" "$OTHER_SESSION" > /dev/null
+read_record() {
+  RECORD_FILE="$TRACK_DIR/sp-compress-$1.json" node -e '
+    const record = JSON.parse(require("fs").readFileSync(process.env.RECORD_FILE, "utf8"));
+    console.log(Object.keys(record).sort().map(command =>
+      command + "=" + record[command].compressed + "," + typeof record[command].ts).join(" | "));
+  ' 2>&1
+}
+assert "session record: the file of a session holds its commands, with the state and the time of the last run" \
+  "$(read_record "$SESSION")" "git log=false,number | git status=true,number"
+assert "session record: another session has its own file" \
+  "$(read_record "$OTHER_SESSION")" "npm install=true,number"
 
 # ═══════════════════════════════════════════════════════
 bold "\n8. DISABLE MECHANISMS"
 # ═══════════════════════════════════════════════════════
 
 # SP_NO_COMPRESS env var
-tmpf4=$(mktmp)
-printf '{"session_id":"x","tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"%s"}' "$PLUGIN_ROOT" > "$tmpf4"
-result=$(SP_NO_COMPRESS=1 node "$PLUGIN_ROOT/hooks/bash-compress-hook.js" < "$tmpf4")
+status_input=$(build_input "git status" "$STATUS_OUT" "disable-$$-$RANDOM")
+result=$(SP_NO_COMPRESS=1 run_hook_file "$status_input")
 assert "SP_NO_COMPRESS=1 disables compression" "$result" "{}"
+assert "the same input without SP_NO_COMPRESS is compressed" "$(is_compressed "$(run_hook_file "$status_input")")" "yes"
 
 # .sp-no-compress file in project dir
-TMPDIR_TEST=$(mktemp -d)
-TMPFILES+=("$TMPDIR_TEST")
-touch "$TMPDIR_TEST/.sp-no-compress"
-tmpf5=$(mktmp)
-printf '{"session_id":"x","tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"%s"}' "$TMPDIR_TEST" > "$tmpf5"
-result=$(node "$PLUGIN_ROOT/hooks/bash-compress-hook.js" < "$tmpf5")
-assert ".sp-no-compress file disables compression" "$result" "{}"
+export NO_COMPRESS_DIR="$WORK/project"
+mkdir "$NO_COMPRESS_DIR"
+touch "$NO_COMPRESS_DIR/.sp-no-compress"
+assert ".sp-no-compress file disables compression" \
+  "$(untouched 'input.cwd = process.env.NO_COMPRESS_DIR;')" "{}"
 
 # ═══════════════════════════════════════════════════════
 bold "\n9. TOKEN SAVINGS MEASUREMENT"
@@ -567,13 +547,16 @@ bold "\n9. TOKEN SAVINGS MEASUREMENT"
 bold "\n  Measuring real token savings on live commands:\n"
 
 measure() {
-  local desc="$1" cmd="$2" type="$3"
+  local desc="$1" cmd="$2"
   local raw compressed raw_tok comp_tok saved
 
   raw=$(bash -c "$cmd" 2>&1)
   raw_tok=$(( ${#raw} / 4 ))
 
-  compressed=$(run_optimizer "$cmd" "$type")
+  # The text Claude receives: the replacement, or the raw output when the hook
+  # replaced nothing
+  compressed=$(compressed_text "$(run_hook "$cmd" "$raw" "measure-$$-$RANDOM")")
+  [ -n "$compressed" ] || compressed="$raw"
   comp_tok=$(( ${#compressed} / 4 ))
 
   if [ "${#raw}" -le 200 ]; then
@@ -592,10 +575,10 @@ measure() {
   fi
 }
 
-measure "git status"             "git status"             "git-status"
-measure "git log (last 50)"      "git log --oneline -50"  "git-log"
-measure "ls -la (plugin root)"   "ls -la"                 "ls-large"
-measure "find hooks/ -type f"    "find hooks/ -type f"    "find-large"
+measure "git status"             "git status"
+measure "git log (last 50)"      "git log --oneline -50"
+measure "ls -la (plugin root)"   "ls -la"
+measure "find hooks/ -type f"    "find hooks/ -type f"
 
 # Simulate npm install output (can't run real install)
 npm_mock=$(node -e "
@@ -634,26 +617,42 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════
-bold "\n10. HOOKS.JSON INTEGRATION"
+bold "\n10. HOOK WIRING"
 # ═══════════════════════════════════════════════════════
 
-result=$(node -e "
-  const hooks = JSON.parse(require('fs').readFileSync('hooks/hooks.json','utf8'));
-  const pre = hooks.hooks.PreToolUse || [];
-  const hasCompress = pre.some(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('bash-compress-hook')));
-  const safetyIdx = pre.findIndex(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('block-dangerous')));
-  const compressIdx = pre.findIndex(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('bash-compress')));
-  console.log(hasCompress && safetyIdx !== -1 && safetyIdx < compressIdx ? 'ok' : 'bad-order');
-")
-assert "hooks.json: bash-compress-hook registered AFTER safety hooks" "$result" "ok"
+# The names of the hook events of a hooks file that run bash-compress-hook
+compress_events() {
+  node -e "
+    const hooks = JSON.parse(require('fs').readFileSync('$1','utf8')).hooks;
+    const events = Object.keys(hooks).filter(event => hooks[event].some(entry =>
+      (entry.hooks || []).some(h => h.command && h.command.includes('bash-compress-hook'))));
+    console.log(events.join(',') || 'none');
+  "
+}
+
+assert "hooks.json: bash-compress-hook runs on PostToolUse only" "$(compress_events hooks/hooks.json)" "PostToolUse"
 
 result=$(node -e "
-  const hooks = JSON.parse(require('fs').readFileSync('hooks/hooks-cursor.json','utf8'));
-  const pre = hooks.hooks.preToolUse || [];
-  const has = pre.some(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('bash-compress-hook')));
-  console.log(has ? 'ok' : 'missing');
+  const hooks = JSON.parse(require('fs').readFileSync('hooks/hooks.json','utf8')).hooks;
+  const entry = hooks.PostToolUse.find(e => e.hooks.some(h => h.command.includes('bash-compress-hook')));
+  console.log(entry.matcher);
 ")
-assert "hooks-cursor.json: bash-compress-hook registered" "$result" "ok"
+assert "hooks.json: the bash-compress-hook entry matches the Bash tool only" "$result" "Bash"
+
+assert "hooks-cursor.json: bash-compress-hook is not registered" "$(compress_events hooks/hooks-cursor.json)" "none"
+
+result=$(node -e "
+  const lines = require('fs').readFileSync('plugin.universal.yaml','utf8').split('\n');
+  const events = [];
+  let event = '';
+  for (const line of lines) {
+    const m = line.match(/^\s*- event:\s*(\S+)/);
+    if (m) event = m[1];
+    if (line.includes('hooks/bash-compress-hook.js')) events.push(event);
+  }
+  console.log(events.join(',') || 'none');
+")
+assert "plugin.universal.yaml: bash-compress-hook is declared on PostToolUse only" "$result" "PostToolUse"
 
 result=$(node -e "
   // Verify hooks.json is still valid JSON with correct structure
@@ -663,6 +662,73 @@ result=$(node -e "
   console.log(ok ? 'ok' : 'missing-keys');
 ")
 assert "hooks.json: all original hook sections still present" "$result" "ok"
+
+assert "hooks/bash-optimizer.js does not exist" "$([ -e hooks/bash-optimizer.js ] && echo exists || echo absent)" "absent"
+
+# ═══════════════════════════════════════════════════════
+bold "\n11. THE PLUGIN NEVER REWRITES OR APPROVES A BASH COMMAND"
+# ═══════════════════════════════════════════════════════
+
+# An earlier form of the compression hook ran on PreToolUse and returned
+# permissionDecision "allow" with a replaced command (updatedInput). Claude
+# Code then skipped the permission prompt, and compared the deny rules and the
+# ask rules of the user with the replaced command. No hook of the plugin may
+# return either field for a Bash command.
+
+assert "no file in hooks/ contains the text updatedInput" \
+  "$(grep -rl 'updatedInput' hooks | tr '\n' ' ')" ""
+
+# For one command: run every PreToolUse hook that hooks.json starts for the
+# Bash tool, and run bash-compress-hook with a PreToolUse input and with a
+# PostToolUse input. Print "clean", or each output that rewrites or approves.
+permission_fields() {
+  local post_file
+  post_file=$(build_input "$1" "$NOISY" "permission-$$-$RANDOM")
+  REVIEW_COMMAND="$1" POST_FILE="$post_file" SAFE_HOME="$WORK" PLUGIN_ROOT="$PLUGIN_ROOT" HOOK="$HOOK" \
+  TMPDIR="$TRACK_DIR" TEMP="$TRACK_DIR" TMP="$TRACK_DIR" node -e '
+    const { spawnSync } = require("child_process");
+    const fs = require("fs");
+    const e = process.env;
+    const post = fs.readFileSync(e.POST_FILE, "utf8");
+    const { tool_response, duration_ms, ...pre } = { ...JSON.parse(post), hook_event_name: "PreToolUse" };
+    const preInput = JSON.stringify(pre);
+    // The safety hooks write a log below the home folder
+    const env = { ...e, HOME: e.SAFE_HOME, USERPROFILE: e.SAFE_HOME, CLAUDE_PLUGIN_ROOT: e.PLUGIN_ROOT };
+    const wired = JSON.parse(fs.readFileSync("hooks/hooks.json", "utf8")).hooks.PreToolUse
+      .filter(entry => new RegExp("^(" + (entry.matcher || ".*") + ")$").test("Bash"))
+      .flatMap(entry => entry.hooks.map(h => h.command.split("${CLAUDE_PLUGIN_ROOT}").join(e.PLUGIN_ROOT)));
+    const runs = [
+      ...wired.map(command => spawnSync(command, { shell: true, input: preInput, env, encoding: "utf8" })),
+      spawnSync("node", [e.HOOK], { input: preInput, env, encoding: "utf8" }),
+      spawnSync("node", [e.HOOK], { input: post, env, encoding: "utf8" }),
+    ];
+    const bad = runs.map(run => run.stdout || "").filter(text => {
+      if (text.includes("updatedInput")) return true;
+      try {
+        const h = JSON.parse(text || "{}").hookSpecificOutput;
+        return Boolean(h && h.permissionDecision === "allow");
+      } catch { return false; }
+    });
+    console.log(runs.length >= 4 && bad.length === 0 ? "clean" : "runs=" + runs.length + " " + bad.join(" "));
+  '
+}
+
+# The 9 commands of the review (docs/reviews/2026-10-03-whole-project, V1.1)
+assert "git push: no hook rewrites or approves the command"      "$(permission_fields 'git push origin main')" "clean"
+assert "git commit: no hook rewrites or approves the command"    "$(permission_fields 'git commit -m "wip"')" "clean"
+assert "npm install: no hook rewrites or approves the command"   "$(permission_fields 'npm install left-pad')" "clean"
+assert "pip install: no hook rewrites or approves the command"   "$(permission_fields 'pip install requests')" "clean"
+assert "make: no hook rewrites or approves the command"          "$(permission_fields 'make deploy')" "clean"
+assert "find -delete: no hook rewrites or approves the command"  "$(permission_fields "find . -name '*.tmp' -delete")" "clean"
+assert "docker build: no hook rewrites or approves the command"  "$(permission_fields 'docker build -t app .')" "clean"
+assert "command substitution: no hook rewrites or approves the command" \
+  "$(permission_fields 'ls -d $(touch substitution-ran.flag)')" "clean"
+assert "git status: no hook rewrites or approves the command"    "$(permission_fields 'git status')" "clean"
+
+# The hook answers a PreToolUse input with {}: a hooks file of an older
+# release that still starts it on PreToolUse changes nothing
+assert "a PreToolUse input passes through as {}" \
+  "$(untouched 'input.hook_event_name = "PreToolUse"; delete input.tool_response;')" "{}"
 
 # ═══════════════════════════════════════════════════════
 bold "\n\n══════════════════════════════════════════"

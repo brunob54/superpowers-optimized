@@ -21,17 +21,6 @@
           }
         ]
       }
-    ],
-    "preToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CURSOR_PLUGIN_ROOT}/hooks/bash-compress-hook.js\""
-          }
-        ]
-      }
     ]
   }
 }

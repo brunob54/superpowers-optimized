@@ -21,13 +21,15 @@ These tokens cost money and consume context window space that could be used for 
 
 ## What Smart Compress Does
 
-Smart compress is a `PreToolUse` hook that intercepts Bash commands before they execute. When it recognizes a command that produces noisy output, it rewrites the command to run through a compressor that:
+Smart compress is a `PostToolUse` hook (a program that Claude Code runs after a tool call has ended). It runs after each Bash command that ended with success. When it recognizes a command that produces noisy output, it:
 
-1. Executes the original command exactly as-is (same shell, same arguments, same working directory)
-2. Captures the output
-3. Applies command-specific compression rules to remove noise while preserving signal
-4. Returns the compressed output with a transparency marker
-5. Preserves the original exit code
+1. Reads the output of the command from the hook input
+2. Applies command-specific compression rules to remove noise while preserving signal
+3. Returns the compressed output with a transparency marker, in the `updatedToolOutput` field. Claude Code then gives Claude this text in place of the raw output.
+
+The hook never changes the command, and it never returns a permission decision. Claude Code runs the command exactly as Claude wrote it. The permission prompt and the user's allow, ask and deny rules work exactly as they do without the hook.
+
+**Requirement:** Claude Code 2.1.121 or later. That version added `updatedToolOutput` for the Bash tool.
 
 ```
 Without smart compress:
@@ -39,12 +41,15 @@ Without smart compress:
 
 With smart compress:
 
-  Claude  ──git status──>  hook  ──>  optimizer  ──>  bash  ──>  git
-    ^                                    |                        |
-    |      10 lines (hint lines          |   compress + marker    |
-    |      removed, marker added)        +------------------------+
-    +------------------------------------+
+  Claude  ──git status──>  bash  ──>  git
+    ^                                  |
+    |                                  |  14 lines (raw)
+    |      10 lines (hint lines        v
+    |      removed, marker added)    hook
+    +----------------------------------+
 ```
+
+Before this design, the hook ran on `PreToolUse` and replaced the command with a call of a wrapper program (`bash-optimizer.js`), together with the permission decision "allow". Claude Code then skipped the permission prompt for every such command, and it compared the user's deny and ask rules with the replaced command text, which they could not match. The wrapper program no longer exists.
 
 ---
 
@@ -137,8 +142,10 @@ These commands always pass through with raw, unmodified output — regardless of
 | `node -e`, `python -e`, `ruby -e` | Inline script output is the point |
 | **Any command that fails** (non-zero exit code) | Error output must be seen in full |
 | Output shorter than 200 characters | Not worth the compression overhead |
+| Output from which the rule removes no line | Nothing to gain; every replaced output carries the marker |
+| A background call, a call moved to the background at its time-out, an interrupted call | The output is not complete (see "Output That Is Never Replaced") |
 
-The "never compress on failure" rule is the most important safety feature. When tests fail, builds break, or commands error out, you get the complete raw output — stack traces, assertion details, error messages, everything.
+The "never compress on failure" rule is the most important safety feature. When tests fail, builds break, or commands error out, you get the complete raw output — stack traces, assertion details, error messages, everything. Claude Code itself enforces the rule: for a command that fails it sends the `PostToolUseFailure` event, not `PostToolUse`, so the hook does not run.
 
 ---
 
@@ -180,25 +187,26 @@ This tracking is session-scoped (stored in a temp file) and automatically cleane
 
 ---
 
-## Long and Background Commands
+## Output That Is Never Replaced
 
-The optimizer holds a command's output until the command ends, because a rule compresses the whole output at once. Two cases would otherwise hide that output:
+The hook replaces the output only when it can prove that the tool response is the complete output of a command that ended with exit status 0. The fields below were measured on Claude Code 2.1.289. In every other case the hook prints `{}` and Claude receives the output unchanged.
 
-| Case | Behavior | Reasoning |
+| Case | How the hook sees it | Behavior |
 |---|---|---|
-| Call with `run_in_background: true` | Not rewritten; runs raw | Claude Code writes a background call's output to a file while the command runs. Held output would leave that file empty. |
-| Command still running at the Bash call's time-out | From that time, output is raw (held output first, then later output as it arrives) | Claude Code moves the call to the background and does not stop the command. |
-| More than 10 MB of held output | From that time, output is raw | Limits the memory the optimizer uses. |
+| Command that fails | Claude Code sends `PostToolUseFailure` | The hook does not run |
+| Call with `run_in_background: true` | The response has a `backgroundTaskId` field | Unchanged. Claude Code writes the output of a background call to a file. |
+| Command still running at the Bash call's time-out | The response has `backgroundTaskId` and `timedOutAfterMs` | Unchanged. Claude Code moves the call to the background and does not stop the command. |
+| Exit status that is not 0 and that Claude Code accepts (for example `find` with a folder it cannot read) | The response has a `returnCodeInterpretation` field | Unchanged |
+| Interrupted call, image output | `interrupted` or `isImage` is not `false` | Unchanged |
+| Any field the hook does not know, or a missing `stdout` or `stderr` field | The shape is not the measured one | Unchanged |
 
-The optimizer sets no time limit of its own. Before v7.27.0 it stopped every command at 300 seconds and reported a failure.
+The known fields are `stdout`, `stderr`, `interrupted`, `isImage`, `noOutputExpected`, `persistedOutputPath` and `persistedOutputSize`. If a later Claude Code version adds a field to every response, compression stops (the output stays raw) until the hook learns the field. Nothing else breaks.
 
-The time-out is the call's `timeout` field, lowered the way Claude Code lowers it. Claude Code does not document these rules; they were read from Claude Code 2.1.273:
+**Output above 30,000 characters.** Claude Code cuts the `stdout` field at 30,000 characters and saves the whole output in a file, named in `persistedOutputPath`. The hook reads that file, so the rule sees the whole output (the summary of a test run is at the end). The replacement has no `persistedOutputPath` and no `persistedOutputSize` field. The hook leaves the output unchanged when the file is larger than 10 MB, cannot be read, or does not start with the text in `stdout`.
 
-- The default is `BASH_DEFAULT_TIMEOUT_MS`, or 120000 ms (milliseconds) when it is not set.
-- The maximum is `BASH_MAX_TIMEOUT_MS`, or 600000 ms when it is not set, and never less than the default.
-- `CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS`, when set, moves the call to the background earlier, but never before 2000 ms.
+**Standard error.** Claude Code merges the standard error of a successful command into `stdout`, in the order the lines were written, and leaves the `stderr` field empty. The hook therefore cannot keep standard error apart, and a rule treats those lines like any other line. Some rules keep warning lines (`git add`, test runs, builds, lint output); a one-line summary rule such as `git push` does not. A `stderr` field that is not empty goes to the rule as standard error and stays unchanged in the replacement.
 
-If a later Claude Code version changes these rules, the switch to raw output can come too late. A switch that comes too early only loses compression.
+The hook starts no command and sets no time limit, so it cannot stop or delay a command.
 
 ---
 
@@ -238,31 +246,21 @@ Commands that aren't covered by compression rules (or hit the never-compress lis
 
 | Component | Time | Notes |
 |---|---|---|
-| PreToolUse hook (classification) | ~40ms | Node.js startup + regex matching |
-| Optimizer startup | ~40ms | Node.js startup (only for compressed commands) |
+| PostToolUse hook (classification) | ~40ms | Node.js startup + regex matching |
 | Compression logic | <5ms | String operations |
-| **Total per compressed command** | **~85ms** | Only for commands that match a rule |
-| **Total per non-compressed command** | **~40ms** | Classification only, no optimizer |
+| **Total per Bash command** | **~40-45ms** | The hook runs once after each Bash call that ended with success |
 
-For a typical session with ~80 Bash calls (~40 compressible), total overhead is approximately 5 seconds across the entire session. This is a fraction of a second per command — imperceptible compared to the time Claude spends reasoning.
+For a typical session with ~80 Bash calls, total overhead is approximately 3-4 seconds across the entire session. This is a fraction of a second per command — imperceptible compared to the time Claude spends reasoning. The hook runs after the command, so it adds no time before the command starts.
 
 ---
 
 ## Cross-Platform Support
 
-Smart compress works on all three platforms supported by Claude Code:
+Smart compress works on all three platforms supported by Claude Code (macOS, Linux, Windows). The hook starts no shell and no command: Claude Code runs the command, and the hook only reads the result. It uses only Node.js built-ins.
 
-| Platform | Shell used | How it's found |
-|---|---|---|
-| **macOS** | `/bin/bash` | Always present (ships with macOS) |
-| **Linux** | `/bin/bash` or `/usr/bin/bash` | Always present; falls back to `bash` in PATH |
-| **Windows** | Git Bash | Checked at `Program Files\Git\bin\bash.exe`; falls back to `bash` in PATH |
-
-Additional cross-platform handling:
+Cross-platform handling:
 - **Line endings:** Windows `\r\n` output is normalized to `\n` before compression
-- **File paths:** All internal paths use `path.join()` and are converted to forward slashes for bash compatibility
 - **Temp files:** Session tracking uses `os.tmpdir()` which resolves correctly on all platforms
-- **Base64 encoding:** Commands are encoded in base64 to avoid shell quoting issues across platforms
 
 ---
 
@@ -298,7 +296,7 @@ There's no per-command disable — but commands on the never-compress list alrea
 
 **Adaptive behavior.** If Claude re-runs the same command within 60 seconds, smart compress passes it through uncompressed — it assumes Claude is retrying because the compressed output wasn't enough. RTK applies the same compression every time regardless.
 
-**The trade-off we accepted.** RTK covers 100+ commands with <10ms overhead (Rust). Smart compress covers 17 commands with ~85ms overhead (Node.js). We're slower and narrower — but those 17 commands account for the vast majority of token waste in typical sessions, and the safety guarantees matter more than covering edge cases.
+**The trade-off we accepted.** RTK covers 100+ commands with <10ms overhead (Rust). Smart compress covers 17 commands with ~40ms overhead (Node.js). We're slower and narrower — but those 17 commands account for the vast majority of token waste in typical sessions, and the safety guarantees matter more than covering edge cases.
 
 ### Coexistence with RTK
 
@@ -308,44 +306,47 @@ If you also have RTK installed, smart compress detects commands that already sta
 
 ## Architecture
 
-Smart compress consists of three files:
+Smart compress consists of two files:
 
 ```
 hooks/
-├── bash-compress-hook.js     PreToolUse/Bash hook — classifies commands,
-│                             decides whether to compress, rewrites the
-│                             command to run through the optimizer
-│
-├── bash-optimizer.js         Executes the original command via spawn,
-│                             applies compression, outputs result with
-│                             transparency marker, preserves exit codes;
-│                             writes raw output from the call's time-out on
+├── bash-compress-hook.js     PostToolUse/Bash hook — classifies the command,
+│                             checks that the tool response is safe to
+│                             replace, applies the rule, and returns the
+│                             compressed output with the transparency marker
 │
 └── compression-rules.js      Rule definitions — command patterns, tier
                               classification, compression functions,
-                              and the never-compress list
+                              the never-compress list, and the helper
+                              functions shared with the Codex adapter
 ```
 
-### Hook Pipeline Order
+### Hook Order
 
 ```
-PreToolUse/Bash hooks execute in this order:
+PreToolUse/Bash hooks (before the command, before the permission check):
 
-  1. block-dangerous-commands.js   →  May DENY (stops pipeline)
-  2. protect-secrets.js            →  May DENY (stops pipeline)
-  3. bash-compress-hook.js         →  May REWRITE command (transparent)
+  1. block-dangerous-commands.js   →  May DENY
+  2. protect-secrets.js            →  May DENY
+
+Claude Code checks the permission rules, asks the user when needed, and
+runs the command.
+
+PostToolUse/Bash hook (after a command that ended with success):
+
+  3. bash-compress-hook.js         →  May REPLACE the output Claude receives
 ```
 
-Safety hooks always run first. If a command is blocked by safety, the compressor never sees it. If a command passes safety checks, the compressor may rewrite it to run through the optimizer.
+If a safety hook, a permission rule or the user blocks a command, the command does not run and the compressor never sees it.
 
 ### Fail-Open Design
 
-Every layer is designed to fail open — if anything goes wrong, the original command runs unmodified:
+Every layer is designed to fail open — if anything goes wrong, Claude receives the raw output:
 
-- Hook crashes or produces invalid JSON → original command executes normally
-- Optimizer can't find bash → warning to stderr, exits with error
-- Compression function throws → raw output passes through
-- Compression function returns `null` → raw output passes through (used intentionally for short output or failed commands)
-- Base64 decode fails → error message, exits
+- Hook crashes or produces invalid JSON → Claude Code keeps the original output
+- A tool response without the known shape → raw output
+- Compression function throws → raw output
+- Compression function returns `null` → raw output (used intentionally for short output)
+- A Claude Code version before 2.1.121 → the `updatedToolOutput` field is not known for the Bash tool; expected result: raw output (not run on such a version)
 
-No compression failure can prevent a command from executing.
+The hook runs after the command, so no compression failure can prevent a command from executing or change what it does.

@@ -5,13 +5,15 @@
  * Bash Output Compression Rules
  *
  * Defines which commands can be compressed and how.
- * Used by bash-compress-hook.js (classification) and bash-optimizer.js (compression).
+ * Used by bash-compress-hook.js (Claude Code) and by
+ * codex/posttool-bash-compress-adapter.js (Codex). Both run after the command
+ * has ended and replace its output.
  *
  * Design principles:
  *   - Fail-open: if a compress() function returns null, output passes through raw
  *   - Never compress commands where every line is potential signal (diffs, file reads)
  *   - Transparency: compressed output always gets a marker so Claude knows info was removed
- *   - Cross-platform: line ending normalization handled by the optimizer, not here
+ *   - Cross-platform: line ending normalization handled by the callers, not here
  */
 
 // Commands that should NEVER be compressed — output is always valuable
@@ -423,4 +425,47 @@ const RULES = [
   },
 ];
 
-module.exports = { RULES, NEVER_COMPRESS, MIN_OUTPUT_LENGTH };
+/**
+ * The rule for a command. Returns undefined when the output of the command
+ * must stay raw: the never-compress list names the command, or no rule
+ * matches it.
+ */
+function findRule(command) {
+  if (NEVER_COMPRESS.some(pattern => pattern.test(command))) return undefined;
+  return RULES.find(rule => rule.match.test(command));
+}
+
+/**
+ * Apply a rule to the output of a command. Returns the compressed text, or
+ * null when the output must stay raw: the rule throws, or the rule returns
+ * no text.
+ */
+function runRule(rule, stdout, stderr, exitCode) {
+  let compressed;
+  try {
+    compressed = rule.compress(stdout, stderr, exitCode);
+  } catch {
+    return null;
+  }
+  return compressed && typeof compressed === 'string' ? compressed : null;
+}
+
+/** The number of lines of a text that hold more than white space. */
+function countNonEmptyLines(text) {
+  return text.split('\n').filter(line => line.trim().length > 0).length;
+}
+
+/** The marker line that tells the reader that a rule removed lines. */
+function compressionMarker(originalLines, compressedLines, ruleType) {
+  return `[compressed: ${originalLines}->${compressedLines} lines | ${ruleType}]`;
+}
+
+module.exports = {
+  RULES,
+  NEVER_COMPRESS,
+  MIN_OUTPUT_LENGTH,
+  findRule,
+  runRule,
+  countNonEmptyLines,
+  compressionMarker,
+};
