@@ -18,14 +18,16 @@ WHATS_NEW_MAX=1200
 # Two paths depending on install type:
 #
 # Path A — git-based install (Codex / OpenCode / self-hosted clone):
-#   If PLUGIN_ROOT is a git repo, fetch origin and apply a non-destructive
+#   If PLUGIN_ROOT is itself the top level of a git work tree and has branch
+#   main checked out, fetch origin and apply a non-destructive
 #   fast-forward-only merge. When the VERSION file changes after the merge,
 #   extract "What's New" from RELEASE-NOTES.md and inject it into session
 #   context. Never applies if the clone has local changes or is diverged.
 #
 # Path B — marketplace install (Claude Code / Cursor):
-#   If PLUGIN_ROOT is NOT a git repo, compare the locally installed version
-#   against the remote plugin.json on GitHub. If an update is available,
+#   If PLUGIN_ROOT is NOT the top level of a git work tree (also when it lies
+#   inside the work tree of another repository), compare the locally installed
+#   version against the remote plugin.json on GitHub. If an update is available,
 #   tell the user to run /plugin update superpowers-orchestrator.
 #
 # Both paths: cached for 24h to avoid network access on every session start.
@@ -71,7 +73,21 @@ check_for_updates() {
     is_auto_update_enabled || return
 
     # ── Path A: git-based install (Codex / OpenCode / self-hosted clone) ──────
-    if git -C "${PLUGIN_ROOT}" rev-parse --git-dir > /dev/null 2>&1; then
+    # PLUGIN_ROOT is a clone of the plugin only when it is itself the top level
+    # of a git work tree. A test that git finds a repository is not enough: git
+    # also finds one from a folder that only lies inside the work tree of
+    # another repository (a marketplace install under a ~/.claude that the user
+    # keeps in git), and a fetch or a merge would then change that repository.
+    # --show-prefix prints the path from the top level to PLUGIN_ROOT, which is
+    # empty only at the top level, so the output is the single word "true" only
+    # there. No path is compared, so symbolic links and Windows path forms
+    # cannot make the test wrong.
+    if [ "$(git -C "${PLUGIN_ROOT}" rev-parse --is-inside-work-tree --show-prefix 2>/dev/null)" = "true" ]; then
+
+        # The fast-forward below moves whatever is checked out. Only branch main
+        # may follow origin/main: a clone with another branch checked out, or
+        # with no branch checked out (a detached HEAD), is left unchanged.
+        [ "$(git -C "${PLUGIN_ROOT}" symbolic-ref --short -q HEAD 2>/dev/null)" = "main" ] || return
 
         # Check cache freshness — skip fetch if cache is recent
         if [ -f "$cache_file" ]; then
@@ -168,7 +184,7 @@ ${whats_new}</important-reminder>"
 
     else
         # ── Path B: marketplace install (Claude Code / Cursor) ────────────────
-        # No git repo — compare local version against the remote plugin.json via curl.
+        # Not a clone of the plugin — compare local version against the remote plugin.json via curl.
         # Tell the user to run /plugin update if a newer version is available.
 
         # Read local version — prefer installed_plugins.json (authoritative: reflects the
