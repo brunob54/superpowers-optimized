@@ -24,6 +24,7 @@ const PLUGIN_ROOT = path.resolve(__dirname, '..', '..');
 const SKILLS_DIR = path.join(PLUGIN_ROOT, 'skills');
 const UPDATE_CACHE = path.join(getSuperpowersConfigDir(), 'update-check.cache');
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAIN_BRANCH_REF = 'refs/heads/main';
 
 function runGit(cmd, cwd) {
   try {
@@ -55,12 +56,29 @@ function touchCache() {
   } catch {}
 }
 
+// True only when PLUGIN_ROOT is a clone of the plugin that the update check
+// may fetch and fast-forward. Two conditions:
+// - PLUGIN_ROOT is itself the top level of a git work tree. A test that git
+//   finds a repository is not enough: git also finds one from a folder that
+//   only lies inside the work tree of another repository, and a fetch or a
+//   merge would then change that repository. --show-prefix prints the path
+//   from the top level to PLUGIN_ROOT, which is empty only at the top level,
+//   so the trimmed output is the single word "true" only there.
+// - Branch main is checked out. The fast-forward moves whatever is checked
+//   out, and only branch main may follow origin/main. The full reference name
+//   is compared, because the short name of the branch is "heads/main" when a
+//   tag named main also exists. A detached HEAD (no branch checked out) gives
+//   an empty string.
+function isPluginCloneOnMain() {
+  return runGit('git rev-parse --is-inside-work-tree --show-prefix', PLUGIN_ROOT) === 'true'
+    && runGit('git symbolic-ref -q HEAD', PLUGIN_ROOT) === MAIN_BRANCH_REF;
+}
+
 function checkForUpdates() {
   try {
     if (isAutoUpdateDisabled()) return '';
 
-    const gitDir = runGit('git rev-parse --git-dir', PLUGIN_ROOT);
-    if (!gitDir) return '';
+    if (!isPluginCloneOnMain()) return '';
     if (!isCacheStale()) return '';
 
     const oldVersion = readFileSafe(path.join(PLUGIN_ROOT, 'VERSION')).trim();

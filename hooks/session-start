@@ -23,6 +23,8 @@ WHATS_NEW_MAX=1200
 #   fast-forward-only merge. When the VERSION file changes after the merge,
 #   extract "What's New" from RELEASE-NOTES.md and inject it into session
 #   context. Never applies if the clone has local changes or is diverged.
+#   A clone with another branch or with no branch checked out gets neither
+#   path: no fetch, no merge and no notice.
 #
 # Path B — marketplace install (Claude Code / Cursor):
 #   If PLUGIN_ROOT is NOT the top level of a git work tree (also when it lies
@@ -86,8 +88,10 @@ check_for_updates() {
 
         # The fast-forward below moves whatever is checked out. Only branch main
         # may follow origin/main: a clone with another branch checked out, or
-        # with no branch checked out (a detached HEAD), is left unchanged.
-        [ "$(git -C "${PLUGIN_ROOT}" symbolic-ref --short -q HEAD 2>/dev/null)" = "main" ] || return
+        # with no branch checked out (a detached HEAD), is left unchanged. The
+        # full reference name is compared, because the short name of the branch
+        # is "heads/main", not "main", when a tag named main also exists.
+        [ "$(git -C "${PLUGIN_ROOT}" symbolic-ref -q HEAD 2>/dev/null)" = "refs/heads/main" ] || return
 
         # Check cache freshness — skip fetch if cache is recent
         if [ -f "$cache_file" ]; then

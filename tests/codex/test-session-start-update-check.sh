@@ -23,13 +23,28 @@
 #   4. As case 3, but the hook is started through a symbolic link to the clone.
 #   5. A clone of the plugin with a branch other than main checked out, and
 #      one with a detached HEAD (no branch checked out): unchanged, no fetch,
-#      no notice of either kind.
+#      no notice of either kind. The branch names main-old, mainline and
+#      feature/main start with "main" or end with "/main"; they fail a hook
+#      that compares only a part of the name.
+#   6. A clone of the plugin on branch main that also has a tag named main is
+#      fast-forwarded. Git then prints the short name of the branch as
+#      "heads/main", so the hook must compare the full reference name.
 #
 # No network: every remote is a local bare repository, and a stand-in for
 # curl, first on PATH, answers the version request of the marketplace path.
 # Each case has its own HOME and its own plugin copy inside a temporary
 # folder. The output is parsed with JSON.parse (Node).
+#
+# The git commands of the fixtures must reach only the fixture repositories.
+# GIT_DIR and the other GIT_* variables (git sets them for a hook that it
+# starts) would send every git command to another repository, so the suite
+# removes them all at its start, and init_repo stops the suite when it cannot
+# prove that git uses the repository of the fixture folder.
 set -euo pipefail
+
+for git_variable in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+  unset "$git_variable"
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -37,6 +52,9 @@ REMOTE_VERSION="999.0.0"
 OLD_VERSION="1.0.0"
 NEW_VERSION="1.1.0"
 MAIN="main"
+MAIN_REF="refs/heads/${MAIN}"
+# What "git rev-parse --git-dir" prints in the top folder of a repository.
+OWN_GIT_DIR=".git"
 AVAILABLE_NOTICE="Superpowers Orchestrator v${REMOTE_VERSION} is available"
 UPDATED_NOTICE="Superpowers Orchestrator has been updated to v${NEW_VERSION}** (was v${OLD_VERSION})"
 UPDATED_NOTICE_START="Superpowers Orchestrator has been updated"
@@ -47,6 +65,9 @@ export GIT_CONFIG_NOSYSTEM=1
 TMP=$(mktemp -d)
 TMP=$(cd "$TMP" && pwd -P)
 trap 'rm -rf "$TMP"' EXIT
+# Git does not search for a repository above TMP, so a new fixture folder is
+# in no repository until init_repo makes one there.
+export GIT_CEILING_DIRECTORIES="$TMP"
 
 PASS=0
 FAIL=0
@@ -92,6 +113,26 @@ mkdir -p "$PROJECT"
 fx_git() {
   git -c user.name=fixture -c user.email=fixture@example.invalid \
       -c init.defaultBranch="$MAIN" "$@"
+}
+
+# init_repo <folder>: makes <folder> a new git repository. It stops the whole
+# suite, before any command writes to a repository, when git already finds a
+# repository from the new folder, and after "git init" when the repository
+# that git uses is not the one of the folder. In both states the fixture
+# commands would write commits to a repository that is not a fixture.
+init_repo() {
+  mkdir -p "$1"
+  if git -C "$1" rev-parse --git-dir > /dev/null 2>&1; then
+    refuse_to_run "$1"
+  fi
+  fx_git -C "$1" init -q
+  [ "$(git -C "$1" rev-parse --git-dir 2>/dev/null)" = "$OWN_GIT_DIR" ] || refuse_to_run "$1"
+}
+
+# refuse_to_run <folder>: ends the suite with a failure.
+refuse_to_run() {
+  echo "  STOP - git does not use the repository of the fixture folder $1; no test was run after this point" >&2
+  exit 1
 }
 
 # copy_plugin <dest>: copies the files that the hook reads from the plugin
@@ -149,9 +190,8 @@ user_repo_fixture() {
   else
     R="${F}/home/.claude"
     settings_dir="$R"
-    mkdir -p "$R"
   fi
-  fx_git -C "$R" init -q
+  init_repo "$R"
   printf 'plugins/\nhooks-logs/\n' > "${R}/.gitignore"
   printf '{"theme":"dark"}\n' > "${settings_dir}/settings.json"
   commit_all "$R" "first commit"
@@ -167,12 +207,17 @@ clone_fixture() {
   new_case "$1"
   PLUG="${F}/plugin"
   R="$PLUG"
-  mkdir -p "$PLUG"
-  fx_git -C "$PLUG" init -q
+  init_repo "$PLUG"
   copy_plugin "$PLUG"
   printf '%s\n' "$OLD_VERSION" > "${PLUG}/VERSION"
   commit_all "$PLUG" "release ${OLD_VERSION}"
   origin_one_commit_ahead "$PLUG" VERSION "$NEW_VERSION"
+}
+
+# checked_out_ref: prints the full reference name of the branch that
+# repository R has checked out, or nothing for a detached HEAD.
+checked_out_ref() {
+  git -C "$R" symbolic-ref -q HEAD || true
 }
 
 # repo_state: prints the state of repository R that the hook must not change:
@@ -183,7 +228,7 @@ repo_state() {
   local fetched=no
   [ -e "${R}/.git/FETCH_HEAD" ] && fetched=yes
   printf 'branch=%s HEAD=%s origin/main=%s status=[%s] fetched=%s' \
-    "$(git -C "$R" symbolic-ref --short -q HEAD || true)" \
+    "$(checked_out_ref)" \
     "$(git -C "$R" rev-parse HEAD)" "$(git -C "$R" rev-parse "origin/${MAIN}")" \
     "$(git -C "$R" status --porcelain)" "$fetched"
 }
@@ -230,7 +275,7 @@ assert_user_repo_untouched() {
 assert_clone_updated() {
   run_hook "${2:-}"
   assert_eq "$1: HEAD is the newest commit of origin" "$(git -C "$R" rev-parse HEAD)" "$REMOTE_HEAD"
-  assert_eq "$1: branch main is still checked out" "$(git -C "$R" symbolic-ref --short -q HEAD || true)" "$MAIN"
+  assert_eq "$1: branch main is still checked out" "$(checked_out_ref)" "$MAIN_REF"
   assert_eq "$1: the VERSION file is the new one" "$(cat "${R}/VERSION")" "$NEW_VERSION"
   assert_contains "$1: the hook announces the applied update" "$CTX" "$UPDATED_NOTICE"
   assert_eq "$1: the hook does not take the marketplace path" "$CURL_CALLS" "0"
@@ -270,13 +315,20 @@ assert_clone_updated "a clone of the plugin reached through a symbolic link" "${
 # ── Case 5: a clone of the plugin that has not branch main checked out ─────
 # The fast-forward moves whatever is checked out, so the hook must leave a
 # clone alone when that is not branch main.
-clone_fixture clone-other-branch
-fx_git -C "$PLUG" checkout -q -b work
-assert_clone_untouched "a clone of the plugin with branch work checked out"
+for branch in work main-old mainline feature/main; do
+  clone_fixture "clone-branch-${branch//\//-}"
+  fx_git -C "$PLUG" checkout -q -b "$branch"
+  assert_clone_untouched "a clone of the plugin with branch ${branch} checked out"
+done
 
 clone_fixture clone-detached
 fx_git -C "$PLUG" checkout -q --detach
 assert_clone_untouched "a clone of the plugin with a detached HEAD"
+
+# ── Case 6: a clone on branch main that also has a tag named main ──────────
+clone_fixture clone-tag-main
+fx_git -C "$PLUG" tag "$MAIN"
+assert_clone_updated "a clone of the plugin on branch main with a tag named main"
 
 echo "  ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]
