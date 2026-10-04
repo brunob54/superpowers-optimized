@@ -1,0 +1,32 @@
+PASS jest-verbose/a.test.js
+  suite
+    ✓ case 1
+    ✓ case 2
+    ✓ case 4
+    ✓ case 5
+    ✓ case 7
+    ✓ case 8
+    ✓ case 10
+    ✓ case 11
+    ✓ case 13
+    ✓ case 14
+    ✓ case 16
+    ✓ case 17
+    ✓ case 19
+    ✓ case 20
+    ✓ case 22
+    ✓ case 23
+    ○ skipped case 3
+    ○ skipped case 6
+    ○ skipped case 9
+    ○ skipped case 12
+    ○ skipped case 15
+    ○ skipped case 18
+    ○ skipped case 21
+    ○ skipped case 24
+
+Test Suites: 1 passed, 1 total
+Tests:       8 skipped, 16 passed, 24 total
+Snapshots:   0 total
+Time:        0.11 s
+Ran all test suites.

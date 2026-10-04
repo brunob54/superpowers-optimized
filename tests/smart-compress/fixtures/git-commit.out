@@ -1,0 +1,8 @@
+[main 5dd6338] Add six more files
+ 6 files changed, 6 insertions(+)
+ create mode 100644 src-file-with-a-long-name-normal-1.txt
+ create mode 100644 src-file-with-a-long-name-normal-2.txt
+ create mode 100644 src-file-with-a-long-name-normal-3.txt
+ create mode 100644 src-file-with-a-long-name-normal-4.txt
+ create mode 100644 src-file-with-a-long-name-normal-5.txt
+ create mode 100644 src-file-with-a-long-name-normal-6.txt

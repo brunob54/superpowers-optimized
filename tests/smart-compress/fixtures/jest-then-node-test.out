@@ -1,0 +1,66 @@
+
+> combo@1.0.0 test
+> jest --rootDir jest && node --test nodetest/skipped.test.js
+
+PASS jest/s16.test.js
+PASS jest/s12.test.js
+PASS jest/s15.test.js
+PASS jest/s23.test.js
+PASS jest/s19.test.js
+PASS jest/s21.test.js
+PASS jest/s9.test.js
+PASS jest/s4.test.js
+PASS jest/s5.test.js
+PASS jest/s14.test.js
+PASS jest/s3.test.js
+PASS jest/s18.test.js
+PASS jest/s11.test.js
+PASS jest/s6.test.js
+PASS jest/s22.test.js
+PASS jest/s8.test.js
+PASS jest/s7.test.js
+PASS jest/s20.test.js
+PASS jest/s10.test.js
+PASS jest/s13.test.js
+PASS jest/s24.test.js
+PASS jest/s2.test.js
+PASS jest/s1.test.js
+PASS jest/s17.test.js
+
+Test Suites: 24 passed, 24 total
+Tests:       24 passed, 24 total
+Snapshots:   0 total
+Time:        0.291 s, estimated 1 s
+Ran all test suites.
+﹣ case 1 (0.319458ms) # SKIP
+﹣ case 2 (0.0435ms) # SKIP
+﹣ case 3 (0.034084ms) # SKIP
+﹣ case 4 (0.289125ms) # SKIP
+﹣ case 5 (0.052709ms) # SKIP
+﹣ case 6 (0.031167ms) # SKIP
+﹣ case 7 (0.031334ms) # SKIP
+﹣ case 8 (0.027ms) # SKIP
+﹣ case 9 (0.037541ms) # SKIP
+﹣ case 10 (0.074084ms) # SKIP
+﹣ case 11 (0.037542ms) # SKIP
+﹣ case 12 (0.032291ms) # SKIP
+﹣ case 13 (0.0295ms) # SKIP
+﹣ case 14 (0.020875ms) # SKIP
+﹣ case 15 (0.0275ms) # SKIP
+﹣ case 16 (0.0205ms) # SKIP
+﹣ case 17 (0.017ms) # SKIP
+﹣ case 18 (0.026875ms) # SKIP
+﹣ case 19 (0.023792ms) # SKIP
+﹣ case 20 (0.0335ms) # SKIP
+﹣ case 21 (0.016375ms) # SKIP
+﹣ case 22 (0.012375ms) # SKIP
+﹣ case 23 (0.012ms) # SKIP
+﹣ case 24 (0.015042ms) # SKIP
+ℹ tests 24
+ℹ suites 0
+ℹ pass 0
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 24
+ℹ todo 0
+ℹ duration_ms 30.279625

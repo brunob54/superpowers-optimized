@@ -51,17 +51,24 @@ const NEVER_COMPRESS = [
   // Echo/printf — user constructing specific output
   /^\s*(echo|printf)\s+/,
 
-  // Dry runs of `git add` and `git commit` — the command changes nothing, so
-  // the result that the rule states ("ok", "committed") would be false.
-  // `git add` also has the short option `-n`, alone or in a group of short
-  // options (`-An`). For `git commit`, `-n` is `--no-verify` and not a dry run.
-  /^git\s+(add|commit)\b.*\s--dry-run(\s|$)/,
+  // Dry runs — the command changes nothing, so the result that a rule states
+  // ("ok", "added 25 packages") would be false. The first pattern matches an
+  // option that starts with `--dry`: git accepts a shortened long option
+  // (`--dry` for `--dry-run`). `git add` also has the short option `-n`,
+  // alone or in a group of short options (`-An`). For `git commit`, `-n` is
+  // `--no-verify` and not a dry run.
+  /\s--dry/,
   /^git\s+add\b.*\s-[a-zA-Z]*n[a-zA-Z]*(\s|$)/,
 ];
 
 // Minimum output length (chars) to bother compressing.
 // Below this threshold, compression overhead exceeds savings.
 const MIN_OUTPUT_LENGTH = 200;
+
+// A line of a test run that holds one of these word stems can report a test
+// that did not run ("3 skipped", "16 pending", "1 test todo", "... ignored"),
+// in upper or lower case. The test rule never removes such a line.
+const TEST_NOT_RUN_STEM = /skip|pending|todo|ignored/i;
 
 const RULES = [
   // ═══════════════════════════════════════════
@@ -92,11 +99,13 @@ const RULES = [
       const combined = stdout + '\n' + stderr;
       // Extract [branch hash] and file change summary
       const branchHash = combined.match(/\[([^\]]+)\s+([a-f0-9]+)\]/);
+      // Without the line `[branch hash] subject`, the output states no commit
+      // (`git commit --short` is a dry run; with `-q`, git prints no such line)
+      if (!branchHash) return null;
       const summary = combined.match(/(\d+\s+files?\s+changed.*)/);
-      const parts = [];
-      if (branchHash) parts.push(`${branchHash[2]} on ${branchHash[1]}`);
+      const parts = [`${branchHash[2]} on ${branchHash[1]}`];
       if (summary) parts.push(summary[1].trim());
-      return parts.length ? `committed: ${parts.join(', ')}` : 'committed';
+      return `committed: ${parts.join(', ')}`;
     },
   },
 
@@ -315,6 +324,13 @@ const RULES = [
           result.push(`... ${warningLines.length - 10} more warnings`);
         }
       }
+
+      // A summary line of one program does not prove the result of the whole
+      // run: a second test program, or a line that the rule does not read
+      // ("OK (skipped=24)"), can report tests that did not run. When a line
+      // that would be removed holds such a report, the output stays raw.
+      const kept = new Set(result);
+      if (lines.some(l => !kept.has(l) && TEST_NOT_RUN_STEM.test(l))) return null;
       return result.join('\n');
     },
   },
@@ -346,53 +362,9 @@ const RULES = [
     },
   },
 
-  {
-    type: 'lint-output',
-    match: /^(npx\s+)?(eslint|ruff\s+check|cargo\s+clippy|pylint|flake8|rubocop|golangci-lint|biome\s+(check|lint)|prettier\s+--check)\b/,
-    tier: 2,
-    compress(stdout, stderr, exitCode) {
-      const combined = stdout + '\n' + stderr;
-      const lines = combined.split('\n').filter(l => l.trim());
-      if (lines.length <= 30) return null;
-
-      // Count by severity
-      const isError = l => /\berror\b/i.test(l);
-      const isWarning = l => /\bwarn(ing)?\b/i.test(l);
-      const errors = lines.filter(isError);
-      const warnings = lines.filter(l => isWarning(l) && !isError(l));
-
-      // The counts are true only when they cover every message of the tool.
-      // They do not when no line is counted, or when a line that is not
-      // counted names a position (line:column): pylint, ruff and flake8 print
-      // messages without the words "error" and "warning". Such output stays raw.
-      if (!errors.length && !warnings.length) return null;
-      if (lines.some(l => !isError(l) && !isWarning(l) && /\d+:\d+/.test(l))) return null;
-
-      const result = [];
-      result.push(`${errors.length} error(s), ${warnings.length} warning(s)`);
-
-      // Show all errors (they need fixing), truncate if too many
-      if (errors.length > 0) {
-        result.push('');
-        if (errors.length <= 25) {
-          result.push(...errors);
-        } else {
-          result.push(...errors.slice(0, 25));
-          result.push(`... ${errors.length - 25} more errors`);
-        }
-      }
-
-      // Show first few warnings
-      if (warnings.length > 0) {
-        result.push('');
-        result.push(...warnings.slice(0, 5));
-        if (warnings.length > 5) {
-          result.push(`... ${warnings.length - 5} more warnings`);
-        }
-      }
-      return result.join('\n');
-    },
-  },
+  // There is no rule for lint tools (eslint, pylint, ruff, ...): a rule that
+  // counts lines by the words "error" and "warning" cannot state the counts
+  // of the tool, so lint output stays raw.
 
   {
     type: 'ls-large',

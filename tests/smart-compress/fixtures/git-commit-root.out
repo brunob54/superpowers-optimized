@@ -1,0 +1,8 @@
+[main (root-commit) 89567f8] Add the first six files
+ 6 files changed, 6 insertions(+)
+ create mode 100644 src-file-with-a-long-name-root-1.txt
+ create mode 100644 src-file-with-a-long-name-root-2.txt
+ create mode 100644 src-file-with-a-long-name-root-3.txt
+ create mode 100644 src-file-with-a-long-name-root-4.txt
+ create mode 100644 src-file-with-a-long-name-root-5.txt
+ create mode 100644 src-file-with-a-long-name-root-6.txt

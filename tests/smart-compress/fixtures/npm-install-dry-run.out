@@ -1,0 +1,27 @@
+add has-flag 4.0.0
+add lru-cache 11.5.3
+add balanced-match 4.0.4
+add brace-expansion 5.0.12
+add argparse 2.0.1
+add path-scurry 2.0.2
+add minipass 7.1.3
+add readdirp 5.1.1
+add workerpool 10.0.3
+add supports-color 8.1.1
+add strip-json-comments 5.0.3
+add serialize-javascript 7.1.2
+add picocolors 1.1.1
+add ms 2.1.3
+add minimatch 10.2.6
+add js-yaml 5.4.2
+add is-unicode-supported 0.1.0
+add is-path-inside 4.0.0
+add glob 13.0.6
+add find-up-simple 1.0.1
+add diff 9.0.0
+add debug 4.4.3
+add chokidar 5.0.0
+add browser-stdout 1.3.1
+add mocha 12.0.3
+
+added 25 packages in 756ms

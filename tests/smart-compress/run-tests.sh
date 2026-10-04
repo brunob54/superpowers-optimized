@@ -166,16 +166,22 @@ STATUS_MARKER='[compressed: 10->6 lines | git-status]'
 # hand in the documented output format, because the program is not installed.
 #   node-test-*.out      real: `npm test` that runs `node --test`, Node 24.13.1
 #                        (spec is the default reporter; `tap` is the TAP one)
-#   pytest-skipped.out   real: `pytest -v`, pytest 9.1.1
+#   pytest-*.out         real: pytest 9.1.1 (`-v`; `-rA` for captured-summary)
+#   unittest-skipped.out real: `python3 -m unittest -v`, Python 3.14.3
 #   vitest-skipped.out   real: `vitest run --reporter=verbose`, vitest 5.0.3
-#   mocha-pending.out    real: mocha 12.0.3
-#   jest-passed.out      real: jest 30.5.2, without the environment variables
+#   mocha-*.out          real: mocha 12.0.3 (`--color` for pending-color)
+#   ava-skipped-todo.out real: ava 8.0.1
+#   jest-*.out           real: jest 30.5.2, without the environment variables
 #                        that make jest print a short report for an AI agent
-#   pylint-*.out         real: `pylint --exit-zero`, pylint 4.1.2
+#   jest-then-node-test.out   real: `npm test` that runs jest, then `node --test`
+#   cargo-test-*.out     real: cargo 1.99.0
+#   pylint-parseable.out real: `pylint --exit-zero --output-format=parseable`,
+#                        pylint 4.1.2
 #   ruff-exit-zero.out   real: `ruff check --exit-zero`, ruff 0.16.10
 #   eslint-warnings.out  real: eslint 10.12.0, every message is a warning
-#   git-*-dry-run.out    real: git 2.50.1
-#   go-test-*.out, cargo-test-*.out   constructed
+#   git-*.out            real: git 2.50.1
+#   npm-install-dry-run.out   real: npm 11.8.0
+#   go-test-*.out        constructed
 # The extension is `.out` because the file .gitignore of this repository
 # ignores `*.txt`.
 FIXTURES="$PLUGIN_ROOT/tests/smart-compress/fixtures"
@@ -203,10 +209,7 @@ result=$(node -e "const r = require('./hooks/compression-rules'); console.log(r.
 assert "compression-rules exports non-empty RULES and NEVER_COMPRESS" "$result" "ok"
 
 result=$(node -e "const r = require('./hooks/compression-rules'); console.log(r.RULES.length)")
-assert "17 compression rules defined" "$result" "17"
-
-result=$(node -e "const r = require('./hooks/compression-rules'); console.log(r.NEVER_COMPRESS.length)")
-assert "11 never-compress patterns defined" "$result" "11"
+assert "16 compression rules defined" "$result" "16"
 
 # ═══════════════════════════════════════════════════════
 bold "\n2. NEVER-COMPRESS CLASSIFICATION"
@@ -259,7 +262,8 @@ bold "\n3. RULE MATCHING (commands whose output SHOULD be compressed)"
 check_rule() { rule_type "$(run_hook "$1" "${2:-$NOISY}" "rule-$$-$RANDOM")"; }
 
 assert "git add . → git-add rule"            "$(check_rule 'git add .')"            "git-add"
-assert "git commit → git-commit rule"        "$(check_rule 'git commit -m msg')"    "git-commit"
+# The commit rule compresses only output that holds the line of a commit
+assert "git commit → git-commit rule"        "$(check_rule 'git commit -m msg' "$(fixture git-commit.out)")" "git-commit"
 assert "git push → git-push rule"            "$(check_rule 'git push origin main')" "git-push"
 assert "git pull → git-pull rule"            "$(check_rule 'git pull')"             "git-pull"
 assert "git clone → git-clone rule"          "$(check_rule 'git clone https://github.com/x/y')" "git-clone"
@@ -274,12 +278,10 @@ assert "cargo install → cargo-install rule"  "$(check_rule 'cargo install ripg
 # states"), so its check uses the jest output: it proves only that the command
 # reaches the rule.
 assert "npm test → test-pass rule"           "$(check_rule 'npm test' "$JEST_OUT")" "test-pass"
-assert "cargo test → test-pass rule"         "$(check_rule 'cargo test' "$(fixture cargo-test-ignored.out)")" "test-pass"
+assert "cargo test → test-pass rule"         "$(check_rule 'cargo test' "$(fixture cargo-test-passed.out)")" "test-pass"
 assert "pytest → test-pass rule"             "$(check_rule 'pytest' "$JEST_OUT")"   "test-pass"
 assert "ls → ls-large rule"                  "$(check_rule 'ls')"                   "ls-large"
 assert "cargo build → build-success rule"    "$(check_rule 'cargo build')"          "build-success"
-# The lint rule compresses only output in which it counts a message
-assert "eslint → lint-output rule"           "$(check_rule 'eslint src/' "$(fixture eslint-warnings.out)")" "lint-output"
 assert "docker build → docker-build rule"    "$(check_rule 'docker build .')"       "docker-build"
 # Redirects contain '&' but join no commands, so they do not stop compression.
 assert "npm test 2>&1 → compressed"          "$(check_rule 'npm test 2>&1' "$JEST_OUT")"       "test-pass"
@@ -507,13 +509,14 @@ assert "size rule: a long replacement that is shorter than the stdout is used" \
 # exit status 0. The shapes of the first three come from recorded tool results
 # of Claude Code 2.1.289; the fourth is the `dangerouslyDisableSandbox` field
 # of the tool input (read in the program text). The hook returns each unchanged.
+#   $4  optional: the output, for a rule that does not compress $NOISY
 kept_field() {
   local out
-  out=$(run_hook "$1" "$NOISY" "field-$$-$RANDOM" "input.tool_response.$2 = $3;")
+  out=$(run_hook "$1" "${4:-$NOISY}" "field-$$-$RANDOM" "input.tool_response.$2 = $3;")
   hook_value "$out" "updated ? JSON.stringify(updated.$2) === JSON.stringify($3) : 'not replaced'"
 }
 assert "known field: gitOperation of a commit is returned unchanged" \
-  "$(kept_field 'git commit -m msg' gitOperation '{ commit: { branch: "main", kind: "committed", sha: "abc1234" } }')" "true"
+  "$(kept_field 'git commit -m msg' gitOperation '{ commit: { branch: "main", kind: "committed", sha: "abc1234" } }' "$(fixture git-commit.out)")" "true"
 assert "known field: gitOperation of a push is returned unchanged" \
   "$(kept_field 'git push origin main' gitOperation '{ push: { branch: "main" } }')" "true"
 assert "known field: bashEditDiff is returned unchanged" \
@@ -804,9 +807,9 @@ assert "git commit: output of a commit hook before the result does not change th
 
 # ── Rules that state only what the output states ──
 # Each command below ended with exit status 0. Exit status 0 does not prove
-# that a test ran, that a lint tool found nothing, or that git changed
-# something. A rule that cannot read the result in the output leaves the
-# output raw: the hook prints {}. The fixtures are described at $FIXTURES.
+# that a test ran or that git changed something. A rule that cannot read the
+# result in the output leaves the output raw: the hook prints {}. The fixtures
+# are described at $FIXTURES.
 
 # The test rule reads no summary line in these outputs. Before, it replaced
 # each of them with the sentence "all tests passed".
@@ -826,59 +829,150 @@ assert "test rule: go test with 30 packages that have no test file stays raw" \
 # every test passed stays raw too
 assert "test rule: node --test with 24 passed tests (spec reporter) stays raw" \
   "$(run_fixture 'npm test' node-test-spec-passed.out)" "{}"
+# This output holds no summary line and no word for a test that did not run,
+# but two warning lines. Only the missing summary line keeps it raw: the
+# warning lines alone must not replace it.
+assert "test rule: pytest with 24 passed tests and a deprecation warning stays raw" \
+  "$(run_fixture 'pytest -v' pytest-passed-warning.out)" "{}"
 
-# Output with summary lines that the rule reads is still compressed
+# A summary line of one program does not prove the result of the whole run.
+# When a line that the rule would remove reports a test that did not run
+# (skipped, pending, todo, ignored), the output stays raw.
+assert "test rule: jest (passed), then node --test with 24 skipped tests, stays raw" \
+  "$(run_fixture 'npm test' jest-then-node-test.out)" "{}"
+assert "test rule: unittest with 24 skipped tests stays raw (the summary line is 'OK (skipped=24)')" \
+  "$(run_fixture 'npm test' unittest-skipped.out)" "{}"
+assert "test rule: ava with 6 skipped tests and 1 todo test stays raw" \
+  "$(run_fixture 'npm test' ava-skipped-todo.out)" "{}"
+assert "test rule: pytest with 25 skipped tests and a printed line 'Tests: 5 passed, 5 total' stays raw" \
+  "$(run_fixture 'pytest -rA' pytest-captured-summary.out)" "{}"
+assert "test rule: jest with one line for each test and 8 skipped tests stays raw" \
+  "$(run_fixture 'npx jest' jest-verbose-skipped.out)" "{}"
+assert "test rule: jest with one line for each test and 8 todo tests stays raw" \
+  "$(run_fixture 'npx jest' jest-verbose-todo.out)" "{}"
+assert "test rule: cargo test with 8 ignored tests stays raw" \
+  "$(run_fixture 'cargo test' cargo-test-ignored.out)" "{}"
+# The word counts in upper case too. The added line has the form that
+# `go test -v` prints for a skipped test (a constructed line).
+assert "test rule: jest output with one more line '--- SKIP: TestExport' stays raw" \
+  "$(run_hook 'npm test' "$JEST_OUT
+--- SKIP: TestExport (0.00s)" "fixture-$$-$RANDOM")" "{}"
+# The pending line of mocha holds colour codes, so the rule does not read it
+# as a summary line
+assert "test rule: mocha with colour codes and 16 pending tests stays raw" \
+  "$(run_fixture 'npx mocha --color' mocha-pending-color.out)" "{}"
+# One other line of each output holds a number and the word "pending": the
+# line "3 pending orders remain" that a test prints, and the name of the test
+# "leaves 3 pending". Such a line is not the summary line of mocha.
+assert "test rule: mocha with a printed line that starts with '3 pending' stays raw" \
+  "$(run_fixture 'npx mocha' mocha-pending-printed-line.out)" "{}"
+assert "test rule: mocha with a test name that ends with '3 pending' stays raw" \
+  "$(run_fixture 'npx mocha' mocha-pending-test-name.out)" "{}"
+
+# Output with summary lines that the rule reads, and with no removed line
+# about a test that did not run, is still compressed
 assert "test rule: jest keeps its four summary lines" \
   "$(compressed_text "$(run_fixture 'npx jest' jest-passed.out)")" "Test Suites: 24 passed, 24 total
 Tests:       24 passed, 24 total
 Snapshots:   0 total
 Time:        0.295 s, estimated 1 s
 [compressed: 29->4 lines | test-pass]"
-assert "test rule: cargo test keeps the result lines with the count of ignored tests" \
-  "$(compressed_text "$(run_fixture 'cargo test' cargo-test-ignored.out)")" "test result: ok. 0 passed; 0 failed; 24 ignored; 0 measured; 0 filtered out; finished in 0.00s
+assert "test rule: cargo test with 24 passed tests keeps the two result lines" \
+  "$(compressed_text "$(run_fixture 'cargo test' cargo-test-passed.out)")" "test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 [compressed: 32->2 lines | test-pass]"
-# mocha prints the count of pending tests on its own line. Three other lines
-# of the output hold a number and the word "pending" (two test names, and one
-# line that a test prints); they are not summary lines and are removed.
+# mocha prints the count of pending tests on its own line; the lines of the
+# single pending tests ("- case 1.2") do not hold the word
 assert "test rule: mocha keeps the pending count next to the passing count, and nothing else" \
   "$(compressed_text "$(run_fixture 'npx mocha' mocha-pending.out)")" "  8 passing (2ms)
   16 pending
-[compressed: 33->2 lines | test-pass]"
+[compressed: 32->2 lines | test-pass]"
+# The warning lines of the output stay, under the heading "Warnings:"
+text=$(compressed_text "$(run_fixture 'npx jest' jest-passed-warning.out)")
+assert "test rule: jest with a deprecation warning keeps the summary" "$(echo "$text" | head -1)" "Test Suites: 24 passed, 24 total"
+assert "test rule: jest with a deprecation warning keeps the warning under 'Warnings:'" \
+  "$(echo "$text" | grep -B1 'DeprecationWarning: old_call' | head -1)" "Warnings:"
+assert_not_contains "test rule: a kept warning line is not an alert line" "$text" "$ALERT_HEADING"
 
-# The lint rule counts the lines that hold the word "error" or "warning".
-# pylint and ruff print messages without these words, so the counts would be
-# false: before, the rule printed "0 error(s), 0 warning(s)" for 36 messages.
-assert "lint rule: pylint messages that the rule cannot count stay raw" \
-  "$(run_fixture 'pylint --exit-zero demo.py' pylint-exit-zero.out)" "{}"
-assert "lint rule: pylint messages without a column stay raw" \
-  "$(run_fixture 'pylint --exit-zero --output-format=parseable demo.py' pylint-no-column.out)" "{}"
-# 2 of the 42 messages hold the word "import-error". The rule counts these 2;
-# the 40 other messages name a position (line:column) and are not counted.
-assert "lint rule: pylint output with counted and uncounted messages stays raw" \
-  "$(run_fixture 'pylint --exit-zero demo.py' pylint-import-error.out)" "{}"
-assert "lint rule: ruff messages that the rule cannot count stay raw" \
+# No rule compresses lint output: a rule that counts lines by the words
+# "error" and "warning" cannot state the counts of the lint tool. Before, the
+# lint rule printed "0 error(s), 32 warning(s)" for the eslint output and
+# "2 error(s), 0 warning(s)" for the pylint output with 42 messages.
+assert "lint: eslint output stays raw" \
+  "$(run_fixture 'npx eslint src/' eslint-warnings.out)" "{}"
+assert "lint: pylint output stays raw" \
+  "$(run_fixture 'pylint --exit-zero --output-format=parseable demo.py' pylint-parseable.out)" "{}"
+assert "lint: ruff output stays raw" \
   "$(run_fixture 'ruff check --exit-zero .' ruff-exit-zero.out)" "{}"
-# Every eslint message holds the word "warning", and no other line names a
-# position, so the counts are those of eslint: "0 errors, 32 warnings"
-text=$(compressed_text "$(run_fixture 'npx eslint src/' eslint-warnings.out)")
-assert "lint rule: eslint output is compressed with the counts of eslint" "$(echo "$text" | head -1)" "0 error(s), 32 warning(s)"
 
-# A dry run changes nothing, so the words "committed" and "ok" would be false
-assert "git commit --dry-run stays raw" \
-  "$(run_fixture 'git commit --dry-run' git-commit-dry-run.out)" "{}"
-assert "git add -n stays raw" \
-  "$(run_fixture 'git add -n .' git-add-dry-run.out)" "{}"
+# A dry run changes nothing, so a result such as "ok" would be false. A
+# command with an option that starts with `--dry` is never compressed (git
+# accepts a shortened long option, for example `--dry` for `--dry-run`).
 assert "git add --dry-run stays raw" \
   "$(run_fixture 'git add --dry-run .' git-add-dry-run.out)" "{}"
-assert "git add -An (a group of short options with n) stays raw" \
+assert "git add --dry stays raw" \
+  "$(run_fixture 'git add --dry .' git-add-dry-run.out)" "{}"
+assert "git add . --dry-run (the option is the last word) stays raw" \
+  "$(run_fixture 'git add . --dry-run' git-add-dry-run.out)" "{}"
+assert "git push --dry-run --all stays raw" \
+  "$(run_fixture 'git push --dry-run --all origin' git-push-dry-run.out)" "{}"
+assert "npm install --dry-run stays raw" \
+  "$(run_fixture 'npm install --dry-run' npm-install-dry-run.out)" "{}"
+assert "git commit --dry-run stays raw" \
+  "$(run_fixture 'git commit --dry-run' git-commit-dry-run.out)" "{}"
+assert "git commit --dry stays raw" \
+  "$(run_fixture 'git commit --dry' git-commit-dry-run.out)" "{}"
+assert "git commit -m x --dry-run (the option is the last word) stays raw" \
+  "$(run_fixture 'git commit -m x --dry-run' git-commit-dry-run.out)" "{}"
+# `git add` has the short option `-n` for a dry run
+assert "git add -n stays raw" \
+  "$(run_fixture 'git add -n .' git-add-dry-run.out)" "{}"
+assert "git add -An (a group of short options that ends with n) stays raw" \
   "$(run_fixture 'git add -An' git-add-dry-run.out)" "{}"
+assert "git add -nv (a group of short options that starts with n) stays raw" \
+  "$(run_fixture 'git add -nv .' git-add-dry-run.out)" "{}"
+assert "git add . -n (the option is the last word) stays raw" \
+  "$(run_fixture 'git add . -n' git-add-dry-run.out)" "{}"
 # Other options do not stop the rule: `-v` prints the same lines and adds the
-# files; `--renormalize` holds the letter n but is a long option
+# files; `--renormalize` holds the letter n but is a long option; `-N` is
+# another option than `-n`
 assert "git add -v is compressed" \
   "$(rule_type "$(run_fixture 'git add -v .' git-add-dry-run.out)")" "git-add"
 assert "git add --renormalize is compressed" \
   "$(rule_type "$(run_fixture 'git add --renormalize .' git-add-dry-run.out)")" "git-add"
+assert "git add -N is compressed" "$(check_rule 'git add -N file.txt')" "git-add"
+
+# The commit rule states "committed" only when the output holds the line
+# `[<branch> <hash>] <subject>` that git prints for a commit.
+commit_text() { compressed_text "$(run_fixture "$1" "$2")"; }
+assert "git commit: a normal commit" \
+  "$(commit_text 'git commit -m msg' git-commit.out)" "committed: 5dd6338 on main, 6 files changed, 6 insertions(+)
+[compressed: 8->1 lines | git-commit]"
+assert "git commit: the first commit of a repository" \
+  "$(commit_text 'git commit -m msg' git-commit-root.out)" "committed: 89567f8 on main (root-commit), 6 files changed, 6 insertions(+)
+[compressed: 8->1 lines | git-commit]"
+assert "git commit: a commit on a detached HEAD" \
+  "$(commit_text 'git commit -m msg' git-commit-detached.out)" "committed: 9d368eb on detached HEAD, 6 files changed, 6 insertions(+)
+[compressed: 8->1 lines | git-commit]"
+assert "git commit --amend" \
+  "$(commit_text 'git commit --amend -m msg' git-commit-amend.out)" "committed: f530bab on main, 12 files changed, 12 insertions(+)
+[compressed: 15->1 lines | git-commit]"
+assert "git commit: real output of a commit hook before the commit line" \
+  "$(commit_text 'git commit -m msg' git-commit-hook.out)" "committed: cbe18a9 on main, 6 files changed, 6 insertions(+)
+[compressed: 18->1 lines | git-commit]"
+# For `git commit`, `-n` is `--no-verify`: the commit is made
+assert "git commit -n -m x is compressed" \
+  "$(commit_text 'git commit -n -m x' git-commit-no-verify.out)" "committed: 5ff43d9 on main, 6 files changed, 6 insertions(+)
+[compressed: 8->1 lines | git-commit]"
+# Output without the commit line. `--short` and `--porcelain` are dry runs
+# without an option that starts with `--dry`. With `-q`, git prints no commit
+# line, so only the text of the commit hook is in the output.
+assert "git commit --short stays raw" \
+  "$(run_fixture 'git commit --short' git-commit-short.out)" "{}"
+assert "git commit --porcelain stays raw" \
+  "$(run_fixture 'git commit --porcelain' git-commit-short.out)" "{}"
+assert "git commit -q with text of a commit hook stays raw" \
+  "$(run_fixture 'git commit -q -m msg' git-commit-hook-quiet.out)" "{}"
 
 # Output without an alert word: nothing is added (the text of section 5 above)
 assert_not_contains "alert lines: a clean git status has no heading" \

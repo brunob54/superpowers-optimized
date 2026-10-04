@@ -1,0 +1,32 @@
+PASS jest-one-file/a.test.js
+  suite
+    ✓ case 1
+    ✓ case 2
+    ✓ case 4
+    ✓ case 5
+    ✓ case 7
+    ✓ case 8
+    ✓ case 10
+    ✓ case 11
+    ✓ case 13 (1 ms)
+    ✓ case 14
+    ✓ case 16
+    ✓ case 17
+    ✓ case 19
+    ✓ case 20
+    ✓ case 22
+    ✓ case 23
+    ✎ todo case 3
+    ✎ todo case 6
+    ✎ todo case 9
+    ✎ todo case 12
+    ✎ todo case 15
+    ✎ todo case 18
+    ✎ todo case 21
+    ✎ todo case 24
+
+Test Suites: 1 passed, 1 total
+Tests:       8 todo, 16 passed, 24 total
+Snapshots:   0 total
+Time:        0.141 s
+Ran all test suites.

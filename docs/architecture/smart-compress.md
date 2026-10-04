@@ -58,7 +58,7 @@ Before this design, the hook ran on `PreToolUse` and replaced the command with a
 ╔═══════════════════════════════════════════
 ║   smart-compress Implementation Summary   
 ╠═══════════════════════════════════════════
-║ Compression rules: 17 
+║ Compression rules: 16 
 ║ Never-compress patterns: 11 
 ║ Min output threshold: 200 chars 
 ╠═══════════════════════════════════════════
@@ -72,12 +72,11 @@ Before this design, the hook ran on `PreToolUse` and replaced the command with a
 ║   - npm-install                           
 ║   - pip-install                           
 ║   - cargo-install                         
-║ Tier 2 (smart filtering): 8 
+║ Tier 2 (smart filtering): 7 
 ║   - git-status                            
 ║   - git-log                               
 ║   - test-pass                             
 ║   - build-success                         
-║   - lint-output                           
 ║   - ls-large                              
 ║   - find-large                            
 ║   - docker-build                          
@@ -92,7 +91,7 @@ Before this design, the hook ran on `PreToolUse` and replaced the command with a
 ║   - ^\s*(vim|nano|emacs|vi)\s+            
 ║   - ^\s*(node|python3?|ruby|php|perl)\s+-e\ 
 ║   - ^\s*(echo|printf)\s+                  
-║   - ^git\s+(add|commit)\b.*\s--dry-run(\s|$) 
+║   - \s--dry                               
 ║   - ^git\s+add\b.*\s-[a-zA-Z]*n[a-zA-Z]*(\s|$) 
 ╚═══════════════════════════════════════════
 
@@ -103,7 +102,7 @@ These commands produce output where the signal can be captured in one line. A li
 | Command | Raw output | Compressed output | Savings |
 |---|---|---|---|
 | `git add .` | Empty or CRLF warnings | `ok` or `ok (2 warning(s))` | ~90% |
-| `git commit -m "msg"` | Branch info, file stats, create mode lines | `committed: abc1234 on main, 3 files changed` | ~85%, only for output of 200 characters or more; the output of a small commit is shorter and stays raw |
+| `git commit -m "msg"` | Branch info, file stats, create mode lines | `committed: abc1234 on main, 3 files changed` | ~85%, only for output of 200 characters or more; the output of a small commit is shorter and stays raw. Only for output that holds the line `[<branch> <hash>] <subject>` of a commit: without it (`git commit --short`, `git commit -q` with text of a commit hook) the output stays raw |
 | `git push` | Counting objects, writing objects (git writes them to standard error; Claude Code merges them into the output) | `ok main -> github.com:user/repo.git`, then every line that starts with `remote:` (for example the address for a new pull request, or a notice about vulnerabilities) | ~90% for a push without messages of the server |
 | `git pull` | Remote info, unpacking, file stats | `ok, 3 files changed, +10, -2` | ~85% |
 | `git clone` | Cloning, receiving, resolving deltas | `cloned -> my-repo` | ~90% |
@@ -122,19 +121,19 @@ These commands produce output where some lines are signal and others are noise. 
 |---|---|---|
 | `git status` | Hint lines ("use git add...", "use git restore..."), "no changes added to commit" | Branch info, file lists |
 | `git log` (>40 lines) | Entries beyond the first 30 | First 30 entries + count of remaining |
-| Test runners (passing), only for output with a summary line that the rule reads | Individual "PASS" lines | Summary lines ("Tests: 100 passed, 100 total"; for mocha "8 passing" and "16 pending") + warnings |
+| Test runners (passing), only for output with a summary line that the rule reads and with no other line about a test that did not run | Individual "PASS" lines | Summary lines ("Tests: 100 passed, 100 total"; for mocha "8 passing" and "16 pending") + warnings |
 | Build commands (success) | Compilation progress, bundling steps | Summary + warnings |
-| Lint output (>30 lines) of a run that ends with exit status 0, only when the counts cover every message | Repeated similar warnings | Error/warning counts, the lines with the word "error" (25 at most), the first 5 warnings, and the alert lines |
 | `ls` (>50 entries) | Entries beyond 50 | First 50 + count of remaining |
 | `find` (>60 results) | Results beyond 60 | First 60 + count of remaining |
 | `docker build` (success) | Layer download/extract progress | Step headers + final result |
 
-**Lint runs that fail are no longer compressed.** Most lint tools end with a non-zero exit status when they report an error. Claude Code sends no `PostToolUse` event for such a run, so the hook does not see it and the output stays raw. The earlier design compressed that output too (the lint rule is the only rule that does not look at the exit status). This saving is lost. The same holds for a test run that fails, which was raw before as well.
+**Lint output is not compressed.** There is no rule for lint tools (eslint, pylint, ruff, flake8 and others). An earlier version had one. It counted the lines that hold the word "error" or "warning" and printed the two counts. These counts were not the counts of the lint tool. Measured examples: real pylint output with 42 messages gave "2 error(s), 0 warning(s)"; real eslint output with 28 warnings, 7 of them about a variable with the name `error`, gave "7 error(s), 21 warning(s)" where eslint reported 0 errors. The rule also saved little: the alert lines (see "Alert Lines") added most removed messages again.
 
-**A rule states only what the output states.** Exit status 0 does not prove that a test ran or that a lint tool found nothing. Two rules therefore leave output raw that they cannot read:
+**A rule states only what the output states.** Exit status 0 does not prove that a test ran or that git made a commit. Two rules therefore leave output raw when they cannot read the result in it:
 
 - **Test runs without a summary line.** The test rule reads the summary lines of jest, mocha, cargo, rspec, phpunit and Python's unittest. When the output holds none of them, the output stays raw. Measured examples: `node --test` (spec and TAP reporter, Node 24.13.1), `pytest -v` (9.1.1) and `vitest run --reporter=verbose` (5.0.3) print a summary in another form, so their output stays raw, also when every test passed. An earlier version replaced such output with the sentence "all tests passed", which was false for a run with 24 skipped tests and for a run with no test.
-- **Lint output with messages that the rule cannot count.** The lint rule counts the lines that hold the word "error" or "warning". The output stays raw when the rule counts no line, and when a line that is not counted names a position (`line:column`). Measured examples: the messages of `pylint --exit-zero` (4.1.2) and `ruff check --exit-zero` (0.16.10) hold neither word, so their output stays raw. The output of eslint (10.12.0, default format) is still compressed: each message holds the word "error" or "warning". An earlier version printed "0 error(s), 0 warning(s)" for pylint output with 36 messages.
+- **Test runs with a removed line about a test that did not run.** A summary line of one program does not prove the result of the whole run. When a line that the rule would remove holds one of the word stems `skip`, `pending`, `todo` or `ignored` (in upper or lower case), the output stays raw. Measured examples that stay raw: an `npm test` that runs jest and then `node --test` with 24 skipped tests; `python3 -m unittest -v` with the line "OK (skipped=24)"; ava with the lines "6 tests skipped" and "1 test todo"; mocha with colour codes around "16 pending"; `cargo test` with 8 ignored tests; jest with one line for each test and 8 skipped tests. A test name or a file name that holds a stem (`todo-list.test.js`) also keeps the output raw. Still compressed (measured): jest, mocha without colour codes and `cargo test`, each with no such removed line.
+- **`git commit` output without the commit line.** The commit rule prints `committed: ...` only when the output holds the line `[<branch> <hash>] <subject>` that git prints for a commit (measured for a normal commit, the first commit of a repository, a commit on a detached HEAD, `--amend`, and a commit after text of a commit hook). `git commit --short` and `git commit --porcelain` are dry runs and print no such line. `git commit -q` prints nothing, so its output is shorter than 200 characters and stays raw; when a commit hook prints text, that text stays raw.
 
 ---
 
@@ -151,8 +150,9 @@ These commands always pass through with raw, unmodified output — regardless of
 | `curl`, `wget`, `httpie` | API responses should not be truncated |
 | `echo`, `printf` | User is constructing specific output |
 | `node -e`, `python -e`, `ruby -e` | Inline script output is the point |
-| A dry run of `git add` (`--dry-run`, `-n`, also in a group of short options such as `-An`) or of `git commit` (`--dry-run`) | The command changes nothing, so the result that the rule states (`ok`, `committed`) would be false. Quotes are not parsed, so a commit message that holds ` --dry-run` also stops compression. |
-| A test run whose output holds no summary line that the test rule reads; lint output with messages that the lint rule cannot count | The rule cannot read the result, and exit status 0 does not prove it (see "A rule states only what the output states") |
+| A dry run: any command with an option that starts with `--dry` (`git push --dry-run`, `npm install --dry-run`, `git add --dry`), and `git add -n` (also in a group of short options such as `-An`) | The command changes nothing, so the result that a rule states (`ok`, `added 25 packages`) would be false. Quotes are not parsed, so a commit message that holds ` --dry` also stops compression. |
+| Lint output (eslint, pylint, ruff and others) | No rule matches a lint command (see "Lint output is not compressed") |
+| A test run whose output holds no summary line that the test rule reads, or holds a removed line about a test that did not run; `git commit` output without the commit line | The rule cannot read the result, and exit status 0 does not prove it (see "A rule states only what the output states") |
 | **Any command that fails** (non-zero exit code) | Error output must be seen in full |
 | Output shorter than 200 characters | Not worth the compression overhead |
 | Output that the replacement would not make shorter (not fewer lines, or not fewer characters than the `stdout` text of the response) | Nothing to gain (see "The Size Rule"); every replaced output carries the marker |
@@ -283,7 +283,7 @@ Savings accumulate across all Bash calls in a session. These are projections bas
 | Git-heavy workflow (commit, push, pull, status) | ~12,000 | ~2,500 | ~80% |
 | Test-driven development (frequent test runs) | ~30,000 | ~4,000 | ~87% |
 | Package installation (npm/pip/cargo) | ~15,000 | ~2,000 | ~87% |
-| Build-heavy workflow (compile, lint, build) | ~20,000 | ~5,000 | ~75% |
+| Build-heavy workflow (compile, build) | ~20,000 | ~5,000 | ~75% |
 | Mixed session (typical) | ~50,000 | ~12,000 | ~76% |
 
 Commands that aren't covered by compression rules (or hit the never-compress list) pass through unchanged with zero overhead.
@@ -344,7 +344,7 @@ There's no per-command disable — but commands on the never-compress list alrea
 
 **Adaptive behavior.** If Claude re-runs the same command within 60 seconds, smart compress passes it through uncompressed — it assumes Claude is retrying because the compressed output wasn't enough. RTK applies the same compression every time regardless.
 
-**The trade-off we accepted.** RTK covers 100+ commands with <10ms overhead (Rust). Smart compress covers 17 commands with ~40ms overhead (Node.js). We're slower and narrower — but those 17 commands account for the vast majority of token waste in typical sessions, and the safety guarantees matter more than covering edge cases.
+**The trade-off we accepted.** RTK covers 100+ commands with <10ms overhead (Rust). Smart compress covers 16 commands with ~40ms overhead (Node.js). We're slower and narrower — but those 16 commands account for the vast majority of token waste in typical sessions, and the safety guarantees matter more than covering edge cases.
 
 ### Coexistence with RTK
 

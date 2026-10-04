@@ -107,7 +107,7 @@ The plugin automatically compresses noisy Bash output before it enters your cont
 ### What gets compressed
 
 - **Tier 1 (near-lossless):** git add/commit/push/pull/clone/fetch, npm/pip/cargo install — reduced to one-line summaries. For every rule of both tiers, a removed line that holds an alert word stem is added below the compressed text, under the heading `Removed lines with an alert word:`. Examples of stems: error, warn, fail, fatal, conflict, denied, exception, traceback, reject, vulnerab. The stem counts in upper or lower case and inside a longer word (TypeError, FAILED), also inside a file path. A `git push` summary also keeps every line that starts with `remote:`
-- **Tier 2 (smart filtering):** git status (hint lines removed), git log (truncated), passing tests (summary only), successful builds (summary only), lint output (grouped by severity), large ls/find results (truncated)
+- **Tier 2 (smart filtering):** git status (hint lines removed), git log (truncated), passing tests (summary only; only when the output holds a summary line that the rule reads and no other line about a skipped, pending, todo or ignored test), successful builds (summary only), large ls/find results (truncated)
 
 ### What is NEVER compressed
 
@@ -116,6 +116,8 @@ The plugin automatically compresses noisy Bash output before it enters your cont
 - Commands with user-applied pipes (`| grep`, `| awk`, `| sed`)
 - Commands with `--verbose` or `--debug` flags
 - `curl`/`wget` responses — API output should not be truncated
+- Lint output (eslint, pylint, ruff and others) — no rule can state the counts of the lint tool
+- Dry runs (an option that starts with `--dry`, and `git add -n`) — the command changes nothing
 - **Any command that fails** (non-zero exit code) — error output is passed through raw
 - Output shorter than 200 characters — not worth compressing
 
