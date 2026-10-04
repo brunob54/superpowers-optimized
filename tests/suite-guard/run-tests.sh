@@ -59,8 +59,11 @@ GUARD_LOAD_MAX_LINE=45
 # needs no entry here.
 UNGUARDED_SUITES='opencode'
 # The smallest number of suites that the file pattern must find. A pattern
-# that finds nothing must not look like a success.
-MIN_GUARDED_SUITES=12
+# that finds nothing must not look like a success. The value is the number of
+# guarded suites on the day of its last change (12 when it was written, 15
+# now). Raise it when a suite is added: a suite file that disappears then
+# fails the check.
+MIN_GUARDED_SUITES=15
 
 # Fragments of the guard's message (free text, matched as fixed strings).
 MSG_FAIL='FAIL'

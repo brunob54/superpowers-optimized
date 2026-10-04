@@ -64,35 +64,44 @@ Detect merge base (`main`/`master` or repo default) and confirm if unclear.
 Options 1, 2 and 4 remove a worktree (a second working folder of the same
 repository) only with this procedure.
 
-`git worktree remove` refuses when the worktree holds a modified file or an
-untracked file. It does not refuse for a file that git ignores: it deletes
-that file with no message. Git ignores the workspace files of this plugin
-(`session-log.md`, `state.md`, `known-issues.md`, `project-map.md`),
-because the hooks of the plugin hide them from git.
+`git worktree remove` refuses when the worktree holds a modified file. It
+refuses for an untracked file only while the git setting
+`status.showUntrackedFiles` has its default value. It does not refuse for a
+file that git ignores: it deletes that file with no message. Git ignores
+the workspace files of this plugin (`session-log.md`, `state.md`,
+`known-issues.md`, `project-map.md`), because the hooks of the plugin hide
+them from git.
 
-Run this check first. Give the path of the worktree: without
-`-C <worktree-path>` the command reports on the folder it runs in.
+First take the path of the main checkout: the first line of
+`git worktree list`. The session can run inside the worktree, and a git
+command fails in a folder that no longer exists. So run the removal, and
+every later git command, with `git -C "<main-checkout-path>"`.
+
+Then run this check. Give the path of the worktree: without
+`-C "<worktree-path>"` the command reports on the folder it runs in.
 
 ```bash
-git -C <worktree-path> status --porcelain --ignored
+git -C "<worktree-path>" status --porcelain --ignored --untracked-files=normal
 ```
 
-- No output: run `git worktree remove <worktree-path>`.
+- The check fails (an error text, or an exit status that is not 0): do not
+  remove the worktree. Show the error to the user.
+- No output: run
+  `git -C "<main-checkout-path>" worktree remove "<worktree-path>"`.
 - Any output: do not remove the worktree yet. Each line names a file or a
   folder that the removal deletes; `!!` marks one that git ignores. Show
   the lines to the user. Say which lines are workspace files of the plugin:
   `session-log.md`, `state.md` and `known-issues.md` hold content that
   exists nowhere else. Ask the user which files to move to the main
   checkout and which files to delete.
-- A file to move: move it to the same relative path in the main checkout
-  (the first line of `git worktree list`). Never overwrite a file there:
-  when the destination already exists, leave both files in place and ask
-  the user what to do with them.
-- After the user has answered for every line: run
-  `git worktree remove <worktree-path>`. If git refuses because of a
-  modified or an untracked file, the answer of the user to delete that file
-  allows `--force`.
-- Never pass `--force` to `git worktree remove` before the user has
+- A file to move: move it to the same relative path in the main checkout.
+  Never overwrite a file there: when the destination already exists, leave
+  both files in place and ask the user what to do with them.
+- After the user has answered for every line: run the removal command of
+  the list item "No output". If git refuses because of a modified or an
+  untracked file, the answer of the user to delete that file allows
+  `--force`.
+- Never pass `--force` to the removal command before the user has
   answered.
 
 ## Hard Rules
