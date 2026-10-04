@@ -420,6 +420,16 @@ for (const state of ['tracked', 'untracked']) {
   );
 }
 
+test('a folder with the snapshot\'s name gets no exclude entry and stays a folder', () => {
+  const repo = makeRepo({});
+  const folder = path.join(repo, SNAPSHOT_FILE);
+  fs.mkdirSync(folder);
+  const excludeBefore = excludeContent(repo);
+  assert.strictEqual(runHookProcess(repo), EMPTY_HOOK_OUTPUT);
+  assert.ok(fs.lstatSync(folder).isDirectory(), 'the folder was replaced');
+  assert.strictEqual(excludeContent(repo), excludeBefore, 'an exclude entry was added');
+});
+
 test('an existing plain snapshot file is replaced by the new snapshot', () => {
   const repo = makeRepo({});
   fs.writeFileSync(path.join(repo, SNAPSHOT_FILE), 'old text');
