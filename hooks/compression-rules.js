@@ -101,11 +101,17 @@ const RULES = [
       if (exitCode !== 0) return null;
       const combined = stdout + '\n' + stderr;
       const branch = combined.match(/->\s+([\w/.-]+)/);
-      const remote = combined.match(/To\s+(\S+)/);
+      // The remote is the address of a line `To <address>`. An address holds
+      // `:` or `/`, so the words "To find out more" in a message of the
+      // server are not read as the remote.
+      const remote = combined.match(/^To\s+(\S*[:/]\S*)\s*$/m);
       const parts = ['ok'];
       if (branch) parts.push(branch[1]);
       if (remote) parts.push(`-> ${remote[1]}`);
-      return parts.join(' ');
+      // The messages of the server stay: for example the address for a new
+      // pull request, or a notice about vulnerabilities
+      const remoteLines = combined.split('\n').filter(l => l.startsWith('remote:'));
+      return [parts.join(' '), ...remoteLines].join('\n');
     },
   },
 
@@ -435,10 +441,34 @@ function findRule(command) {
   return RULES.find(rule => rule.match.test(command));
 }
 
+// An ANSI escape sequence, for example a colour code. It ends with a letter,
+// which would otherwise stand directly before the next word.
+const ANSI_CODE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+
+// A line that holds one of these word stems can report a problem of a command
+// that ended with exit status 0 (standard error is often merged into standard
+// output). The stem can be a part of a longer word (`TypeError`, `FAILED`,
+// `vulnerabilities`), in upper or lower case. A word that is a part of a path
+// does not count: it stands directly after `/`, directly before `/`, or
+// directly before a file extension (`src/errors.js`, `error.log`). Every
+// other doubt keeps the line.
+const ALERT_STEM = /(?<![/\w-])[\w-]*(?:error|warn|fail|fatal|conflict|denied|incompatible|deprecated|cannot|not\s+found|traceback|exception|panic|reject|refus|abort|unable\s+to|vulnerab|err!)[\w-]*(?![\w-]|\/|\.\w)/i;
+
+// With more removed alert lines than this, the output stays raw
+const MAX_ALERT_LINES = 40;
+
+// The line above the alert lines that are added to the compressed text
+const ALERT_HEADING = 'Removed lines with an alert word:';
+
 /**
  * Apply a rule to the output of a command. Returns the compressed text, or
- * null when the output must stay raw: the rule throws, or the rule returns
- * no text.
+ * null when the output must stay raw: the rule throws, the rule returns no
+ * text, or the rule removed more than MAX_ALERT_LINES alert lines.
+ *
+ * An alert line is a line of the output that holds an alert stem. Each alert
+ * line that is not a line of the compressed text is added below it, once,
+ * under ALERT_HEADING. Lines are compared whole, without white space at
+ * their end.
  */
 function runRule(rule, stdout, stderr, exitCode) {
   let compressed;
@@ -447,7 +477,16 @@ function runRule(rule, stdout, stderr, exitCode) {
   } catch {
     return null;
   }
-  return compressed && typeof compressed === 'string' ? compressed : null;
+  if (!compressed || typeof compressed !== 'string') return null;
+
+  const keptLines = new Set(compressed.split('\n').map(line => line.trimEnd()));
+  const alertLines = new Set();
+  for (const outputLine of `${stdout}\n${stderr}`.split('\n')) {
+    const line = outputLine.trimEnd();
+    if (!keptLines.has(line) && ALERT_STEM.test(line.replace(ANSI_CODE, ''))) alertLines.add(line);
+  }
+  if (alertLines.size > MAX_ALERT_LINES) return null;
+  return alertLines.size ? [compressed, '', ALERT_HEADING, ...alertLines].join('\n') : compressed;
 }
 
 /** The number of lines of a text that hold more than white space. */
@@ -455,13 +494,9 @@ function countNonEmptyLines(text) {
   return text.split('\n').filter(line => line.trim().length > 0).length;
 }
 
-/**
- * The marker line that tells the reader that a rule removed lines. With
- * `savedPath`, the marker also names the file that holds the raw output.
- */
-function compressionMarker(originalLines, compressedLines, ruleType, savedPath) {
-  const rawOutput = savedPath ? ` | raw output: ${savedPath}` : '';
-  return `[compressed: ${originalLines}->${compressedLines} lines | ${ruleType}${rawOutput}]`;
+/** The marker line that tells the reader that a rule removed lines. */
+function compressionMarker(originalLines, compressedLines, ruleType) {
+  return `[compressed: ${originalLines}->${compressedLines} lines | ${ruleType}]`;
 }
 
 module.exports = {

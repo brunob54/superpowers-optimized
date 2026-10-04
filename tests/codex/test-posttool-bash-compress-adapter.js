@@ -175,6 +175,26 @@ test('Passing test run → compressed replacement', () => {
   assert.match(result.reason, /\| test-pass]/);
 });
 
+test('npm install with warning and error lines → the lines stay in the replacement', () => {
+  const warnings = Array.from({ length: 6 }, (_, index) => `npm warn deprecated package-${index + 1}@1.0.0: no longer supported`);
+  const errorLine = 'npm error peer dependency left-pad@2 is missing';
+  const result = evaluatePayload({
+    tool_name: 'Bash',
+    tool_input: { command: 'npm install' },
+    tool_response: {
+      stdout: [...warnings, longLines('npm http fetch GET 200 package', 40), 'added 150 packages in 12s'].join('\n'),
+      stderr: errorLine,
+      exit_code: 0,
+    },
+  });
+
+  isBlocked(result);
+  assert.match(result.reason, /ok, added 150 packages/);
+  for (const line of [...warnings, errorLine]) {
+    assert.ok(result.reason.split('\n').includes(line), `the replacement lost the line: ${line}`);
+  }
+});
+
 test('Failing test run → allow full output through', () => {
   isAllowed(evaluatePayload({
     tool_name: 'Bash',

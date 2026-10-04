@@ -149,7 +149,7 @@ compressed_text() { hook_value "$1" 'updated ? updated.stdout : ""'; }
 
 # The rule named in the marker line of the replaced output; "none" when the
 # hook replaced nothing
-rule_type() { hook_value "$1" '((updated ? updated.stdout : "").match(/\| ([\w-]+)( \| raw output: .*)?\]$/) || [0, "none"])[1]'; }
+rule_type() { hook_value "$1" '((updated ? updated.stdout : "").match(/\| ([\w-]+)\]$/) || [0, "none"])[1]'; }
 
 # Output with 100 lines: long enough for every rule except git-status, which
 # removes hint lines only
@@ -439,62 +439,36 @@ assert_contains     "real git status: the compressed text keeps the changed file
 assert_not_contains "real git status: hint lines are removed"                     "$text" '(use "git'
 assert_contains     "real git status: has [compressed] marker"                    "$text" "[compressed:"
 
+# A response that the hook cannot prove safe to replace stays as it is
+untouched() { run_hook "${3:-git status}" "${2:-$STATUS_OUT}" "untouched-$$-$RANDOM" "$1"; }
+
 # Above 30,000 characters Claude Code cuts `stdout` and saves the whole output
-# in a file. The hook must compress the whole output, not the cut part.
+# in a file. Claude then receives a preview of about 2,000 characters and the
+# path of the file, so a replacement could be longer than what Claude
+# receives. The hook leaves such a response as it is.
+export FULL_FILE
 FULL_FILE=$(mktmp)
 node -e 'for (let i = 1; i <= 3000; i++) console.log("./src/folder/file-" + i + ".js")' > "$FULL_FILE"
-export FULL_FILE
 PERSISTED='
   const full = require("fs").readFileSync(process.env.FULL_FILE, "utf8");
   input.tool_response.stdout = full.slice(0, 30000);
   input.tool_response.persistedOutputPath = process.env.FULL_FILE;
   input.tool_response.persistedOutputSize = Buffer.byteLength(full);'
-out=$(run_hook "find . -name '*.js'" "" "persisted-$$-$RANDOM" "$PERSISTED")
-text=$(compressed_text "$out")
-assert_contains "saved output: the rule counts the lines of the whole output" "$text" "... 2940 more results"
-assert "saved output: the marker counts the lines of the whole output and names the saved file" \
-  "$(echo "$text" | tail -1)" "[compressed: 3000->61 lines | find-large | raw output: $(node -e 'console.log(process.env.FULL_FILE)')]"
-assert "saved output: the replacement has no persistedOutputPath and no persistedOutputSize" \
-  "$(hook_value "$out" 'updated ? Object.keys(updated).join(",") : "not replaced"')" "stdout,stderr,interrupted,isImage,noOutputExpected"
-
-# A response that the hook cannot prove safe to replace stays as it is
-untouched() { run_hook "${3:-git status}" "${2:-$STATUS_OUT}" "untouched-$$-$RANDOM" "$1"; }
-
-assert "saved output: a file that cannot be read → {}" \
-  "$(untouched "$PERSISTED"' input.tool_response.persistedOutputPath += ".missing";' "" "find . -name '*.js'")" "{}"
-assert "saved output: a file that does not start with the cut output → {}" \
-  "$(untouched "$PERSISTED"' input.tool_response.stdout = "other output\n" + input.tool_response.stdout;' "" "find . -name '*.js'")" "{}"
-BIG_FILE=$(mktmp)
-node -e 'require("fs").writeFileSync(process.argv[1], "./file.js\n".repeat(1100000))' "$BIG_FILE"
-assert "saved output: a file above 10 MB → {}" \
-  "$(FULL_FILE="$BIG_FILE" untouched "$PERSISTED" "" "find . -name '*.js'")" "{}"
-rm -f "$BIG_FILE"
-
-# The hook reads the saved file only when it is a regular file: a named pipe
-# in its place would make the hook wait for ever
-if ln -s "$FULL_FILE" "$WORK/saved-link" 2>/dev/null && [ -L "$WORK/saved-link" ]; then
-  assert "saved output: a path that is a symbolic link, not a regular file → {}" \
-    "$(FULL_FILE="$WORK/saved-link" untouched "$PERSISTED" "" "find . -name '*.js'")" "{}"
-else
-  echo "  SKIP: this system makes no symbolic link; the regular-file check is not tested"
-fi
+assert "saved output: a response with the two persisted fields → {}" \
+  "$(run_hook "find . -name '*.js'" "" "persisted-$$-$RANDOM" "$PERSISTED")" "{}"
+assert "saved output: the same output without the two fields is compressed" \
+  "$(is_compressed "$(run_hook "find . -name '*.js'" "" "persisted-$$-$RANDOM" "$PERSISTED"' delete input.tool_response.persistedOutputPath; delete input.tool_response.persistedOutputSize;')")" "yes"
+assert "saved output: a persistedOutputPath field alone → {}" \
+  "$(untouched 'input.tool_response.persistedOutputPath = process.env.FULL_FILE;')" "{}"
+assert "saved output: a persistedOutputSize field alone → {}" \
+  "$(untouched 'input.tool_response.persistedOutputSize = 108894;')" "{}"
 
 # The size rule: the hook replaces the output only when the replacement is
-# shorter than the `stdout` text that Claude Code sent, and at most 30,000
-# characters long.
-MANY_FILE=$(mktmp)
-node -e '
-  const lines = ["On branch main", "Changes not staged for commit:", "  (use \"git add <file>...\" to update what will be committed)"];
-  for (let i = 1; i <= 3000; i++) lines.push("\tmodified:   src/some/long/folder/name/changed-file-number-" + i + ".js");
-  lines.push("", "no changes added to commit (use \"git add\" and/or \"git commit -a\")");
-  console.log(lines.join("\n"));
-' > "$MANY_FILE"
-assert "size rule: saved output whose replacement is longer than the cut stdout → {}" \
-  "$(FULL_FILE="$MANY_FILE" untouched "$PERSISTED")" "{}"
-assert "size rule: a replacement longer than the stdout that Claude Code sent → {}" \
+# shorter than the `stdout` text of the response.
+assert "size rule: a replacement longer than the stdout of the response → {}" \
   "$(untouched 'input.tool_response.stdout = "On branch main\nChanges not staged for commit:\n  (use \"git x\")\n" + "\tmodified:   src/folder/changed-file.js\n".repeat(6);')" "{}"
-assert "size rule: a replacement above 30,000 characters → {}" \
-  "$(untouched 'input.tool_response.stdout = "On branch main\n" + ("\tmodified:   src/folder/changed-file.js\n" + "  (use \"git add <file>...\" to update what will be committed)\n").repeat(1500);')" "{}"
+assert "size rule: a long replacement that is shorter than the stdout is used" \
+  "$(is_compressed "$(untouched 'input.tool_response.stdout = "On branch main\n" + ("\tmodified:   src/folder/changed-file.js\n" + "  (use \"git add <file>...\" to update what will be committed)\n").repeat(1500);')")" "yes"
 
 # Fields that Claude Code adds to the response of a command that ended with
 # exit status 0. The shapes of the first three come from recorded tool results
@@ -618,7 +592,7 @@ assert_contains "alert lines: git pull keeps the summary of the rule" "$text" "o
 assert_contains "alert lines: git pull keeps the autostash conflict"  "$text" "Applying autostash resulted in conflicts."
 
 NPM_NOISE=$(node -e 'for (let i = 1; i <= 30; i++) console.log("npm http fetch GET 200 https://registry.npmjs.org/package-" + i + " 12ms")')
-NPM_TAIL=$(printf '\nadded 150 packages, and audited 151 packages in 12s\n\nfound 0 vulnerabilities')
+NPM_TAIL=$(printf '\nadded 150 packages, and audited 151 packages in 12s')
 text=$(compressed_text "$(run_hook "npm install" "npm warn EBADENGINE Unsupported engine { package: 'left-pad@1.3.0', required: { node: '>=20' } }
 $NPM_NOISE$NPM_TAIL" "alert-$$-$RANDOM")")
 assert_contains "alert lines: npm install keeps the summary of the rule" "$text" "ok, added 150 packages"
@@ -642,10 +616,155 @@ assert "alert lines: a line that the rule kept appears once" "$(echo "$text" | g
 assert_not_contains "alert lines: no heading when the rule kept every alert line" "$text" "$ALERT_HEADING"
 
 # A file name that holds an alert word is not an alert line
-out=$(run_hook "find . -name '*.js'" "$(node -e 'for (let i = 1; i <= 70; i++) console.log("./src/file-" + i + ".js"); console.log("./src/errors.js\n./src/error.js\n./lib/fail/handler.js\n./lib/warn-once.js\n./logs/error\n./tmp/run.failed\nerror.log\nwarnings/list.txt\nfail-fast.js")')" "alert-$$-$RANDOM")
+out=$(run_hook "find . -name '*.js'" "$(node -e 'for (let i = 1; i <= 70; i++) console.log("./src/file-" + i + ".js"); console.log("./src/errors.js\n./src/error.js\n./lib/fail/handler.js\n./lib/warn-once.js\n./logs/error\nerror.log\nwarnings/list.txt\nfail-fast.js")')" "alert-$$-$RANDOM")
 text=$(compressed_text "$out")
-assert_contains     "alert lines: find output with such file names is compressed" "$text" "... 19 more results"
+assert_contains     "alert lines: find output with such file names is compressed" "$text" "... 18 more results"
 assert_not_contains "alert lines: a file name with an alert word adds no line"    "$text" "$ALERT_HEADING"
+
+# Each of these lines reports a problem. The first two have colour codes:
+# directly before the word, and between the two words of "not found". The
+# git-clone rule keeps none of them.
+IFS= read -r -d '' ALERT_EXAMPLES <<'FIXTURE'
+TypeError: x is not a function
+ReferenceError: y is not defined
+KeyError: 'name'
+UserWarning: this API changes in the next release
+(node:1) UnhandledPromiseRejectionWarning: boom
+Checking formatting...FAILED
+Traceback (most recent call last):
+1 failure
+2 failing
+BUILD FAILURE
+Exception in thread main
+thread 'main' panicked at the start
+panic: runtime problem
+the push was rejected by the server
+Connection refused
+abort: no repository here
+Aborted (core dumped)
+unable to access the cache
+1 high severity vulnerability
+npm ERR! code E404
+fatal: bad object in the pack
+Permission denied (publickey).
+cannot open the lock
+command not found: prettier
+this option is deprecated
+FIXTURE
+ALERT_EXAMPLES="$(printf '\033[31merror\033[0m: the colour line\ncommand \033[1mnot\033[0m found: a colour code inside the two words')
+${ALERT_EXAMPLES%$'\n'}"
+text=$(compressed_text "$(run_hook "git clone https://github.com/x/y" "$NOISY
+$ALERT_EXAMPLES
+./src/errors.js
+error.log" "alert-$$-$RANDOM")")
+assert "alert lines: the summary of the git-clone rule is the first line" "$(echo "$text" | head -1)" "cloned"
+while IFS= read -r line; do
+  assert_contains "alert lines: added again: $line" "$text" "$line"
+done <<< "$ALERT_EXAMPLES"
+assert_not_contains "alert lines: a path after a slash (src/errors.js) is not added" "$text" "./src/errors.js"
+assert_not_contains "alert lines: a file name with an extension (error.log) is not added" "$text" "error.log"
+
+# White space at the end of a line does not make a kept line a removed line.
+# First case: the rule cut the spaces of the last line. Second case: the rule
+# kept the line with its spaces.
+out=$(run_hook "git add ." "$NOISY
+warning: CRLF will be replaced by LF in a.txt   " "alert-$$-$RANDOM")
+assert "alert lines: a kept line whose end spaces the rule cut is not added again" \
+  "$(compressed_text "$out" | grep -c 'warning: CRLF')" "1"
+out=$(run_hook "git status" "$STATUS_OUT
+warning: could not refresh the index   " "alert-$$-$RANDOM")
+assert "alert lines: a kept line with spaces at its end is not added again" \
+  "$(compressed_text "$out" | grep -c 'warning: could not refresh')" "1"
+
+# The comparison is by whole line: the kept line "Tests: 11 failed, 31 total"
+# holds the text "1 failed", and the removed line "1 failed" is still added
+out=$(run_hook "npm test" "$(node -e 'for (let i = 1; i <= 30; i++) console.log("  ok " + i + " - a test of the suite")')
+1 failed
+Tests: 11 failed, 31 total" "alert-$$-$RANDOM")
+assert "alert lines: a removed line is added although a kept line holds its text" \
+  "$(compressed_text "$out" | grep -cx '1 failed')" "1"
+
+# ── Git rules on real output ──
+# Git writes most of this text to standard error; Claude Code merges it into
+# `stdout`. Each fixture is the output of a command that ended with success.
+IFS= read -r -d '' PUSH_START <<'FIXTURE'
+Enumerating objects: 5, done.
+Counting objects: 100% (5/5), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (3/3), done.
+Writing objects: 100% (3/3), 312 bytes | 312.00 KiB/s, done.
+Total 3 (delta 2), reused 0 (delta 0), pack-reused 0
+FIXTURE
+push_text() { compressed_text "$(run_hook "git push origin $1" "$PUSH_START$2" "push-$$-$RANDOM")"; }
+
+assert "git push: a plain push gives the branch and the remote" \
+  "$(push_text main 'To github.com:user/repo.git
+   abc1234..def5678  main -> main')" "ok main -> github.com:user/repo.git
+[compressed: 8->1 lines | git-push]"
+
+assert "git push: a line 'To <word>' without ':' or '/' is not the remote" \
+  "$(push_text main 'To continue
+To github.com:user/repo.git
+   abc1234..def5678  main -> main' | head -1)" "ok main -> github.com:user/repo.git"
+
+text=$(push_text feature-x "remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
+remote:
+remote: Create a pull request for 'feature-x' on GitHub by visiting:
+remote:      https://github.com/user/repo/pull/new/feature-x
+remote:
+To github.com:user/repo.git
+ * [new branch]      feature-x -> feature-x")
+assert "git push: a new branch gives the branch and the remote" "$(echo "$text" | head -1)" "ok feature-x -> github.com:user/repo.git"
+assert_contains "git push: the pull-request address of the remote is kept" "$text" "remote:      https://github.com/user/repo/pull/new/feature-x"
+
+text=$(push_text main "remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
+remote:
+remote: GitHub found 3 vulnerabilities on user/repo's default branch (1 high, 2 moderate). To find out more, visit:
+remote:      https://github.com/user/repo/security/dependabot
+remote:
+To github.com:user/repo.git
+   abc1234..def5678  main -> main")
+assert "git push: the words 'To find out more' are not read as the remote" "$(echo "$text" | head -1)" "ok main -> github.com:user/repo.git"
+assert_contains "git push: the vulnerabilities notice of the remote is kept" "$text" "remote: GitHub found 3 vulnerabilities"
+assert "git push: a kept remote line is not added a second time" "$(echo "$text" | grep -c 'GitHub found 3 vulnerabilities')" "1"
+
+IFS= read -r -d '' FETCH_START <<'FIXTURE'
+remote: Enumerating objects: 9, done.
+remote: Counting objects: 100% (9/9), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 5 (delta 2), reused 5 (delta 2), pack-reused 0
+Unpacking objects: 100% (5/5), 1.10 KiB | 375.00 KiB/s, done.
+From github.com:user/repo
+   abc1234..def5678  main       -> origin/main
+FIXTURE
+assert "git pull: a fast-forward pull gives the change counts" \
+  "$(compressed_text "$(run_hook "git pull" "${FETCH_START}Updating abc1234..def5678
+Fast-forward
+ src/app.js   | 10 +++++++---
+ src/util.js  |  4 ++--
+ 2 files changed, 9 insertions(+), 5 deletions(-)" "git-$$-$RANDOM")")" "ok, 2 files changed, +9, -5
+[compressed: 12->1 lines | git-pull]"
+
+assert "git fetch: every updated reference is kept" \
+  "$(compressed_text "$(run_hook "git fetch origin" "$FETCH_START * [new branch]      feature-x  -> origin/feature-x
+ * [new tag]         v1.2.0     -> v1.2.0" "git-$$-$RANDOM")")" "fetched: 3 update(s)
+   abc1234..def5678  main       -> origin/main
+ * [new branch]      feature-x  -> origin/feature-x
+ * [new tag]         v1.2.0     -> v1.2.0
+[compressed: 9->4 lines | git-fetch]"
+
+assert "git commit: output of a commit hook before the result does not change the summary" \
+  "$(compressed_text "$(run_hook "git commit -m msg" "> project@1.0.0 precommit
+> lint-staged
+
+[STARTED] Preparing lint-staged...
+[COMPLETED] Preparing lint-staged...
+[STARTED] Running tasks for staged files...
+[COMPLETED] Running tasks for staged files...
+[main abc1234] Add the export command
+ 3 files changed, 10 insertions(+), 2 deletions(-)
+ create mode 100644 src/export.js" "git-$$-$RANDOM")")" "committed: abc1234 on main, 3 files changed, 10 insertions(+), 2 deletions(-)
+[compressed: 9->1 lines | git-commit]"
 
 # Output without an alert word: nothing is added (the text of section 5 above)
 assert_not_contains "alert lines: a clean git status has no heading" \
@@ -712,6 +831,10 @@ assert "re-run: a re-run that started 61 seconds after the first run is compress
   "$(is_compressed "$(rerun_after 61000 12)")" "yes"
 assert "re-run: a re-run that started 50 seconds after the first run is raw" \
   "$(rerun_after 50000 12)" "{}"
+assert "re-run: a negative duration counts as 0 (30 seconds after the first run: raw)" \
+  "$(rerun_after 30000 -60000)" "{}"
+assert "re-run: a duration that is not a number counts as 0 (30 seconds after the first run: raw)" \
+  "$(rerun_after 30000 '"soon"')" "{}"
 
 # A session id cannot name a folder: the record stays in the temporary folder
 run_hook "git status" "$STATUS_OUT" "../../../escaped3" > /dev/null

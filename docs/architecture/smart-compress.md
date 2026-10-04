@@ -102,7 +102,7 @@ These commands produce output where the signal can be captured in one line. A li
 |---|---|---|---|
 | `git add .` | Empty or CRLF warnings | `ok` or `ok (2 warning(s))` | ~90% |
 | `git commit -m "msg"` | Branch info, file stats, create mode lines | `committed: abc1234 on main, 3 files changed` | ~85%, only for output of 200 characters or more; the output of a small commit is shorter and stays raw |
-| `git push` | Counting objects, writing objects, remote messages (git writes them to standard error; Claude Code merges them into the output) | `ok main -> github.com:user/repo.git` | ~90% |
+| `git push` | Counting objects, writing objects (git writes them to standard error; Claude Code merges them into the output) | `ok main -> github.com:user/repo.git`, then every line that starts with `remote:` (for example the address for a new pull request, or a notice about vulnerabilities) | ~90% for a push without messages of the server |
 | `git pull` | Remote info, unpacking, file stats | `ok, 3 files changed, +10, -2` | ~85% |
 | `git clone` | Cloning, receiving, resolving deltas | `cloned -> my-repo` | ~90% |
 | `git fetch` | Remote counting, unpacking | `ok: up to date` or `fetched: 3 update(s)` | ~85% |
@@ -146,7 +146,7 @@ These commands always pass through with raw, unmodified output — regardless of
 | `node -e`, `python -e`, `ruby -e` | Inline script output is the point |
 | **Any command that fails** (non-zero exit code) | Error output must be seen in full |
 | Output shorter than 200 characters | Not worth the compression overhead |
-| Output that the replacement would not make shorter (not fewer lines, or not fewer characters than the output Claude Code sent), and a replacement above 30,000 characters | Nothing to gain (see "The Size Rule"); every replaced output carries the marker |
+| Output that the replacement would not make shorter (not fewer lines, or not fewer characters than the `stdout` text of the response) | Nothing to gain (see "The Size Rule"); every replaced output carries the marker |
 | Output in which a rule removed more than 40 lines with an alert word | Too many possible problems to hide (see "Alert Lines") |
 | A background call, a call moved to the background at its time-out, an interrupted call | The output is not complete (see "Output That Is Never Replaced") |
 
@@ -173,7 +173,6 @@ The marker tells Claude (and you, if you're reading the output):
 - How many lines were in the original output
 - How many lines remain after compression
 - Which compression rule was applied
-- Where the raw output is, when Claude Code saved it in a file (output above 30,000 characters): `[compressed: 3000->61 lines | find-large | raw output: /path/to/file.txt]`
 
 This is a deliberate design choice. Unlike external tools that silently truncate output, smart compress always tells Claude that information was removed. If the compressed output is insufficient, Claude can re-run the command — and the adaptive re-run system will pass it through uncompressed (see below).
 
@@ -202,15 +201,16 @@ This tracking is session-scoped: one temp file per session, named after the sess
 
 Claude Code merges the standard error of a successful command into its output. A command can end with exit status 0 and still report a problem, and a rule that keeps only a summary would remove that line. Three measured examples: `pip install` prints "ERROR: pip's dependency resolver ... incompatible", `git pull --rebase --autostash` prints "Applying autostash resulted in conflicts", `npm install` prints "npm warn EBADENGINE".
 
-The hook, not each rule, protects these lines:
+One shared step protects these lines, for every rule, on Claude Code and in the Codex adapter (`runRule` in `hooks/compression-rules.js`):
 
-1. An **alert line** is a line of the raw output that holds one of these words, in upper or lower case: `error`, `errors`, `warn`, `warning`, `warnings`, `fatal`, `fail`, `failed`, `conflict`, `conflicts`, `denied`, `incompatible`, `deprecated`, `cannot`, `not found`.
-2. Every alert line that the compressed text does not hold is added below the compressed text, once, under the heading `Removed lines with an alert word:`, above the marker.
-3. When more than 40 alert lines would be added, the hook replaces nothing and Claude receives the raw output.
+1. An **alert line** is a line of the raw output (standard output and standard error) that holds one of these word stems, in upper or lower case: `error`, `warn`, `fail`, `fatal`, `conflict`, `denied`, `incompatible`, `deprecated`, `cannot`, `not found`, `traceback`, `exception`, `panic`, `reject`, `refus`, `abort`, `unable to`, `vulnerab`, `ERR!`. A stem is the start of a word family: `fail` also finds `failed`, `failure` and `FAILED`. The stem can be inside a longer word: `TypeError`, `UserWarning`.
+2. ANSI escape sequences (for example colour codes) are removed from the line before the search, so a coloured `error` is found.
+3. Every alert line that is not a line of the compressed text is added below the compressed text, once, under the heading `Removed lines with an alert word:`, above the marker. Lines are compared whole, without the white space at their end: the removed line `1 failed` is added although the kept line `Tests: 11 failed` holds the same text.
+4. When more than 40 alert lines would be added, the hook replaces nothing and Claude receives the raw output.
 
-The word must stand alone. A word that is part of a name does not count: directly before it there is a letter, a digit, `_`, `.`, `/` or `-`, or directly after it there is a letter, a digit, `_`, `/`, `-` or a file extension. So `src/errors.js`, `error.log` and `fail-fast` are not alert words.
+Only a word that is a part of a path does not count: the word stands directly after `/`, directly before `/`, or directly before a file extension. So `src/errors.js`, `warnings/list.txt` and `error.log` are not alert words. Every other doubt keeps the line.
 
-Known wrong counts: a name that is exactly an alert word (a folder `errors` in an `ls` list), and ordinary text such as a test name "should fail when the input is empty" or a commit subject "fix error message", count as alert lines. The result is only less compression: the lines are added, or the output stays raw. Words outside the list (`failure`, `failing`, `rejected`) are not protected.
+Known wrong counts: a name that holds a stem and is not written as a path (a folder `errors` in an `ls` list), and ordinary text such as a test name "should fail when the input is empty", a commit subject "fix error message" or the line "found 0 vulnerabilities" count as alert lines. The result is only less compression: the lines are added, or the output stays raw. A run of a passing test suite whose test names hold such words in more than 40 lines is not compressed.
 
 ---
 
@@ -218,11 +218,10 @@ Known wrong counts: a name that is exactly an alert word (a folder `errors` in a
 
 The hook replaces the output only when the replacement is useful:
 
-- it has fewer lines than the raw output,
-- it has fewer characters than the `stdout` text that Claude Code sent (for output above 30,000 characters, that is the cut text of 30,000 characters, not the saved file), and
-- it has at most 30,000 characters.
+- it has fewer lines than the raw output, and
+- it has fewer characters than the `stdout` text of the response.
 
-Without this rule the hook could enlarge the context: `git status` with 3,000 changed files gives a saved file of about 188,000 characters, of which Claude receives a short preview; the compressed text would have been almost as long as the file.
+Output that Claude Code saved in a file is never replaced (see "Output That Is Never Replaced"), so the `stdout` text is always the text that Claude would receive.
 
 ---
 
@@ -237,11 +236,12 @@ The hook replaces the output only when it can prove that the tool response is th
 | Command still running at the Bash call's time-out | The response has `backgroundTaskId` and `timedOutAfterMs` | Unchanged. Claude Code moves the call to the background and does not stop the command. |
 | Exit status that is not 0 and that Claude Code accepts (for example `find` with a folder it cannot read) | The response has a `returnCodeInterpretation` field | Unchanged |
 | Interrupted call, image output | `interrupted` or `isImage` is not `false` | Unchanged |
+| Output above 30,000 characters | The response has `persistedOutputPath` and `persistedOutputSize` | Unchanged (see below) |
 | Any field the hook does not know, or a missing `stdout` or `stderr` field | The shape is not the measured one | Unchanged |
 
-The known fields are `stdout`, `stderr`, `interrupted`, `isImage`, `noOutputExpected`, `persistedOutputPath`, `persistedOutputSize`, and four notes that Claude Code adds to complete output and that the hook returns unchanged: `gitOperation` (what a `git commit` or `git push` did), `bashEditDiff` (the files the command changed), `staleReadFileStateHint` (a text about files that changed after Claude read them) and `dangerouslyDisableSandbox`. If a later Claude Code version adds a field to every response, compression stops (the output stays raw) until the hook learns the field. Nothing else breaks.
+The known fields are `stdout`, `stderr`, `interrupted`, `isImage`, `noOutputExpected`, and four notes that Claude Code adds to complete output and that the hook returns unchanged: `gitOperation` (what a `git commit` or `git push` did), `bashEditDiff` (the files the command changed), `staleReadFileStateHint` (a text about files that changed after Claude read them) and `dangerouslyDisableSandbox`. If a later Claude Code version adds a field to every response, compression stops (the output stays raw) until the hook learns the field. Nothing else breaks.
 
-**Output above 30,000 characters.** Claude Code cuts the `stdout` field at 30,000 characters and saves the whole output in a file, named in `persistedOutputPath`. The hook reads that file, so the rule sees the whole output (the summary of a test run is at the end). The replacement has no `persistedOutputPath` and no `persistedOutputSize` field; the marker line names the file, so Claude can still read the raw output. The hook leaves the output unchanged when the path is not a regular file (for example a symbolic link or a named pipe), when the file is larger than 10 MB, cannot be read, or does not start with the text in `stdout`.
+**Output above 30,000 characters.** Claude Code cuts the `stdout` field at 30,000 characters, saves the whole output in a file and adds the fields `persistedOutputPath` and `persistedOutputSize` to the response. Claude does not receive the 30,000 characters: it receives a preview of about 2,000 characters and the path of the file (read in the program text of Claude Code 2.1.289). A replacement could therefore be longer than what Claude receives. The hook leaves such a response unchanged and does not read the file. A long passing test run or a long `find` list is therefore not compressed; Claude sees the preview and can read the file.
 
 **Standard error.** Claude Code merges the standard error of a successful command into `stdout`, in the order the lines were written, and leaves the `stderr` field empty. The hook therefore cannot keep standard error apart, and a rule treats those lines like any other line. The alert-line rule (see "Alert Lines") keeps the lines that report a problem. A `stderr` field that is not empty goes to the rule as standard error and stays unchanged in the replacement.
 

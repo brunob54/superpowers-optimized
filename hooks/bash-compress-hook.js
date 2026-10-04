@@ -19,7 +19,6 @@
  *   - a tool response that the hook cannot prove safe to replace (readOutput)
  *   - output that the rule declines, or that the replacement does not make
  *     shorter (compress)
- *   - output in which a rule removed more than 40 lines with an alert word
  *   - the second run of the same command within 60 seconds
  *   - any error inside the hook (fail-open)
  * A command that fails does not reach this hook: Claude Code sends the
@@ -51,22 +50,22 @@ const NO_CHANGE = {};
 // A second run of the same command within this time stays raw
 const RERUN_WINDOW_MS = 60000; // ms (milliseconds)
 
-// Above 30,000 characters Claude Code cuts the `stdout` field and saves the
-// whole output in a file. These two fields of the response name that file.
-const SAVED_OUTPUT_FIELDS = ['persistedOutputPath', 'persistedOutputSize'];
-
 // The fields of the response of a Bash call that ended in the foreground with
 // exit status 0 (measured on Claude Code 2.1.289). A response with any other
-// field stays as it is. Two measured examples: `backgroundTaskId` (Claude Code
-// moved the call to the background, so the output is not complete) and
-// `returnCodeInterpretation` (the exit status was not 0).
+// field stays as it is. Three measured examples:
+//   - `backgroundTaskId`: Claude Code moved the call to the background, so
+//     the output is not complete.
+//   - `returnCodeInterpretation`: the exit status was not 0.
+//   - `persistedOutputPath` and `persistedOutputSize`: the output was longer
+//     than 30,000 characters and Claude Code saved it in a file. Claude then
+//     receives a preview of about 2,000 characters and the path of the file,
+//     so a replacement could be longer than what Claude receives.
 const KNOWN_RESPONSE_FIELDS = new Set([
   'stdout',
   'stderr',
   'interrupted',
   'isImage',
   'noOutputExpected',
-  ...SAVED_OUTPUT_FIELDS,
   // Notes that Claude Code adds to complete output. The hook returns each
   // unchanged. Seen in recorded tool results: `gitOperation` (what a git
   // commit or a git push did), `bashEditDiff` (the files that the command
@@ -79,36 +78,10 @@ const KNOWN_RESPONSE_FIELDS = new Set([
   'dangerouslyDisableSandbox',
 ]);
 
-// The hook does not read a saved output file above this size
-const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10 MB (megabytes)
-
-// A replacement is never longer than this number of characters. It is the
-// length at which Claude Code cuts `stdout` and saves the output in a file.
-const MAX_REPLACEMENT_LENGTH = 30000;
-
-// A line with one of these words can report a problem of a command that ended
-// with exit status 0. Claude Code merges standard error into `stdout`, so a
-// rule can remove such a line; the hook adds it again (removedAlertLines).
-// The word must stand alone: a letter, a digit, `_`, `.`, `/` or `-` directly
-// before it, or a letter, a digit, `_`, `/`, `-` or a file extension directly
-// after it, makes it a part of a name (`src/errors.js`, `fail-fast`).
-const ALERT_WORDS = /(?<![\w./-])(?:errors?|warn|warnings?|fatal|fail|failed|conflicts?|denied|incompatible|deprecated|cannot|not\s+found)(?![\w/-]|\.\w)/i;
-
-// With more removed alert lines than this, the output stays as it is
-const MAX_ALERT_LINES = 40;
-
-// The line above the alert lines that the hook adds to the compressed text
-const ALERT_HEADING = 'Removed lines with an alert word:';
-
 /**
- * The whole output of the call, as { stdout, stderr, sentLength, savedPath }.
- * `sentLength` is the length of the `stdout` text that Claude Code sent, and
- * `savedPath` names the file with the whole output when Claude Code cut that
- * text. Returns null when the hook cannot prove that the response is safe to
- * replace: the response does not have the known shape, the call was
- * interrupted, the output is an image, or the saved output file is not a
- * regular file, is too large or does not belong to this response.
- * A saved output file that cannot be read throws; main() handles the error.
+ * The output of the call, as { stdout, stderr }. Returns null when the hook
+ * cannot prove that the response is safe to replace: the response does not
+ * have the known shape, the call was interrupted, or the output is an image.
  */
 function readOutput(response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) return null;
@@ -118,36 +91,13 @@ function readOutput(response) {
   if (typeof stdout !== 'string' || typeof stderr !== 'string') return null;
   if (interrupted !== false || isImage !== false) return null;
 
-  const sentLength = stdout.length;
-  if (!SAVED_OUTPUT_FIELDS.some(field => field in response)) return { stdout, stderr, sentLength };
-
-  // `stdout` holds only the start of the output. A rule must see all of it:
-  // for example, the summary of a test run is at the end. lstat does not
-  // follow a symbolic link and does not open the file: reading a named pipe
-  // would never end.
-  const savedPath = response.persistedOutputPath;
-  const saved = fs.lstatSync(savedPath);
-  if (!saved.isFile() || saved.size > MAX_OUTPUT_BYTES) return null;
-  const whole = fs.readFileSync(savedPath, 'utf8');
-  return whole.startsWith(stdout) ? { stdout: whole, stderr, sentLength, savedPath } : null;
+  return { stdout, stderr };
 }
 
 /**
- * The lines of the output that hold an alert word and that the compressed
- * text does not hold: each line once, in the order of the output.
- */
-function removedAlertLines(stdout, compressed) {
-  const lines = stdout
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => ALERT_WORDS.test(line) && !compressed.includes(line));
-  return [...new Set(lines)];
-}
-
-/**
- * The text that replaces the output: the compressed text, the alert lines
- * that the rule removed, and the marker line. Returns null when the output
- * must stay raw.
+ * The text that replaces the output: the text of the rule (the compressed
+ * text and the alert lines that the rule removed, see runRule) and the marker
+ * line. Returns null when the output must stay raw.
  */
 function compress(rule, output) {
   // Normalize line endings (Windows CRLF -> LF)
@@ -159,14 +109,8 @@ function compress(rule, output) {
   if (totalOutput.length < MIN_OUTPUT_LENGTH) return null;
 
   // The exit status is 0: see KNOWN_RESPONSE_FIELDS
-  const compressed = runRule(rule, stdout, stderr, 0);
-  if (compressed === null) return null;
-
-  // A `stderr` field that is not empty stays in the response, so only the
-  // lines of `stdout` can be lost
-  const alertLines = removedAlertLines(stdout, compressed);
-  if (alertLines.length > MAX_ALERT_LINES) return null;
-  const kept = alertLines.length ? [compressed, '', ALERT_HEADING, ...alertLines].join('\n') : compressed;
+  const kept = runRule(rule, stdout, stderr, 0);
+  if (kept === null) return null;
 
   // Output from which no line was removed stays as it is, so every replaced
   // output carries the marker
@@ -174,14 +118,9 @@ function compress(rule, output) {
   const keptLines = countNonEmptyLines(kept);
   if (keptLines >= originalLines) return null;
 
-  // The marker names the saved output file, because the replacement no longer
-  // has the fields that name it
-  const text = `${kept}\n${compressionMarker(originalLines, keptLines, rule.type, output.savedPath)}`;
-
-  // The replacement must never put more text into the context than the
-  // output that Claude Code sent
-  if (text.length >= output.sentLength || text.length > MAX_REPLACEMENT_LENGTH) return null;
-  return text;
+  // The replacement must be shorter than the text that it replaces
+  const text = `${kept}\n${compressionMarker(originalLines, keptLines, rule.type)}`;
+  return text.length < output.stdout.length ? text : null;
 }
 
 /**
@@ -194,7 +133,8 @@ function compress(rule, output) {
  *
  * The 60 seconds count from the end of the compressed run to the start of
  * this run: `durationMs` is the time this run took (the `duration_ms` field
- * of the hook input; 0 when the input has no such field).
+ * of the hook input). A value that is not a finite number, or is negative,
+ * counts as 0.
  *
  * Returns true when this run must stay raw, and records the state of this
  * run. State is stored in a session-scoped temp file that is automatically
@@ -211,7 +151,7 @@ function isRawRerun(cmd, sessionId, durationMs) {
   const key = cmd.replace(/\s+/g, ' ').trim();
   const prev = tracking[key];
   const now = Date.now();
-  const startedAt = now - (Number.isFinite(durationMs) ? durationMs : 0);
+  const startedAt = now - (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0);
   const raw = Boolean(prev && prev.compressed && (startedAt - prev.ts < RERUN_WINDOW_MS));
 
   tracking[key] = { compressed: !raw, ts: now };
@@ -253,10 +193,8 @@ function evaluate(data) {
   // ── Adaptive re-run detection ──
   if (isRawRerun(cmd, session_id, duration_ms)) return NO_CHANGE;
 
-  // Keep every field of the response and replace only the text. The fields
-  // that name the saved output file go: the replacement is the whole output.
+  // Keep every field of the response and replace only the text
   const updatedToolOutput = { ...tool_response, stdout: text };
-  for (const field of SAVED_OUTPUT_FIELDS) delete updatedToolOutput[field];
 
   return { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput } };
 }
