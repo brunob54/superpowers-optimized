@@ -376,7 +376,7 @@ The reviews of the fixes added two things.
 Tests, all run on 2026-10-04 on macOS with Node 24.13.1 and git 2.50.1:
 `bash tests/codex/run-unit-tests.sh` passes with 19 suites (17 before; the
 two new ones are the update-check suite and the context-engine suite), and
-`bash tests/smart-compress/run-tests.sh` passes with 217 checks. Each
+`bash tests/smart-compress/run-tests.sh` passes with 218 checks. Each
 "before" figure comes from a run of the same test file from commit
 `2bdaa7e`.
 
