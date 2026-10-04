@@ -55,14 +55,15 @@ echo "Block log: $BLOCK_LOG (size before: $BLOCK_LOG_SIZE_BEFORE bytes)"
 echo "Edit logs: $EDIT_LOG_GLOB (lines that name the test file before: $EDIT_LOG_HITS_BEFORE)"
 echo ""
 
-# --- Test 1: PreToolUse hook scope (block-dangerous-commands.js) ---
-# Ask the main agent to dispatch a subagent that runs a command matching
-# the 'echo-secret' pattern. This pattern is blocked at 'high' safety level.
+# --- Test 1: PreToolUse hook scope (protect-secrets.js) ---
+# Ask the main agent to dispatch a subagent that runs a command which the
+# rule 'echo-secret-var' of protect-secrets.js refuses: `echo` of a variable
+# with a secret name.
 # The command is completely harmless — it echoes a non-existent env var.
 
 echo "=== Test 1: PreToolUse hooks in subagents ==="
 echo "Dispatching subagent to run: echo \$HOOK_TEST_API_KEY"
-echo "(This matches the echo-secret block pattern but is harmless)"
+echo "(The rule echo-secret-var refuses this command, but the command is harmless)"
 echo ""
 
 PROMPT_PRETOOL="You MUST dispatch a subagent using the Agent tool with these EXACT settings:
@@ -112,7 +113,7 @@ echo ""
 FAILURES=0
 
 # Check Test 1: PreToolUse
-echo "--- Test 1: PreToolUse (block-dangerous-commands.js) ---"
+echo "--- Test 1: PreToolUse (protect-secrets.js) ---"
 BLOCK_LOG_SIZE_AFTER=0
 if [ -f "$BLOCK_LOG" ]; then
     BLOCK_LOG_SIZE_AFTER=$(wc -c < "$BLOCK_LOG")
@@ -123,7 +124,7 @@ if [ "$BLOCK_LOG_SIZE_AFTER" -gt "$BLOCK_LOG_SIZE_BEFORE" ]; then
     NEW_ENTRIES=$(tail -c +$((BLOCK_LOG_SIZE_BEFORE + 1)) "$BLOCK_LOG" 2>/dev/null || echo "")
     if echo "$NEW_ENTRIES" | grep -q "HOOK_TEST_API_KEY\|echo-secret"; then
         echo "  [RESULT] PreToolUse hooks DO fire inside subagents"
-        echo "  Evidence: block-dangerous-commands.js logged a block for the subagent's command"
+        echo "  Evidence: protect-secrets.js logged a block for the subagent's command"
         echo "  Log entry: $(echo "$NEW_ENTRIES" | grep "HOOK_TEST_API_KEY\|echo-secret" | head -1)"
         echo ""
         echo "  >> CONCLUSION: Subagents ARE protected by safety hooks."

@@ -146,11 +146,11 @@ can land between a ruling's write and its commit.
   then write it again — the Write tool refuses to overwrite a file it has
   not read, and a refusal for that reason alone is not a failure of the
   mechanism (Major-Error Stop Policy). In every `rm` this file
-  prescribes, the path is written inside double quotes, and the quotes
-  are what keep the command alive:
-  `hooks/safety/block-dangerous-commands.js` denies an `rm` whose path
-  begins `/var` unquoted, and `/var` is where `mktemp -d` prints its
-  directory on macOS. A re-dispatch with a different `[RESUME_ANSWER]` — Phase 3 and
+  prescribes, the path is written inside double quotes, because a path
+  may hold a space.
+  `hooks/safety/block-dangerous-commands.js` passes an `rm` of one file
+  below the directory that `mktemp -d` prints; it refuses an `rm -r` of
+  a system folder, of a top-level folder and of the home folder. A re-dispatch with a different `[RESUME_ANSWER]` — Phase 3 and
   Phase 4 after in-run rulings, Phase 1 after a `BLOCKED` question is
   answered, and any Resume re-dispatch — is a new fill under the next
   `<k>` with its own value file, never a rewrite: the script refuses to
@@ -253,9 +253,9 @@ can land between a ruling's write and its commit.
 file needs no other skill's text. `hooks/safety/protect-secrets.js` scans
 the path of every Read, Edit and Write and the content of every Edit and
 Write for hardcoded secrets; `hooks/safety/block-dangerous-commands.js`
-and the secrets hook's own file-access patterns scan the whole Bash
-command string, a heredoc body included, and their refusals have no
-rewrite path. The value file is the one place answer text is written by
+and the Bash rules of the secrets hook read a Bash command as shell
+words, refuse a command that they cannot read to its end, and their
+refusals have no rewrite path. The value file is the one place answer text is written by
 a scanned tool — answer text quotes plan clauses and finding text, which
 may contain `$(...)`, backticks, or a line equal to a heredoc delimiter —
 so it is written with the Write tool and never with a heredoc of any
@@ -270,13 +270,13 @@ Writes for value file `<k>` from 1, and remove it with `rm -- "<file>"`
 as its own command after the probe, when the Write succeeded — outcome
 (a) below; outcome (b) is a refused Write that left no file, so there is
 nothing to remove and no `rm` is run. The path in that `rm` is always
-inside double quotes:
-`hooks/safety/block-dangerous-commands.js` denies an `rm` whose path
-begins `/var` unquoted, and `mktemp -d` prints its directory under
-`/var` on macOS. The probe is a Write tool call and
+inside double quotes, because a path may hold a space;
+`hooks/safety/block-dangerous-commands.js` passes an `rm` of one file
+below the directory that `mktemp -d` prints.
+The probe is a Write tool call and
 nothing else: never a Bash command, because
-`hooks/safety/block-dangerous-commands.js` would refuse a command that
-merely quotes a secret-shaped string, and never a hook path, because a
+the hooks do not run the content scan on a Bash command and would refuse
+one for its form alone, and never a hook path, because a
 path such as `hooks/safety/protect-secrets.js` resolves only inside this
 plugin's own checkout. Each probe is exactly one of three outcomes:
 (a) the Write succeeds — the line is allowed and stays as it is;
@@ -2967,7 +2967,7 @@ NOT failures of the mechanism (today's paths, unchanged):
 | A slip in your own fill command: the script exits 1 (usage), 3 (a placeholder without a value), 4 (a value naming no placeholder), 5 with `cannot read template` (a wrong `--template` path), 5 naming an `@<file>` you never wrote, or 5 with `cannot read value file <path>: <error>` when `ls "<PROMPT_DIR>"` reports the prompt directory present but the named file absent | Correct the command once and run it again; a second non-zero exit is fatal (table above). |
 | The fill script exits 5 with `cannot write <out>: file already exists`, on any name | Before any `rm`, run `ls -1 "<PROMPT_DIR>" | sort -t- -k2,2n | tail -n 1` as its own command (the path inside double quotes, the listing sorted numerically on the number after `dispatch-`) and read the largest number from that one line: a file this orchestrator did not fill in the current step is a counter slip, not the value-found-wrong case — take that largest number plus one and fill under that name instead. Otherwise, remove the file (`rm -- "<file>"` as its own command, the path always inside double quotes) and fill it once more under the same name (Controller Dispatch Rules); `rm` only a file whose fill you ran in the current step. A second `file already exists` on that same name is fatal (table above). |
 | A value-file Write is refused only because `<PROMPT_DIR>/dispatch-<k>-answers.txt` already exists, on a fill whose pointer has NOT been dispatched — a value found wrong and corrected before the first dispatch | Before any `rm`, run `ls -1 "<PROMPT_DIR>" | sort -t- -k2,2n | tail -n 1` as its own command (the path inside double quotes, the listing sorted numerically on the number after `dispatch-`) and read the largest number from that one line: a `dispatch-<k>-answers.txt` this orchestrator did not write in the current step is a counter slip, not the value-found-wrong case — take that largest number plus one and write the value file under that new `<k>` instead. Otherwise, remove the file (`rm -- "<PROMPT_DIR>/dispatch-<k>-answers.txt"` as its own command, the path inside double quotes) and write it once more with the Write tool (Controller Dispatch Rules); `rm` only a file whose write you ran in the current step. A second refusal of that same name for that same reason is fatal (table above). |
-| A Bash `rm` of a file in the prompt directory is denied by a hook | The path was written without quotes: `hooks/safety/block-dangerous-commands.js` denies an `rm` whose path begins `/var` unquoted, and `mktemp -d` prints its directory under `/var` on macOS. Re-issue the same command once with the path inside double quotes. A hook denial of an `rm` is never a failure of the mechanism. |
+| A Bash `rm` of a file in the prompt directory is denied by a hook | Read the hook's reason. `hooks/safety/block-dangerous-commands.js` passes an `rm` of one file below the directory that `mktemp -d` prints; it refuses an `rm -r` of a protected folder, and a command that it cannot read to its end (for example a quote that is not closed). Re-issue the `rm` once as its own command, with the path inside double quotes. A hook denial of an `rm` is never a failure of the mechanism. |
 | The fill script exits 5 with `cannot write <out>: <error>` for any error text other than `file already exists` and `existing path could not be read`; or 5 with `cannot read value file <path>: <error>` when `ls "<PROMPT_DIR>"` reports the whole prompt directory absent | The prompt directory is gone, unwritable, or the path in the command is wrong: treat it as a path lost from context — `mktemp -d` again and re-fill under `<k>` = 1 in the fresh directory, writing the value file again there first when the fill takes one. A second such exit in the fresh directory is fatal (table above): the temporary location itself is not writable. |
 | A return unusable on format alone (the marker or a consumed field missing) whose text shows the controller worked on the run | Malformed return: the identical retry once, then the major-error stop above. Not a pointer failure. |
 | The prompt directory's path is lost from your context | `mktemp -d` again and continue (Controller Dispatch Rules). |

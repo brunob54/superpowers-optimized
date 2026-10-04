@@ -892,10 +892,12 @@ code has been revised since, so a re-pass is meaningful):
      refusal names a credential kind — the kind of the first pattern that
      matched the whole content — and never a line, so nothing in it says
      what to withhold. Probe the lines with the Write tool and nothing
-     else. Never probe with a Bash command:
-     `hooks/safety/block-dangerous-commands.js` scans the whole command
-     string and would refuse a command that merely quotes a
-     secret-shaped string, so a finding that holds no credential could be
+     else. Never probe with a Bash command: the hooks do not run the
+     content scan on a Bash command.
+     `hooks/safety/block-dangerous-commands.js` and the Bash rules of the
+     secrets hook read the command as shell words and refuse it for its
+     form — a quote that is not closed, an `echo` of a variable with a
+     secret name — so a finding that holds no credential could be
      withheld on the strength of its own wording. Never name a hook file
      either: a path such as `hooks/safety/protect-secrets.js` resolves
      only inside this plugin's own checkout, so in any other project the
@@ -1876,13 +1878,16 @@ completed invocation only on explicit user request.
 - A value-file write is denied by a hook or fails → `BLOCKED: value file
   <name> could not be written — <the hook's reason, or the error>`. This
   plugin's `hooks/safety/protect-secrets.js` scans the path of every
-  Read, Edit, Write and the content of every Edit and Write for
+  Read, Edit, Write and Grep and the content of every Edit and Write for
   hardcoded secrets; that content scan for hardcoded secrets runs for
-  Write and Edit alone. `hooks/safety/block-dangerous-commands.js` scans
-  the whole Bash command string, a heredoc body included, and so do the
-  secrets hook's own file-access patterns — commands that read, copy,
-  move, delete or send a secret file, and commands that print a
-  secret-shaped variable; a Security-lens finding may quote exactly such
+  Write and Edit alone. `hooks/safety/block-dangerous-commands.js` reads
+  a Bash command as shell words, and so do the Bash rules of the secrets
+  hook — they refuse a command that reads, copies, moves, deletes or
+  sends a secret file, a command that prints a variable with a secret
+  name, and a command that they cannot read to its end, for example
+  because a quote is not closed. In a heredoc whose delimiter is not
+  quoted they read every `$(...)` and backtick text as a command. A
+  Security-lens finding may quote exactly such
   text, which is one reason the probe below is never a Bash command.
   One exception, and only this one: when
   `hooks/safety/protect-secrets.js` refuses a value-file Write, the
@@ -1893,9 +1898,10 @@ completed invocation only on explicit user request.
   that one line, `<PROMPT_DIR>/secrets-probe-<n>.txt`, where `<n>` counts
   the probe Writes of this controller from 1 so that no probe overwrites
   an earlier one. The probe is a Write tool call and nothing else: never
-  a Bash command, because `hooks/safety/block-dangerous-commands.js`
-  scans a command string and would refuse one that merely quotes a
-  secret-shaped string, and never a hook path, because a path such as
+  a Bash command, because the hooks do not run the content scan on a
+  Bash command and would refuse one for its form (a quote that is not
+  closed, an `echo` of a variable with a secret name), and never a hook
+  path, because a path such as
   `hooks/safety/protect-secrets.js` resolves only inside this plugin's
   own checkout and would leave the probe unrunnable in every other
   project. Only the secrets hook decides a probe; no other hook can.

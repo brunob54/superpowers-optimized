@@ -55,7 +55,7 @@ run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activato
 run_test "statusline-context-cache" "${SCRIPT_DIR}/test-statusline-cache.js"
 run_test "subagent-guard (SubagentStop)" "${SCRIPT_DIR}/test-subagent-guard.js"
 run_test "block-dangerous-commands (PreToolUse Bash)" "${SCRIPT_DIR}/test-block-dangerous-commands.js"
-run_test "protect-secrets (PreToolUse Bash)" "${SCRIPT_DIR}/test-protect-secrets.js"
+run_test "protect-secrets (PreToolUse Read, Edit, Write, Grep, Bash)" "${SCRIPT_DIR}/test-protect-secrets.js"
 run_test "track-edits and context-engine (git ignore entries)" "${SCRIPT_DIR}/test-git-exclude-hooks.js"
 run_test "context-engine (file names in the snapshot)" "${SCRIPT_DIR}/test-context-engine.js"
 run_test "save marker (track-edits, stop-reminders, context-management save command)" "${SCRIPT_DIR}/test-track-edits.js"
