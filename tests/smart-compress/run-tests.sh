@@ -615,11 +615,12 @@ text=$(compressed_text "$out")
 assert "alert lines: a line that the rule kept appears once" "$(echo "$text" | grep -c 'warning: CRLF')" "1"
 assert_not_contains "alert lines: no heading when the rule kept every alert line" "$text" "$ALERT_HEADING"
 
-# A file name that holds an alert word is not an alert line
+# A file name that holds an alert word counts as an alert line: in doubt the
+# line is kept
 out=$(run_hook "find . -name '*.js'" "$(node -e 'for (let i = 1; i <= 70; i++) console.log("./src/file-" + i + ".js"); console.log("./src/errors.js\n./src/error.js\n./lib/fail/handler.js\n./lib/warn-once.js\n./logs/error\nerror.log\nwarnings/list.txt\nfail-fast.js")')" "alert-$$-$RANDOM")
 text=$(compressed_text "$out")
-assert_contains     "alert lines: find output with such file names is compressed" "$text" "... 18 more results"
-assert_not_contains "alert lines: a file name with an alert word adds no line"    "$text" "$ALERT_HEADING"
+assert_contains "alert lines: find output with such file names is compressed" "$text" "... 18 more results"
+assert_contains "alert lines: a removed file name with an alert word is added again" "$text" "./src/errors.js"
 
 # Each of these lines reports a problem. The first two have colour codes:
 # directly before the word, and between the two words of "not found". The
@@ -655,14 +656,16 @@ ALERT_EXAMPLES="$(printf '\033[31merror\033[0m: the colour line\ncommand \033[1m
 ${ALERT_EXAMPLES%$'\n'}"
 text=$(compressed_text "$(run_hook "git clone https://github.com/x/y" "$NOISY
 $ALERT_EXAMPLES
+jinja2.exceptions.TemplateNotFound: index.html
 ./src/errors.js
 error.log" "alert-$$-$RANDOM")")
 assert "alert lines: the summary of the git-clone rule is the first line" "$(echo "$text" | head -1)" "cloned"
 while IFS= read -r line; do
   assert_contains "alert lines: added again: $line" "$text" "$line"
 done <<< "$ALERT_EXAMPLES"
-assert_not_contains "alert lines: a path after a slash (src/errors.js) is not added" "$text" "./src/errors.js"
-assert_not_contains "alert lines: a file name with an extension (error.log) is not added" "$text" "error.log"
+assert_contains "alert lines: added again: a stem inside a dotted name" "$text" "jinja2.exceptions.TemplateNotFound: index.html"
+assert_contains "alert lines: added again: a path after a slash (src/errors.js)" "$text" "./src/errors.js"
+assert_contains "alert lines: added again: a file name with an extension (error.log)" "$text" "error.log"
 
 # White space at the end of a line does not make a kept line a removed line.
 # First case: the rule cut the spaces of the last line. Second case: the rule

@@ -92,9 +92,9 @@ corrections:
   `conflict`, `denied`, `traceback`, `exception`, `reject`, `vulnerab`; the
   full list is in `docs/architecture/smart-compress.md`. The stem can be
   inside a longer word (`TypeError`, `FAILED`). Colour codes are removed
-  from the line before the search. A word that is a part of a path
-  (`src/errors.js`, `error.log`) does not count. Each alert line that is not
-  a whole line of the compressed text is added below the compressed text,
+  from the line before the search. A file name that holds a stem
+  (`src/errors.js`) counts too: every doubt keeps the line. Each alert line
+  that is not a whole line of the compressed text is added below that text,
   under the heading `Removed lines with an alert word:`. With more than 40
   such lines the output stays raw.
 - **Size rule.** The replacement must have fewer lines than the output and
@@ -165,7 +165,7 @@ Changes that a user will notice:
   run or a long `find` list stays as Claude Code delivers it: a preview and
   the path of the saved file.
 
-What the tests show. `bash tests/smart-compress/run-tests.sh`: 217 checks
+What the tests show. `bash tests/smart-compress/run-tests.sh`: 218 checks
 pass, 0 fail. The suite runs the hook as a process and gives it hook inputs
 in the shape measured on Claude Code 2.1.289; it starts no Claude Code
 session. For the 9 commands of the review finding, no `PreToolUse` hook of

@@ -448,11 +448,11 @@ const ANSI_CODE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 // A line that holds one of these word stems can report a problem of a command
 // that ended with exit status 0 (standard error is often merged into standard
 // output). The stem can be a part of a longer word (`TypeError`, `FAILED`,
-// `vulnerabilities`), in upper or lower case. A word that is a part of a path
-// does not count: it stands directly after `/`, directly before `/`, or
-// directly before a file extension (`src/errors.js`, `error.log`). Every
-// other doubt keeps the line.
-const ALERT_STEM = /(?<![/\w-])[\w-]*(?:error|warn|fail|fatal|conflict|denied|incompatible|deprecated|cannot|not\s+found|traceback|exception|panic|reject|refus|abort|unable\s+to|vulnerab|err!)[\w-]*(?![\w-]|\/|\.\w)/i;
+// `vulnerabilities`) or of a dotted name (`jinja2.exceptions.TemplateNotFound`),
+// in upper or lower case. A path that holds a stem (`src/errors.js`) counts
+// too: the pattern cannot tell such a path from a real report, and every
+// doubt keeps the line.
+const ALERT_STEM = /error|warn|fail|fatal|conflict|denied|incompatible|deprecated|cannot|not\s+found|traceback|exception|panic|reject|refus|abort|unable\s+to|vulnerab|err!/i;
 
 // With more removed alert lines than this, the output stays raw
 const MAX_ALERT_LINES = 40;

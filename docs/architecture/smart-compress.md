@@ -208,9 +208,9 @@ One shared step protects these lines, for every rule, on Claude Code and in the 
 3. Every alert line that is not a line of the compressed text is added below the compressed text, once, under the heading `Removed lines with an alert word:`, above the marker. Lines are compared whole, without the white space at their end: the removed line `1 failed` is added although the kept line `Tests: 11 failed` holds the same text.
 4. When more than 40 alert lines would be added, the hook replaces nothing and Claude receives the raw output.
 
-Only a word that is a part of a path does not count: the word stands directly after `/`, directly before `/`, or directly before a file extension. So `src/errors.js`, `warnings/list.txt` and `error.log` are not alert words. Every other doubt keeps the line.
+A stem inside a path or a dotted name counts too: `src/errors.js` and `error.log` are alert lines, and so is `jinja2.exceptions.TemplateNotFound: index.html`. The pattern cannot tell a file name from a real report, and every doubt keeps the line.
 
-Known wrong counts: a name that holds a stem and is not written as a path (a folder `errors` in an `ls` list), and ordinary text such as a test name "should fail when the input is empty", a commit subject "fix error message" or the line "found 0 vulnerabilities" count as alert lines. The result is only less compression: the lines are added, or the output stays raw. A run of a passing test suite whose test names hold such words in more than 40 lines is not compressed.
+Known wrong counts: a file or folder name that holds a stem (`src/errors.js` in a `find` list), and ordinary text such as a test name "should fail when the input is empty", a commit subject "fix error message" or the line "found 0 vulnerabilities" count as alert lines. The result is only less compression: the lines are added, or the output stays raw. A run of a passing test suite whose test names hold such words in more than 40 lines is not compressed.
 
 ---
 
