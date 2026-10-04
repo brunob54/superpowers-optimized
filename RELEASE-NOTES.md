@@ -8,6 +8,171 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.60.0 — a commit reminder for the session's own files, no invented test result, and a worktree removal that asks first
+
+**Problem.** The stop hook's commit reminder also counted files the session
+never edited. The compression hook printed "all tests passed" with no summary
+line in the output, and false lint counts. The finishing skill removed a
+worktree (a second working folder) with files that git ignores, such as
+`session-log.md`.
+
+**Change.** This release corrects review findings 6, 10 and 11. The reminder
+counts only the session's uncommitted files; the test and commit compression
+rules state only what the output states; the lint rule is removed. The skill
+lists ignored files and asks before a removal.
+
+**Effect.** Update the plugin and restart the CLI. Less Bash output is
+compressed; section 2 lists the cases. Nothing to migrate.
+
+The review is the whole-project code review of 2026-10-03 (15 findings).
+Findings 1 to 4 were corrected in v7.59.0. Finding 5 no longer exists, because
+v7.59.0 deleted the file it named. Findings 7, 8, 9, 12, 13, 14 and 15 are
+still open.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the command-line
+interface (CLI).
+
+### 1. The commit reminder counted files that the session never edited (finding 11)
+
+The stop hook (`hooks/stop-reminders.js`) runs when the assistant wants to end
+its turn. Its commit reminder had two conditions that were never joined: 5 or
+more paths in the edit log of the session (the list of files that the session
+changed with the Edit or the Write tool) in the last 30 minutes, and 5 or
+more lines of `git status --porcelain` for the whole repository. The number
+in the message was the number of status lines. Two wrong results followed:
+
+- Files that the user had changed outside the session were counted, and a
+  model that follows the reminder could commit them. In one earlier session
+  the reminder appeared six times for files that subagents (agents that the
+  session started) were still editing.
+- Six new files of the session inside one new folder gave no reminder,
+  because git prints one line for the folder.
+
+What changed:
+
+- The reminder counts the logged files of the session for which git reports a
+  change that is not committed. One `git status` runs per logged file, with
+  `--untracked-files=all`. One value is now the condition and the number, and
+  the message says "all edited in this session".
+- While the input of the Stop hook lists a subagent that is still running
+  (field `background_tasks`, an entry with type `subagent` and status
+  `running`), the commit reminder is postponed to a later run of the hook.
+  Only this reminder is postponed. The hooks reference of Claude Code
+  describes the field under "Stop input"; it does not list the values of
+  `status`. The value `running` was measured in a payload of Claude Code
+  2.1.289. Without the field, the hook behaves as with the first rule alone.
+- A logged file whose folder was renamed or deleted is still counted: its
+  path is resolved through the nearest folder that exists.
+- The whole count has one time limit of 5 seconds.
+
+Limits:
+
+- A file that was changed only through the Bash tool is not in the edit log
+  and is not counted.
+- When a subagent runs for more than 30 minutes after the last edit, the
+  postponed reminder does not appear.
+- When git needs more than 5 seconds for the whole count, the count stops.
+  The files counted until then can be fewer than 5, and then no reminder
+  appears.
+- When the files lie in another repository than the session folder, the
+  reminder does not say which repository holds them.
+- `hooks/codex/stop-adapter.js` still counts the whole status. Codex is no
+  longer supported.
+
+### 2. The compression hook stated results that the output did not state (finding 6)
+
+The compression hook replaces the output of a Bash command that ended with
+exit status 0 (the number a program returns; 0 means success) by a shorter
+text. Its test rule kept the summary line of the test runner (a line such as
+"Tests: 100 passed, 100 total"). When it found no summary line, it printed
+"all tests passed". Exit status 0 does not prove that a test ran: the sentence
+appeared for an `npm test` that runs `node --test` with 24 skipped tests, for
+a run with zero tests, and for an `npm test` script that runs no test.
+
+What changed:
+
+- With no summary line, the test rule returns nothing, and the output is not
+  compressed.
+- The test rule also returns nothing when a line that it would remove holds
+  one of the words skip, pending, todo or ignored. Before, the summary line of
+  one test runner could remove the line about the skipped tests of another.
+  A summary line that itself names skipped tests is kept, and that output is
+  still compressed (jest "Tests: 2 skipped, 22 passed"; mocha "16 pending").
+- The mocha line "N pending" is kept next to "N passing".
+- The lint rule is removed (a lint tool checks source code for errors and
+  style problems). The rule sorted lines by the words "error" and "warning",
+  so it could not state the counts of the tool. The output of a lint tool
+  that is called by its own name is not compressed.
+- A dry run is a run that only reports what the command would do. A command
+  with an option that starts with `--dry`, and `git add -n`, is never
+  compressed. The commit rule returns nothing when the output holds no
+  `[branch hash]` line, so "committed" appears only for a real commit.
+
+Effect on the saving: a passing pytest, vitest or `go test` run, and an
+`npm test` that runs `node --test`, is no longer compressed. Jest, mocha and
+cargo output with a summary line is compressed as before, when no removed
+line holds one of the four words.
+
+Limits:
+
+- A test name or a file name that holds one of the four words keeps the whole
+  output uncompressed.
+- `git push -n` (the short form of `--dry-run`) is still summarised as "ok".
+- A lint tool that `make` starts (`make lint`) still goes through the build
+  rule, which matches every `make` command.
+- The rules for other commands (git push, npm install and others) are not
+  changed by this release.
+
+### 3. "Remove worktree" deleted files that git ignores (finding 10)
+
+`git worktree remove` refuses when the worktree (a second working folder of
+the same repository) holds a modified file. It does not refuse for a file
+that git ignores: it deletes that file with exit status 0 and no message. The
+hooks of the plugin make git ignore the workspace files `session-log.md`,
+`state.md`, `known-issues.md` and `project-map.md`, so a session that ran
+inside a worktree lost them at the step "Remove worktree" of
+`skills/finishing-a-development-branch/SKILL.md`.
+
+What changed:
+
+- The skill has one section "Removing a worktree". The three outcomes of the
+  skill that can remove a worktree (Option 1 merge, Option 2 pull request, Option
+  4 discard) use it. It runs
+  `git -C "<worktree-path>" status --porcelain --ignored --untracked-files=normal`.
+  With no output it removes the worktree. With any output it shows the lines,
+  says which of them are workspace files of the plugin, and asks the user
+  which files to move to the main checkout (the first working folder of the
+  repository) and which to delete.
+- It never passes `--force` before the answer, and it never overwrites a file
+  in the main checkout.
+- The skill takes the path of the main checkout first and runs the removal
+  and every later git command with `git -C` on that path, because the session
+  can run inside the worktree that is removed.
+- Options 1 and 4 remove the worktree before they delete the branch. Git
+  refuses to delete a branch that a worktree uses.
+
+Limits:
+
+- A worktree that holds an ignored dependency folder, for example
+  `node_modules/`, causes one question to the user at the removal.
+- A worktree with a detached HEAD (no branch is checked out) can hold commits
+  that no branch names; the check does not list them.
+- Option 1 still starts with "Checkout base", which git refuses inside a
+  worktree.
+
+### Tests
+
+- New suite `bash tests/finishing-branch/run-tests.sh`: 64 checks. It takes
+  the commands out of the skill text and runs them on worktrees that the
+  suite builds for the test.
+- `bash tests/smart-compress/run-tests.sh`: 268 checks (218 in v7.59.0), with
+  captured output of test runners and lint tools as input files.
+- `tests/codex/test-stop-reminders.js`: 144 tests.
+- `bash tests/codex/run-unit-tests.sh`: 19 suites.
+
+Not run: an interactive session with the new stop hook; Windows; Copilot CLI.
+
 ## v7.59.0 — the plugin approves no Bash command, and three more hook corrections
 
 **Problem.** The compression hook approved each Bash command it rewrote, so
