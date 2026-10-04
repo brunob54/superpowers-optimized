@@ -1,0 +1,47 @@
+************* Module demo
+demo.py:133: [C0305(trailing-newlines), ] Trailing newlines
+demo.py:1: [C0114(missing-module-docstring), ] Missing module docstring
+demo.py:1: [E0401(import-error), ] Unable to import 'missing_module_a'
+demo.py:2: [E0401(import-error), ] Unable to import 'missing_module_b'
+demo.py:6: [C0116(missing-function-docstring), function_1] Missing function or method docstring
+demo.py:10: [C0116(missing-function-docstring), function_2] Missing function or method docstring
+demo.py:14: [C0116(missing-function-docstring), function_3] Missing function or method docstring
+demo.py:18: [C0116(missing-function-docstring), function_4] Missing function or method docstring
+demo.py:22: [C0116(missing-function-docstring), function_5] Missing function or method docstring
+demo.py:26: [C0116(missing-function-docstring), function_6] Missing function or method docstring
+demo.py:30: [C0116(missing-function-docstring), function_7] Missing function or method docstring
+demo.py:34: [C0116(missing-function-docstring), function_8] Missing function or method docstring
+demo.py:38: [C0116(missing-function-docstring), function_9] Missing function or method docstring
+demo.py:42: [C0116(missing-function-docstring), function_10] Missing function or method docstring
+demo.py:46: [C0116(missing-function-docstring), function_11] Missing function or method docstring
+demo.py:50: [C0116(missing-function-docstring), function_12] Missing function or method docstring
+demo.py:54: [C0116(missing-function-docstring), function_13] Missing function or method docstring
+demo.py:58: [C0116(missing-function-docstring), function_14] Missing function or method docstring
+demo.py:62: [C0116(missing-function-docstring), function_15] Missing function or method docstring
+demo.py:66: [C0116(missing-function-docstring), function_16] Missing function or method docstring
+demo.py:70: [C0116(missing-function-docstring), function_17] Missing function or method docstring
+demo.py:74: [C0116(missing-function-docstring), function_18] Missing function or method docstring
+demo.py:78: [C0116(missing-function-docstring), function_19] Missing function or method docstring
+demo.py:82: [C0116(missing-function-docstring), function_20] Missing function or method docstring
+demo.py:86: [C0116(missing-function-docstring), function_21] Missing function or method docstring
+demo.py:90: [C0116(missing-function-docstring), function_22] Missing function or method docstring
+demo.py:94: [C0116(missing-function-docstring), function_23] Missing function or method docstring
+demo.py:98: [C0116(missing-function-docstring), function_24] Missing function or method docstring
+demo.py:102: [C0116(missing-function-docstring), function_25] Missing function or method docstring
+demo.py:106: [C0116(missing-function-docstring), function_26] Missing function or method docstring
+demo.py:110: [C0116(missing-function-docstring), function_27] Missing function or method docstring
+demo.py:114: [C0116(missing-function-docstring), function_28] Missing function or method docstring
+demo.py:118: [C0116(missing-function-docstring), function_29] Missing function or method docstring
+demo.py:122: [C0116(missing-function-docstring), function_30] Missing function or method docstring
+demo.py:126: [C0116(missing-function-docstring), function_31] Missing function or method docstring
+demo.py:130: [C0116(missing-function-docstring), function_32] Missing function or method docstring
+demo.py:3: [C0411(wrong-import-order), ] standard import "os" should be placed before third party imports "missing_module_a", "missing_module_b"
+demo.py:4: [C0411(wrong-import-order), ] standard import "sys" should be placed before third party imports "missing_module_a", "missing_module_b"
+demo.py:1: [W0611(unused-import), ] Unused import missing_module_a
+demo.py:2: [W0611(unused-import), ] Unused import missing_module_b
+demo.py:3: [W0611(unused-import), ] Unused import os
+demo.py:4: [W0611(unused-import), ] Unused import sys
+
+------------------------------------------------------------------
+Your code has been rated at 2.65/10 (previous run: 3.91/10, -1.27)
+

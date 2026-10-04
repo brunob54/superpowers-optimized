@@ -1,0 +1,8 @@
+[main 5ff43d9] Commit with -n
+ 6 files changed, 6 insertions(+)
+ create mode 100644 src-file-with-a-long-name-noverify-1.txt
+ create mode 100644 src-file-with-a-long-name-noverify-2.txt
+ create mode 100644 src-file-with-a-long-name-noverify-3.txt
+ create mode 100644 src-file-with-a-long-name-noverify-4.txt
+ create mode 100644 src-file-with-a-long-name-noverify-5.txt
+ create mode 100644 src-file-with-a-long-name-noverify-6.txt

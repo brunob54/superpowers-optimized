@@ -1,0 +1,154 @@
+TAP version 13
+# Subtest: case 1
+ok 1 - case 1 # SKIP
+  ---
+  duration_ms: 0.312125
+  type: 'test'
+  ...
+# Subtest: case 2
+ok 2 - case 2 # SKIP
+  ---
+  duration_ms: 0.044209
+  type: 'test'
+  ...
+# Subtest: case 3
+ok 3 - case 3 # SKIP
+  ---
+  duration_ms: 0.040208
+  type: 'test'
+  ...
+# Subtest: case 4
+ok 4 - case 4 # SKIP
+  ---
+  duration_ms: 0.254875
+  type: 'test'
+  ...
+# Subtest: case 5
+ok 5 - case 5 # SKIP
+  ---
+  duration_ms: 0.034833
+  type: 'test'
+  ...
+# Subtest: case 6
+ok 6 - case 6 # SKIP
+  ---
+  duration_ms: 0.02525
+  type: 'test'
+  ...
+# Subtest: case 7
+ok 7 - case 7 # SKIP
+  ---
+  duration_ms: 0.027542
+  type: 'test'
+  ...
+# Subtest: case 8
+ok 8 - case 8 # SKIP
+  ---
+  duration_ms: 0.025583
+  type: 'test'
+  ...
+# Subtest: case 9
+ok 9 - case 9 # SKIP
+  ---
+  duration_ms: 0.034334
+  type: 'test'
+  ...
+# Subtest: case 10
+ok 10 - case 10 # SKIP
+  ---
+  duration_ms: 0.066125
+  type: 'test'
+  ...
+# Subtest: case 11
+ok 11 - case 11 # SKIP
+  ---
+  duration_ms: 0.03675
+  type: 'test'
+  ...
+# Subtest: case 12
+ok 12 - case 12 # SKIP
+  ---
+  duration_ms: 0.027083
+  type: 'test'
+  ...
+# Subtest: case 13
+ok 13 - case 13 # SKIP
+  ---
+  duration_ms: 0.028792
+  type: 'test'
+  ...
+# Subtest: case 14
+ok 14 - case 14 # SKIP
+  ---
+  duration_ms: 0.018459
+  type: 'test'
+  ...
+# Subtest: case 15
+ok 15 - case 15 # SKIP
+  ---
+  duration_ms: 0.024958
+  type: 'test'
+  ...
+# Subtest: case 16
+ok 16 - case 16 # SKIP
+  ---
+  duration_ms: 0.017833
+  type: 'test'
+  ...
+# Subtest: case 17
+ok 17 - case 17 # SKIP
+  ---
+  duration_ms: 0.023916
+  type: 'test'
+  ...
+# Subtest: case 18
+ok 18 - case 18 # SKIP
+  ---
+  duration_ms: 0.024458
+  type: 'test'
+  ...
+# Subtest: case 19
+ok 19 - case 19 # SKIP
+  ---
+  duration_ms: 0.019333
+  type: 'test'
+  ...
+# Subtest: case 20
+ok 20 - case 20 # SKIP
+  ---
+  duration_ms: 0.032084
+  type: 'test'
+  ...
+# Subtest: case 21
+ok 21 - case 21 # SKIP
+  ---
+  duration_ms: 0.018666
+  type: 'test'
+  ...
+# Subtest: case 22
+ok 22 - case 22 # SKIP
+  ---
+  duration_ms: 0.014959
+  type: 'test'
+  ...
+# Subtest: case 23
+ok 23 - case 23 # SKIP
+  ---
+  duration_ms: 0.013208
+  type: 'test'
+  ...
+# Subtest: case 24
+ok 24 - case 24 # SKIP
+  ---
+  duration_ms: 0.011292
+  type: 'test'
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 0
+# fail 0
+# cancelled 0
+# skipped 24
+# todo 0
+# duration_ms 30.636041

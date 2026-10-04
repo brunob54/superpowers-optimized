@@ -1,0 +1,40 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /work/py/ra
+plugins: platformdirs-4.12.3
+collected 26 items
+
+test_a.py .sssssssssssssssssssssssss                                     [100%]
+
+==================================== PASSES ====================================
+____________________________ test_prints_a_summary _____________________________
+----------------------------- Captured stdout call -----------------------------
+Tests: 5 passed, 5 total
+=========================== short test summary info ============================
+PASSED test_a.py::test_prints_a_summary
+SKIPPED [1] test_a.py:8: no database
+SKIPPED [1] test_a.py:13: no database
+SKIPPED [1] test_a.py:18: no database
+SKIPPED [1] test_a.py:23: no database
+SKIPPED [1] test_a.py:28: no database
+SKIPPED [1] test_a.py:33: no database
+SKIPPED [1] test_a.py:38: no database
+SKIPPED [1] test_a.py:43: no database
+SKIPPED [1] test_a.py:48: no database
+SKIPPED [1] test_a.py:53: no database
+SKIPPED [1] test_a.py:58: no database
+SKIPPED [1] test_a.py:63: no database
+SKIPPED [1] test_a.py:68: no database
+SKIPPED [1] test_a.py:73: no database
+SKIPPED [1] test_a.py:78: no database
+SKIPPED [1] test_a.py:83: no database
+SKIPPED [1] test_a.py:88: no database
+SKIPPED [1] test_a.py:93: no database
+SKIPPED [1] test_a.py:98: no database
+SKIPPED [1] test_a.py:103: no database
+SKIPPED [1] test_a.py:108: no database
+SKIPPED [1] test_a.py:113: no database
+SKIPPED [1] test_a.py:118: no database
+SKIPPED [1] test_a.py:123: no database
+SKIPPED [1] test_a.py:128: no database
+======================== 1 passed, 25 skipped in 0.01s =========================

@@ -1,0 +1,38 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.1.1, pluggy-1.6.0 -- /work/py/venv/bin/python3.14
+rootdir: /work/py/warn
+plugins: platformdirs-4.12.3
+collecting ... collected 24 items
+
+test_a.py::test_case_1 PASSED                                            [  4%]
+test_a.py::test_case_2 PASSED                                            [  8%]
+test_a.py::test_case_3 PASSED                                            [ 12%]
+test_a.py::test_case_4 PASSED                                            [ 16%]
+test_a.py::test_case_5 PASSED                                            [ 20%]
+test_a.py::test_case_6 PASSED                                            [ 25%]
+test_a.py::test_case_7 PASSED                                            [ 29%]
+test_a.py::test_case_8 PASSED                                            [ 33%]
+test_a.py::test_case_9 PASSED                                            [ 37%]
+test_a.py::test_case_10 PASSED                                           [ 41%]
+test_a.py::test_case_11 PASSED                                           [ 45%]
+test_a.py::test_case_12 PASSED                                           [ 50%]
+test_a.py::test_case_13 PASSED                                           [ 54%]
+test_a.py::test_case_14 PASSED                                           [ 58%]
+test_a.py::test_case_15 PASSED                                           [ 62%]
+test_a.py::test_case_16 PASSED                                           [ 66%]
+test_a.py::test_case_17 PASSED                                           [ 70%]
+test_a.py::test_case_18 PASSED                                           [ 75%]
+test_a.py::test_case_19 PASSED                                           [ 79%]
+test_a.py::test_case_20 PASSED                                           [ 83%]
+test_a.py::test_case_21 PASSED                                           [ 87%]
+test_a.py::test_case_22 PASSED                                           [ 91%]
+test_a.py::test_case_23 PASSED                                           [ 95%]
+test_a.py::test_case_24 PASSED                                           [100%]
+
+=============================== warnings summary ===============================
+test_a.py::test_case_1
+  /work/py/warn/test_a.py:5: DeprecationWarning: old_call() is replaced by new_call()
+    warnings.warn('old_call() is replaced by new_call()', DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 24 passed, 1 warning in 0.01s =========================

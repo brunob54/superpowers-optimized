@@ -291,7 +291,8 @@ Two limits remain. A task that a review fix adds after round 1 is checked
 again only when round 5 or round 9 runs; a task that an `amend plan` answer
 adds later in the run is not checked again by a reviewer. A git worktree (a second working folder of the same repository)
 has no copy of a git-ignored file, so an edit to such a file made in a
-worktree is lost when the worktree is removed.
+worktree is lost when the worktree is removed. Stage 5 lists such a file
+and asks the user before it removes the worktree.
 
 Since v7.14.0 the plan gate also runs an **Execution readiness pass**: a
 review that reads the plan as the agent that will execute it and reports
@@ -465,7 +466,12 @@ form on Windows Git Bash, is still untested.
 
 The final gate is always interactive: merge locally, open a PR, keep the
 branch for later, or discard it. The pipeline never merges or publishes on
-its own — same rule as orchestration.
+its own — same rule as orchestration. Before the skill removes a worktree
+(a second working folder of the same repository), it lists the modified,
+untracked and git-ignored files of that worktree and asks which files to
+move to the main checkout and which files to delete: `git worktree remove`
+deletes a git-ignored file, for example a `session-log.md` that the hooks
+of the plugin hide from git, with no message.
 
 ### Batched autonomous mode
 

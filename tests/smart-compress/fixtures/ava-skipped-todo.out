@@ -1,0 +1,37 @@
+
+> ava-demo@1.0.0 test
+> ava
+
+
+  - [skip] case 21
+  - [skip] case 22
+  - [skip] case 23
+  - [skip] case 24
+  - [skip] case 25
+  - [skip] case 26
+  - [todo] case 27
+  ✔ case 1
+  ✔ case 2
+  ✔ case 3
+  ✔ case 4
+  ✔ case 5
+  ✔ case 6
+  ✔ case 7
+  ✔ case 8
+  ✔ case 9
+  ✔ case 10
+  ✔ case 11
+  ✔ case 12
+  ✔ case 13
+  ✔ case 14
+  ✔ case 15
+  ✔ case 16
+  ✔ case 17
+  ✔ case 18
+  ✔ case 19
+  ✔ case 20
+  ─
+
+  20 tests passed
+  6 tests skipped
+  1 test todo
