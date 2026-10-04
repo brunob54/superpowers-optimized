@@ -23,3 +23,6 @@ plugin.universal.old.yaml
 
 .idea/
 .omc/
+
+# Evidence of code reviews (reports and work files); kept on this computer only
+docs/reviews/
