@@ -8,8 +8,9 @@
  *   - Module loads without error
  *   - Behaviour on a temporary git repository (the hook runs as a separate
  *     process): a file name is never read as shell syntax or as a git
- *     pattern or option, every name is written to the snapshot unchanged, and
- *     the diff starts at the commit of the previous session start
+ *     pattern or option, every name is written to the snapshot unchanged, the
+ *     diff starts at the commit of the previous session start, and the
+ *     snapshot is never written through a symbolic link
  *
  * Run: node tests/codex/test-context-engine.js
  * No dependencies beyond Node.js stdlib and git.
@@ -392,6 +393,37 @@ test('text in that file is never run as a command', () => {
   fs.writeFileSync(storedCommitFileAfterFirstRun(repo), 'HEAD~1; touch INJECTED_BY_STORED_COMMIT');
   const snapshot = runHookWithoutSideEffects(repo);
   assert.deepStrictEqual(snapshot.changed_files, [CHANGED_FILE]);
+});
+
+console.log('\nWriting the snapshot');
+
+const OUTSIDE_TEXT = 'a file outside the repository\n';
+
+for (const state of ['tracked', 'untracked']) {
+  testExceptOnWindows(
+    `a symbolic link with the snapshot's name (${state}) is not written through, and gets no exclude entry`,
+    'creating a symbolic link needs a special right',
+    () => {
+      const repo = makeRepo({});
+      const target = path.join(WORK_ROOT, `outside-${repoCount}.txt`);
+      fs.writeFileSync(target, OUTSIDE_TEXT);
+      const link = path.join(repo, SNAPSHOT_FILE);
+      fs.symlinkSync(target, link);
+      // `git add -A` inside commitFiles adds the link.
+      if (state === 'tracked') commitFiles(repo, {});
+      const excludeBefore = excludeContent(repo);
+      assert.strictEqual(runHookProcess(repo), EMPTY_HOOK_OUTPUT);
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), OUTSIDE_TEXT, 'the file outside the repository was changed');
+      assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link was replaced');
+      assert.strictEqual(excludeContent(repo), excludeBefore, 'an exclude entry was added');
+    }
+  );
+}
+
+test('an existing plain snapshot file is replaced by the new snapshot', () => {
+  const repo = makeRepo({});
+  fs.writeFileSync(path.join(repo, SNAPSHOT_FILE), 'old text');
+  assert.strictEqual(runHook(repo).git_hash, git(repo, 'rev-parse', 'HEAD').trim());
 });
 
 // ── Summary ──────────────────────────────────────────────────────────────────

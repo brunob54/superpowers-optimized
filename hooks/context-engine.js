@@ -182,9 +182,16 @@ async function main() {
 
   try {
     const snapshotPath = path.join(cwd, 'context-snapshot.json');
-    // Exclude first, so `git status` never shows the new file, not even for a moment.
-    excludeFromGit(snapshotPath);
-    fs.writeFileSync(snapshotPath, JSON.stringify(snapshot, null, 2));
+    // A repository can hold a symbolic link with the name of the snapshot. A
+    // write through the link would overwrite the file that the link points to,
+    // so the hook then writes nothing and adds no exclude entry. lstat reads
+    // the path itself: it does not follow a symbolic link.
+    const existing = fs.lstatSync(snapshotPath, { throwIfNoEntry: false });
+    if (!existing?.isSymbolicLink()) {
+      // Exclude first, so `git status` never shows the new file, not even for a moment.
+      excludeFromGit(snapshotPath);
+      fs.writeFileSync(snapshotPath, JSON.stringify(snapshot, null, 2));
+    }
   } catch {
     // Silently ignore write errors — never block session start
   }
