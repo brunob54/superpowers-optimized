@@ -30,6 +30,10 @@ const KNOWN_ISSUES_FILE = 'known-issues.md';
 // The four workspace files that the skills of the plugin write.
 const WORKSPACE_FILES = [STATE_FILE, KNOWN_ISSUES_FILE, 'session-log.md', 'project-map.md'];
 const DOCS_FOLDER = 'docs';
+// A package folder of a repository that holds several packages.
+const PACKAGE_FOLDER = path.join('packages', 'app');
+// Claude Code sets this variable for a hook: the folder where the session started.
+const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
 // A folder name that holds three characters with a meaning in a gitignore pattern.
 const PATTERN_CHARACTERS_FOLDER = 'a[1]*?';
 const SNAPSHOT_FILE = 'context-snapshot.json';
@@ -48,13 +52,20 @@ process.on('exit', () => fs.rmSync(WORK_ROOT, { recursive: true, force: true }))
 //   pass without the hooks, so the global and system configuration are empty;
 // - GIT_DIR and the other GIT_* variables (set when this runs inside a git hook)
 //   would send every git command to another repository, so they are removed;
-// - GIT_CEILING_DIRECTORIES stops git from finding a repository above WORK_ROOT.
+// - GIT_CEILING_DIRECTORIES stops git from finding a repository above WORK_ROOT;
+// - XDG_CONFIG_HOME names the folder of a second global ignore file
+//   (`git/ignore` inside it), so it points to a folder that does not exist.
+// The project folder variable is removed too: a test that needs it sets it,
+// and a value inherited from a Claude Code session would name another folder.
 const EMPTY_GLOBAL_CONFIG = path.join(WORK_ROOT, 'empty-gitconfig');
 fs.writeFileSync(EMPTY_GLOBAL_CONFIG, '');
-const ENV = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+const ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') && key !== PROJECT_DIR_VARIABLE)
+);
 Object.assign(ENV, {
   HOME: WORK_ROOT,
   USERPROFILE: WORK_ROOT,
+  XDG_CONFIG_HOME: path.join(WORK_ROOT, 'xdg-config'),
   GIT_CONFIG_GLOBAL: EMPTY_GLOBAL_CONFIG,
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CEILING_DIRECTORIES: path.dirname(WORK_ROOT),
@@ -107,10 +118,11 @@ function makeRepo(...initArgs) {
   return dir;
 }
 
-function runHook(hookPath, cwd, input) {
+/** `projectDir`, when given, is the project folder that Claude Code would name. */
+function runHook(hookPath, cwd, input, projectDir) {
   return execFileSync(process.execPath, [hookPath], {
     cwd,
-    env: ENV,
+    env: projectDir ? { ...ENV, [PROJECT_DIR_VARIABLE]: projectDir } : ENV,
     input: JSON.stringify(input),
     encoding: 'utf8',
     // context-engine prints git errors for a repository with one commit.
@@ -119,16 +131,21 @@ function runHook(hookPath, cwd, input) {
 }
 
 /** Write a file the way the Write tool does, then run track-edits on it. */
-function writeWithTool(cwd, filePath) {
+function writeWithTool(cwd, filePath, projectDir) {
   const absolutePath = path.resolve(cwd, filePath);
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.writeFileSync(absolutePath, FILE_TEXT);
-  return runHook(TRACK_EDITS, cwd, {
-    tool_name: 'Write',
-    tool_input: { file_path: absolutePath, content: FILE_TEXT },
+  return runHook(
+    TRACK_EDITS,
     cwd,
-    session_id: 'test-session',
-  });
+    {
+      tool_name: 'Write',
+      tool_input: { file_path: absolutePath, content: FILE_TEXT },
+      cwd,
+      session_id: 'test-session',
+    },
+    projectDir
+  );
 }
 
 function status(cwd) {
@@ -150,9 +167,9 @@ function untrackedLine(relativePath) {
  * exclude file is unchanged and `git status` in `repo` lists the file at
  * `relativePath` (its real place in the repository) as untracked.
  */
-function assertStaysVisible(repo, filePath, relativePath) {
+function assertStaysVisible(repo, filePath, relativePath, projectDir) {
   const excludeBefore = excludeContent(repo);
-  assert.strictEqual(writeWithTool(repo, filePath), EMPTY_HOOK_OUTPUT);
+  assert.strictEqual(writeWithTool(repo, filePath, projectDir), EMPTY_HOOK_OUTPUT);
   assert.strictEqual(excludeContent(repo), excludeBefore);
   assert.strictEqual(status(repo), untrackedLine(relativePath));
 }
@@ -195,14 +212,16 @@ for (const name of WORKSPACE_FILES) {
 }
 
 // A file with the name of a workspace file in a subfolder is a document of the
-// user's project. An entry would leave it out of `git add -A` with no message.
+// user's project when the session started in another folder. An entry would
+// leave it out of `git add -A` with no message.
 for (const relativePath of [
   path.join(DOCS_FOLDER, KNOWN_ISSUES_FILE),
   path.join(DOCS_FOLDER, 'guides', STATE_FILE),
+  path.join(PACKAGE_FOLDER, STATE_FILE),
 ]) {
-  test(`${gitPath(relativePath)} gets no entry and stays in git status`, () => {
+  test(`${gitPath(relativePath)} gets no entry when the project folder is the repository root`, () => {
     const repo = makeRepo();
-    assertStaysVisible(repo, relativePath, relativePath);
+    assertStaysVisible(repo, relativePath, relativePath, repo);
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'add the document');
     assert.ok(
@@ -212,12 +231,24 @@ for (const relativePath of [
   });
 }
 
-test('a subfolder file gets no entry when the session folder is that subfolder', () => {
+// A session that starts in a package folder keeps its workspace files there:
+// the other hooks read them from the session folder.
+test('an artifact in the project folder of the session gets an entry when that folder is a subfolder', () => {
   const repo = makeRepo();
-  const docs = path.join(repo, DOCS_FOLDER);
-  fs.mkdirSync(docs);
-  writeWithTool(docs, STATE_FILE);
-  assert.strictEqual(status(repo), untrackedLine(path.join(DOCS_FOLDER, STATE_FILE)));
+  const relativePath = path.join(PACKAGE_FOLDER, STATE_FILE);
+  writeWithTool(repo, relativePath, path.join(repo, PACKAGE_FOLDER));
+  assert.strictEqual(status(repo), '');
+  assert.ok(isIgnored(repo, relativePath), `${gitPath(relativePath)} is not ignored`);
+});
+
+// The `cwd` field of the hook input follows a `cd` of the assistant, so it
+// does not name the project folder.
+test('without the project folder variable, a subfolder file gets no entry, also when cwd is that subfolder', () => {
+  const repo = makeRepo();
+  const packageFolder = path.join(repo, PACKAGE_FOLDER);
+  fs.mkdirSync(packageFolder, { recursive: true });
+  writeWithTool(packageFolder, STATE_FILE);
+  assert.strictEqual(status(repo), untrackedLine(path.join(PACKAGE_FOLDER, STATE_FILE)));
 });
 
 test('an existing exclude file keeps its entries, also when its last line has no newline', () => {
@@ -310,14 +341,43 @@ test('an artifact at the repository root, reached through a symbolic link, is ig
   writeWithTool(link, STATE_FILE);
   assert.strictEqual(status(repo), '');
   assert.ok(isIgnored(repo, STATE_FILE), 'the real path is not ignored');
+});
+
+// The project folder is named by its real path and the file by a path through
+// a symbolic link: only a comparison of real paths finds that they agree. The
+// link lies two folders above its target, so an exclude path that is resolved
+// against the link, not against the real folder, ends above the repository.
+test('an artifact in the project folder, reached through a symbolic link to that subfolder, is ignored in its repository', () => {
+  const repo = makeRepo();
+  const realFolder = path.join(repo, 'real', 'deep');
+  fs.mkdirSync(realFolder, { recursive: true });
+  const link = path.join(repo, 'alias');
+  fs.symlinkSync(realFolder, link);
+  writeWithTool(repo, path.join(link, STATE_FILE), realFolder);
+  assert.ok(isIgnored(repo, path.join('real', 'deep', STATE_FILE)), 'the real path is not ignored');
   assert.ok(!fs.existsSync(path.join(WORK_ROOT, '.git')), 'a .git folder was created above the repository');
+});
+
+// The reverse case: the variable names the project folder through a symbolic
+// link (on macOS the temporary folder has two names), the file has its real path.
+test('an artifact in a project folder that the variable names through a symbolic link is ignored', () => {
+  const repo = makeRepo();
+  const relativePath = path.join(PACKAGE_FOLDER, STATE_FILE);
+  fs.mkdirSync(path.join(repo, PACKAGE_FOLDER), { recursive: true });
+  const link = `${repo}-package-alias`;
+  fs.symlinkSync(path.join(repo, PACKAGE_FOLDER), link);
+  writeWithTool(repo, relativePath, link);
+  assert.strictEqual(status(repo), '');
 });
 
 test('a subfolder file reached through a symbolic link gets no entry and stays in git status', () => {
   const repo = makeRepo();
   fs.mkdirSync(path.join(repo, DOCS_FOLDER));
-  // The link sits outside the repository, so the path of the file does not
-  // show that the file is in a subfolder; only the real path shows it.
+  // The link sits outside the repository, so the text of the path does not
+  // show that the file is in a subfolder. Git starts in the folder that the
+  // operating system resolves, so this test passes with or without a
+  // real-path call in the hook; no fixture exists in which that call decides
+  // this case.
   const link = `${repo}-docs-alias`;
   fs.symlinkSync(path.join(repo, DOCS_FOLDER), link);
   assertStaysVisible(repo, path.join(link, STATE_FILE), path.join(DOCS_FOLDER, STATE_FILE));

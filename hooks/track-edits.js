@@ -26,19 +26,26 @@ const { LOG_DIR, editLogFile, markerFile, writeTimeFile } = require('./save-mark
 // AI-generated workspace artifacts that should never be committed
 const AI_ARTIFACTS = ['project-map.md', 'session-log.md', 'state.md', 'known-issues.md'];
 
+// Claude Code sets this environment variable for every hook: the folder where
+// the session started. It keeps its value when the assistant runs `cd`; the
+// `cwd` field of the hook input does not.
+const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
+
 /**
  * Keep an AI artifact file out of `git status` without editing a tracked file.
  * Called after every Edit or Write; it acts only when the file name is in
- * AI_ARTIFACTS and the file lies directly in the top folder of its git work
- * tree (the folder that holds the checked-out files; a linked worktree has
- * its own top folder). The skills write these files only there. A file with
- * the same name in a subfolder, for example `docs/known-issues.md`, is a
- * document of the user's project: an exclude entry would leave it out of
- * `git add -A` and of the commit with no message.
+ * AI_ARTIFACTS and the file lies directly in one of the two folders where the
+ * skills write these files: the project folder of the session, or the top
+ * folder of the file's git work tree (the folder that holds the checked-out
+ * files; a linked worktree has its own top folder). A file with the same name
+ * in any other folder, for example `docs/known-issues.md`, is a document of
+ * the user's project: an exclude entry would leave it out of `git add -A` and
+ * of the commit with no message.
  */
 function excludeArtifact(filePath) {
   if (!AI_ARTIFACTS.includes(path.basename(filePath))) return;
-  if (!isInTopFolderOfWorkTree(filePath)) return;
+  const folder = realPath(path.dirname(filePath));
+  if (!isProjectFolder(folder) && !isTopFolderOfWorkTree(folder)) return;
   excludeFromGit(filePath);
 }
 
@@ -88,15 +95,25 @@ function realPath(p) {
 }
 
 /**
- * True when git reports the real folder of filePath as the top folder of a
- * work tree. `git rev-parse --show-prefix` prints the path of the folder from
- * that top folder: an empty line for the top folder itself, and a path that
- * ends in `/` for a subfolder. Outside a git repository the command fails,
- * and the result is false.
+ * True when `folder` (a real path) is the project folder of the session.
+ * Without the variable (a platform other than Claude Code) the result is
+ * false.
  */
-function isInTopFolderOfWorkTree(filePath) {
+function isProjectFolder(folder) {
+  const projectDir = process.env[PROJECT_DIR_VARIABLE];
+  return Boolean(projectDir) && path.relative(realPath(projectDir), folder) === '';
+}
+
+/**
+ * True when git reports `folder` as the top folder of a work tree.
+ * `git rev-parse --show-prefix` prints the path of the folder from that top
+ * folder: an empty line for the top folder itself, and a path that ends in
+ * `/` for a subfolder. Outside a git repository the command fails, and the
+ * result is false.
+ */
+function isTopFolderOfWorkTree(folder) {
   try {
-    return git(['rev-parse', '--show-prefix'], realPath(path.dirname(filePath))).trim() === '';
+    return git(['rev-parse', '--show-prefix'], folder).trim() === '';
   } catch {
     return false;
   }
