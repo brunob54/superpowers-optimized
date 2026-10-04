@@ -4,7 +4,7 @@
 
 meta:
   name: superpowers-orchestrator
-  version: "7.58.0"
+  version: "7.59.0"
   description: "Workflow skills and hooks for Claude Code and Codex"
   author: "Jesse Vincent, forked by brunob54"
   homepage: "https://github.com/brunob54/superpowers-orchestrator"
@@ -61,6 +61,13 @@ hooks:
     command: "node {PLUGIN_ROOT}/hooks/track-session-stats.js"
     platforms: [claude-code]
 
+  # Claude Code: Bash output compression (replaces the output after the
+  # command has ended; needs Claude Code 2.1.121 or later)
+  - event: PostToolUse
+    matcher: "Bash"
+    command: "node {PLUGIN_ROOT}/hooks/bash-compress-hook.js"
+    platforms: [claude-code]
+
   # Codex: reactive Bash output compression
   - event: PostToolUse
     matcher: "Bash"
@@ -98,12 +105,6 @@ hooks:
   - event: PreToolUse
     matcher: "Read|Edit|Write|Bash"
     command: "node {PLUGIN_ROOT}/hooks/safety/protect-secrets.js"
-    platforms: [claude-code]
-
-  # Claude Code: bash output compression
-  - event: PreToolUse
-    matcher: "Bash"
-    command: "node {PLUGIN_ROOT}/hooks/bash-compress-hook.js"
     platforms: [claude-code]
 
   # Codex: dedicated pretool bash adapter

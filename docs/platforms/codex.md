@@ -168,7 +168,7 @@ a live Codex session on any `codex-cli` version. `Stop` is implemented in
 what the Codex documentation describes as the correct output shape, but its
 reminder has never been seen surfacing in a real session.
 
-Codex still cannot match Claude Code's full hook surface. There is no Codex parity today for `PostToolUse(Edit|Write|Skill)`, `SubagentStop`, `Read/Edit/Write` interception, or Claude's pre-execution Bash rewrite path. The Codex `PostToolUse(Bash)` smart-compress hook is reactive: it replaces verbose Bash output after execution, which improves context usage but is not the same mechanism as Claude's `PreToolUse` command rewrite.
+Codex still cannot match Claude Code's full hook surface. There is no Codex parity today for `PostToolUse(Edit|Write|Skill)`, `SubagentStop`, or `Read/Edit/Write` interception. The Codex `PostToolUse(Bash)` smart-compress hook replaces verbose Bash output after execution. The Claude Code hook now does the same (it no longer rewrites the command before execution); the two hooks share the compression rules and the alert-line step (`runRule` in `hooks/compression-rules.js`: a removed line that holds an alert word stem such as `error` or `warn` is added again below the compressed text), and each replaces the output only when the replacement has fewer lines and fewer characters than the output. The Claude Code hook returns the `updatedToolOutput` field, and it replaces the output only when it knows every field of the tool response; the Codex adapter has no such check.
 
 ---
 

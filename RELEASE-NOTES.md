@@ -8,6 +8,384 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.59.0 — the plugin approves no Bash command, and three more hook corrections
+
+**Problem.** The compression hook approved each Bash command it rewrote, so
+the user's permission rules and prompts did not apply. Three other hooks
+could run a command from a file name, change the user's repository, and hide
+project documents from git.
+
+**Change.** This release corrects findings 1 to 4 of a whole-project review.
+Compression replaces the output after the command, and no hook rewrites or
+approves a command.
+
+**Effect.** Update the plugin and restart the CLI; compression needs Claude
+Code 2.1.121 or later. Add allow rules for the commands of unattended
+runs, and run the required check for hidden documents. A failing lint run is
+no longer compressed; a plugin clone on another branch gets no update and no
+notice.
+
+A hook is a program that Claude Code runs at a fixed event, for example
+before a tool call (`PreToolUse`), after a tool call (`PostToolUse`), or at
+the start of a session (`SessionStart`). The review ran on 2026-10-03
+against v7.58.0 (commit `2bdaa7e`) and listed 15 findings. This release
+corrects findings 1 to 4. The new design of the compression hook also
+removes finding 5 (section 1). Findings 6 to 8 are hook defects too, and
+this release does not correct them (see the last section). Eleven commits
+make the change: one fix for each of the four findings, and seven
+corrections that reviews of those fixes asked for.
+
+Update the plugin and restart the CLI, as after every release. In this
+release the entry of the compression hook moved to another event in
+`hooks/hooks.json`. A session that still uses the hooks file of the older
+release starts the new hook on `PreToolUse`; the hook changes nothing there,
+and the test suite checks this.
+
+### 1. The compression hook rewrote and approved Bash commands
+
+What was wrong. The compression hook (`hooks/bash-compress-hook.js`)
+shortens the output of some Bash commands before the assistant reads it. For
+each single Bash command that a compression rule matched (`git push`,
+`git commit`, `npm install`, `make`, `git status` and others), the hook ran
+on `PreToolUse`, replaced the command with a call of the wrapper program
+`hooks/bash-optimizer.js`, and returned the permission decision "allow".
+Claude Code skips the permission prompt after "allow". It also compares the
+user's permission rules (the allow, ask and deny rules in the settings of
+Claude Code; a deny rule forbids a command) with the command text that the
+hook returns. So the command ran with no prompt, and a deny rule such as
+`Bash(git push:*)` did not match the replaced text.
+
+The cause. The old design compressed the output by running the command
+inside the wrapper program. The hook therefore had to replace the command
+before the command ran, and it returned "allow" together with the replaced
+command.
+
+What changed (commit `b8291bc`). The hook is now a `PostToolUse` hook. Claude
+Code runs the command exactly as the assistant wrote it, in the user's shell,
+under the user's permission rules. After the command has ended, the hook
+reads the output from the hook input and returns the compressed text in the
+field `updatedToolOutput`. The hook returns no permission decision and never
+changes a command. `hooks/bash-optimizer.js` is deleted. In `hooks/hooks.json`
+and in `plugin.universal.yaml` the entry moved from `PreToolUse` to
+`PostToolUse`. The entry was removed from `hooks/hooks-cursor.json`.
+
+This design also removes finding 5 of the review. The wrapper program ran
+each command with `/bin/bash`, not with the user's shell (zsh on macOS), so
+a file name pattern such as `**/*.md` could match other files than in the
+user's shell. The wrapper program no longer exists.
+
+Requirement. Compression needs Claude Code 2.1.121 or later; that version
+added `updatedToolOutput` for the Bash tool. On an older Claude Code version
+and on Copilot CLI the output is expected to stay raw (raw output is the
+output exactly as the command printed it). Nobody ran the hook on either.
+
+Two reviews of the fix (commits `366096d` and `2614465`) added these
+corrections:
+
+- **Alert lines.** Claude Code merges the standard error (the error stream)
+  of a successful command into its output. A rule could therefore remove an
+  error line of a command that ended with exit status 0. One shared step,
+  `runRule` in `hooks/compression-rules.js`, now protects such lines for
+  every rule, also in the Codex adapter. An alert line is a line of the
+  output that holds an alert stem (the start of a word family), in upper or
+  lower case. Examples of stems: `error`, `warn`, `fail`, `fatal`,
+  `conflict`, `denied`, `traceback`, `exception`, `reject`, `vulnerab`; the
+  full list is in `docs/architecture/smart-compress.md`. The stem can be
+  inside a longer word (`TypeError`, `FAILED`). Colour codes are removed
+  from the line before the search. A file name that holds a stem
+  (`src/errors.js`) counts too: every doubt keeps the line. Each alert line
+  that is not a whole line of the compressed text is added below that text,
+  under the heading `Removed lines with an alert word:`. With more than 40
+  such lines the output stays raw.
+- **Size rule.** The replacement must have fewer lines than the output and
+  fewer characters than the `stdout` text of the response. Otherwise the
+  output stays raw.
+- **Saved output.** For output above 30,000 characters, Claude Code saves
+  the output in a file and adds the fields `persistedOutputPath` and
+  `persistedOutputSize` to the response. The assistant then receives only a
+  short preview and the path of the file, so a replacement could be longer
+  than the preview. The hook leaves such a response unchanged and does not
+  read the file.
+- **Known fields.** The hook replaces the output only when it knows every
+  field of the response. The responses of `git commit` and `git push` carry
+  a field `gitOperation` that the first version of the fix did not know, so
+  the git-commit rule and the git-push rule never compressed any output in
+  that version. The hook now knows four more fields (`gitOperation`,
+  `bashEditDiff`, `staleReadFileStateHint`, `dangerouslyDisableSandbox`) and
+  returns each unchanged. A response with any other field stays raw.
+- **The git-push rule.** The rule read the words "To find out more" in a
+  message of the server as the address of the remote, and it removed the
+  lines of the server. It now reads the remote only from a line
+  `To <address>` whose address holds `:` or `/`, and it keeps every line
+  that starts with `remote:`. Before this release the git-push rule
+  shortened nothing in a real session: `git push` writes its lines to
+  standard error, and the deleted wrapper program printed standard error in
+  full below the summary. With this release the rule shortens that output
+  for the first time.
+- **Repeat rule.** The second run of the same command within 60 seconds
+  stays raw. The 60 seconds now count to the start of the second run.
+
+Every replaced output ends with a marker line, a line of the form
+`[compressed: 14->10 lines | git-status]` that tells the assistant how many
+lines the rule removed.
+
+Changes that a user will notice:
+
+- **The user's permission rules apply again.** A command that the old hook
+  approved now follows the user's permission rules. For a command that no
+  allow rule covers, the result depends on the permission mode of Claude
+  Code. In the modes `default`, `acceptEdits` and `plan`, a permission
+  prompt appears. In the mode `dontAsk`, and in a headless run (`claude -p`,
+  a run with no dialog), Claude Code denies the command with no prompt. In
+  the mode `bypassPermissions` nothing changes. In the mode `auto`, a
+  classifier of Claude Code decides. An unattended pipeline run (a run of
+  the orchestration skill from a specification to a reviewed branch, with no
+  person watching) can stop at such a prompt, or Claude Code denies the
+  command: add allow rules for the commands that the run needs before you
+  start it.
+- **The error stream of a successful command is compressed with its
+  output.** The deleted wrapper program stated that standard error is always
+  passed through uncompressed. This statement is no longer true for a
+  command that ends with exit status 0: its error lines are part of the
+  output, and the hook keeps for certain only the lines with an alert stem.
+- **The output of a failing command is always raw.** Claude Code sends the
+  event `PostToolUseFailure`, not `PostToolUse`, for a command that fails,
+  so the hook does not receive it. This includes a failing lint run (lint is
+  a program that checks source code against style and error rules, for
+  example `ruff` or `eslint`): most lint programs end with a non-zero exit
+  status when they report an error. The old hook compressed that output; the
+  new hook does not receive it.
+- **`npm install` always shows one alert line.** The line
+  "found 0 vulnerabilities" holds the stem `vulnerab`, so it appears under
+  the alert heading, also when the summary of the rule holds the same words.
+- **A passing test run can stay raw.** A passing test run in which more than
+  40 different lines hold an alert stem, for example test names such as
+  "should fail when the input is empty", is not compressed.
+- **Output above 30,000 characters is not compressed.** A long passing test
+  run or a long `find` list stays as Claude Code delivers it: a preview and
+  the path of the saved file.
+
+What the tests show. `bash tests/smart-compress/run-tests.sh`: 218 checks
+pass, 0 fail. The suite runs the hook as a process and gives it hook inputs
+in the shape measured on Claude Code 2.1.289; it starts no Claude Code
+session. For the 9 commands of the review finding, no `PreToolUse` hook of
+`hooks/hooks.json` and no run of the compression hook returns a replaced
+command or the decision "allow" (9 of 9). The suite also checks that
+`hooks/bash-optimizer.js` does not exist and that `hooks/hooks-cursor.json`
+does not start the hook. `tests/codex/test-posttool-bash-compress-adapter.js`
+has 13 tests (12 before); the new one checks that warning lines and an
+error line of `npm install` stay in the replacement of the Codex adapter.
+
+What no test shows. No live interactive session ran the new hook. Headless
+runs (`claude -p`) were made with Claude Code 2.1.289 on the first version
+of the fix (commit `b8291bc`) only; no session of any kind ran the two later
+versions of the hook.
+
+### 2. A file name could run a command at session start
+
+What was wrong. `hooks/context-engine.js` writes the snapshot at every
+session start. The snapshot is the file `context-snapshot.json`: the files
+changed since the last session, and for each one the files that refer to
+it. A tracked file whose name held `$(...)` or a backtick pair ran the inner
+command at session start, with the user's rights and with no prompt. The
+command ran only when the text of that file held the base name of a changed
+file. A name such as `route.$id.js`, or a name with a non-ASCII letter, ran
+nothing, but the hook checked a wrong path, and the file always stayed in
+the list of referring files.
+
+The cause. The hook built one shell command string from a file name that git
+had printed, and ran the string through a shell.
+
+What changed (commit `de20307`). Every git call goes through `execFileSync`
+with an argument list, so no shell reads the text. git prints file names with
+`-z` (each name unchanged, ended by a NUL character), and the check of one
+file uses `--literal-pathspecs`, so git reads the name as one file and not as
+a pattern. The review of the fix (commit `9ace8b6`) found that a tracked file
+with the name of the revision range (for example a file named
+`HEAD~1..HEAD`) gave an "ambiguous argument" error and an empty list of
+changed files; the range is now followed by `--`.
+
+What the tests show. `tests/codex/test-context-engine.js`: 37 tests pass (16
+before). A fixture is a small repository or file that a test builds for one
+case. The new tests build a fixture repository for each of 10 kinds of file
+name (ordinary characters, a space, `$(...)`, a backtick pair, a `$`
+variable, a single quote, a leading dash, a non-ASCII letter, a double
+quote, a line break) and check three things: the importing file is listed,
+the file that only mentions the name in prose is not, and no command
+created a file. The unit runner now runs this suite; before, nothing ran it.
+
+### 3. The automatic update could change the user's own repository
+
+What was wrong. The update check of `hooks/session-start` has two parts. For
+a marketplace install (the plugin installed with the plugin command of
+Claude Code, into its plugin cache), the hook compares the installed version
+with the newest published version and prints a notice. For a git clone of
+the plugin, the hook runs `git fetch origin` and
+`git merge --ff-only origin/main`, a fast-forward: git moves the checked-out
+branch to the newer commit and creates no merge commit. The hook treated
+the plugin folder as a clone whenever the folder lay inside any git work
+tree (the folder that holds the checked-out files of a repository). For a
+marketplace install under a `~/.claude` folder that the user keeps in git,
+the hook ran the fetch and the fast-forward in the user's repository. The
+fast-forward also moved a checked-out branch other than `main`.
+
+The cause. The test was `git rev-parse --git-dir`, which succeeds in every
+folder inside a work tree.
+
+What changed (commit `609f5d3`). The automatic fetch and fast-forward run
+only when two conditions hold: the plugin folder is itself the top level of
+a git work tree, and branch `main` is checked out. A plugin folder that only
+lies inside another repository runs the code for a marketplace install: the
+version comparison and the notice. A marketplace install gets its version
+check as before. The review of the fix (commit `1717639`) found that a tag
+named `main` made git print the short branch name as `heads/main`, so a
+correct clone was skipped; the hook now compares the full reference name
+`refs/heads/main`.
+
+Changes that a user will notice: a clone of the plugin with another branch
+checked out, or with a detached HEAD (a checked-out commit with no branch),
+gets no automatic update and no notice. Update such a clone with
+`git pull`.
+
+What the tests show. `tests/codex/test-session-start-update-check.sh` is
+new: 48 checks in 10 scenarios pass (the plugin folder inside the user's
+repository, `~/.claude` as a symbolic link into that repository, a clone on
+`main`, a clone on `main` with a tag named `main`, a clone reached through a
+symbolic link, four other branch names, a detached HEAD). The suite removes
+every `GIT_*` variable and stops when git would use a repository other than
+its fixture.
+
+### 4. A project document was hidden from git
+
+What was wrong. After each Edit or Write, `hooks/track-edits.js` compared
+only the file name with the four workspace file names (`state.md`,
+`known-issues.md`, `session-log.md`, `project-map.md`). When git did not
+track the file yet, the hook added it to the exclude file
+(`.git/info/exclude`, the local list of files that git does not show). A new
+document of the user's project such as `docs/known-issues.md` got the entry
+`/docs/known-issues.md`. `git status` no longer listed the document,
+`git add -A` skipped it, and the commit lacked it, and git printed no
+message.
+
+The cause. The skills write their workspace files in one folder only, but
+the hook did not check the folder.
+
+What changed (commit `d06e6d9`, corrected by `ce7216e`). The hook writes the
+entry only when the file lies directly in one of two folders: the top folder
+of its git work tree, or the session's project folder (the folder named by
+the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets). The
+second folder was added after the review: in a session started in a
+sub-folder of a repository, the first version of the fix made the plugin's
+own workspace files visible, and `git add -A` staged them.
+
+Changes that a user will notice: a workspace file in a sub-folder that is
+not the session's project folder gets no entry, and git shows it as
+untracked. An example is a session that works in a sub-folder of a
+repository on a platform that does not set `CLAUDE_PROJECT_DIR`.
+
+**Required check.** An older version may still hide a document of your
+project from git, and this release removes no old entry. Two kinds of old
+entry exist. Versions v7.32.0 to v7.58.0 wrote a line such as
+`/docs/known-issues.md` into the exclude file. Versions before v7.32.0 wrote
+the bare file name, below the comment line `# AI assistant artifacts`, into
+a `.gitignore` file in the folder of the document. The check therefore asks
+git itself, which reads every ignore source. Run this command in the top
+folder of each repository in which you used the plugin:
+
+```bash
+git ls-files --others --ignored --exclude-standard | grep -E '(^|/)(state|known-issues|session-log|project-map)\.md$'
+```
+
+It prints each existing file with one of the four names that git ignores.
+For each printed path, ask git which file and which line hides it:
+
+```bash
+git check-ignore -v <path>
+```
+
+One rule decides for every printed path. If the file is a document of your
+project that belongs in a commit, delete the line that `git check-ignore`
+names. If the file is a workspace file of the plugin (in the top folder, or
+in the folder in which you start your sessions), keep the line.
+
+Both commands were run on a fixture repository with git 2.50.1 and the grep
+of macOS. The fixture held the exclude lines `/docs/known-issues.md`,
+`/known-issues.md` and `/state.md`, and an old-style `.gitignore` in
+`docs/guides/` with the line `state.md`. The first command printed
+`docs/guides/state.md`, `docs/known-issues.md`, `known-issues.md` and
+`state.md`. It did not print `docs/mystate.md` or
+`packages/app/project-map.md`, which no entry hid. The second command
+printed `.git/info/exclude:7:/docs/known-issues.md` for
+`docs/known-issues.md` and `docs/guides/.gitignore:3:state.md` for
+`docs/guides/state.md`: the file, the line number and the pattern.
+
+What the tests show. `tests/codex/test-git-exclude-hooks.js`: 30 tests pass
+(17 before). New cases: each of the four names in the top folder gets an
+entry; `docs/known-issues.md`, `docs/guides/state.md` and
+`packages/app/state.md` get none; a file in the project folder gets one when
+that folder is a sub-folder; without the variable a sub-folder file gets
+none; the same through symbolic links and in a linked worktree (a second
+work tree of one repository, created with `git worktree add`).
+
+### Beyond the four findings
+
+The reviews of the fixes added two things.
+
+- **The Codex adapter got the update correction** (commit `1717639`).
+  `hooks/codex/session-start-adapter.js` had the defect of finding 3 and now
+  tests the same two conditions. `tests/codex/test-session-start-adapter.js`:
+  22 tests pass (15 before). These are unit tests only: Codex is not
+  installed on the test machine, and the adapter was not run in Codex.
+- **The snapshot is written only to an absent path or a regular file**
+  (commits `659d51a` and `57ff9fc`). When a repository held a symbolic link
+  (a file that points to another file) named `context-snapshot.json`, the
+  hook overwrote the file that the link points to, with text that holds
+  commit subjects. For a folder with that name, the hook added an exclude
+  entry that hid the untracked files of the folder. The hook now reads the
+  path with `lstat`, which does not follow a link. When the path is a link,
+  a folder or anything else that is not a regular file, the hook writes
+  nothing and adds no exclude entry. Three of the 37 tests cover a tracked
+  link, an untracked link and a folder.
+
+### What this release does not correct
+
+- **Findings 6 to 8 of the review.** Finding 6: the test rule still prints
+  "all tests passed" when it finds no summary line in the output of a test
+  run that ended with exit status 0. The lint part of finding 6 needed a
+  failing run, and on Claude Code a failing run no longer reaches the hook.
+  Finding 7 (the patterns of `hooks/safety/block-dangerous-commands.js`) and
+  finding 8 (the Bash rules of `hooks/safety/protect-secrets.js`) are
+  unchanged.
+- **The fetch has no time limit on macOS.** The hook limits the `git fetch`
+  of the automatic update to 3 seconds with the command `timeout` or
+  `gtimeout`. macOS has neither unless the GNU core utilities are installed.
+- **The snapshot of a sub-folder session.** In a session started in a
+  sub-folder, the snapshot compares paths relative to two different folders:
+  `git diff --name-only` prints the changed files relative to the top
+  folder, and `git grep` prints the referring files relative to the session
+  folder.
+- **The repeat rule with several agents.** The repeat rule keeps one record
+  per session, and a subagent (an agent that the main session starts for one
+  task) has the session id of the main session. When two agents run the same
+  command within 60 seconds, the second agent gets raw output although it
+  saw no compressed output. The only result is less compression.
+- **Two manifest files.** `.codex-plugin/plugin.json` and
+  `.cursor-plugin/plugin.json` state version 7.0.1. No test covers them, and
+  this release leaves them unchanged.
+
+Tests, all run on 2026-10-04 on macOS with Node 24.13.1 and git 2.50.1:
+`bash tests/codex/run-unit-tests.sh` passes with 19 suites (17 before; the
+two new ones are the update-check suite and the context-engine suite), and
+`bash tests/smart-compress/run-tests.sh` passes with 218 checks. Each
+"before" figure comes from a run of the same test file from commit
+`2bdaa7e`.
+
+Documents: `README.md`, `.codex/INSTALL.md` and `docs/guide/README.md` now
+state the folder condition of the exclude entry, the two conditions of the
+automatic update, and that the plugin approves no command.
+`docs/architecture/smart-compress.md`, `docs/platforms/codex.md` and the
+token-efficiency skill describe the compression hook as it is now.
+
 ## v7.58.0 — the test-first reminder leaves out a restored file
 
 **Problem.** The stop hook's test-first reminder read only the edit log (the

@@ -106,7 +106,7 @@ The plugin automatically compresses noisy Bash output before it enters your cont
 
 ### What gets compressed
 
-- **Tier 1 (near-lossless):** git add/commit/push/pull/clone/fetch, npm/pip/cargo install — reduced to one-line summaries
+- **Tier 1 (near-lossless):** git add/commit/push/pull/clone/fetch, npm/pip/cargo install — reduced to one-line summaries. For every rule of both tiers, a removed line that holds an alert word stem is added below the compressed text, under the heading `Removed lines with an alert word:`. Examples of stems: error, warn, fail, fatal, conflict, denied, exception, traceback, reject, vulnerab. The stem counts in upper or lower case and inside a longer word (TypeError, FAILED), also inside a file path. A `git push` summary also keeps every line that starts with `remote:`
 - **Tier 2 (smart filtering):** git status (hint lines removed), git log (truncated), passing tests (summary only), successful builds (summary only), lint output (grouped by severity), large ls/find results (truncated)
 
 ### What is NEVER compressed

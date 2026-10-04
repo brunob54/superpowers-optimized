@@ -17,7 +17,13 @@
 
 'use strict';
 
-const { MIN_OUTPUT_LENGTH, NEVER_COMPRESS, RULES } = require('../compression-rules');
+const {
+  MIN_OUTPUT_LENGTH,
+  compressionMarker,
+  countNonEmptyLines,
+  findRule,
+  runRule,
+} = require('../compression-rules');
 const { readJsonStdin } = require('./utils');
 
 function normalizeText(value) {
@@ -132,13 +138,6 @@ function extractToolResult(value, depth = 0) {
   return null;
 }
 
-function countNonEmptyLines(text) {
-  return normalizeText(text)
-    .split('\n')
-    .filter(line => line.trim().length > 0)
-    .length;
-}
-
 function buildReplacement(compressed, ruleType, originalCombined) {
   const originalLines = countNonEmptyLines(originalCombined);
   const compressedLines = countNonEmptyLines(compressed);
@@ -146,7 +145,7 @@ function buildReplacement(compressed, ruleType, originalCombined) {
   return [
     '[smart-compress] Verbose Bash output replaced with a compressed summary.',
     compressed.trim(),
-    `[compressed: ${originalLines}->${compressedLines} lines | ${ruleType}]`,
+    compressionMarker(originalLines, compressedLines, ruleType),
   ].join('\n');
 }
 
@@ -156,9 +155,7 @@ function evaluatePayload(data) {
 
   const command = (data.tool_input?.command || '').trim();
   if (!command) return {};
-  if (NEVER_COMPRESS.some(pattern => pattern.test(command))) return {};
-
-  const rule = RULES.find(candidate => candidate.match.test(command));
+  const rule = findRule(command);
   if (!rule) return {};
 
   const toolResult = extractToolResult(data.tool_response);
@@ -169,14 +166,8 @@ function evaluatePayload(data) {
   const combined = [stdout, stderr].filter(Boolean).join('\n').trim();
   if (!combined || combined.length < MIN_OUTPUT_LENGTH) return {};
 
-  let compressed;
-  try {
-    compressed = rule.compress(stdout, stderr, toolResult.exitCode ?? 0);
-  } catch {
-    return {};
-  }
-
-  if (!compressed || typeof compressed !== 'string') return {};
+  const compressed = runRule(rule, stdout, stderr, toolResult.exitCode ?? 0);
+  if (compressed === null) return {};
 
   const replacement = buildReplacement(compressed, rule.type, combined);
   if (replacement.trim().length >= combined.length) return {};

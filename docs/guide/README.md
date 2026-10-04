@@ -709,6 +709,17 @@ The same batch asks for two confirmations:
   must not prompt: this was probed once on 2026-09-06 in auto permission
   mode, and no prompt appeared. Other permission modes are untested; if
   your session prompts for those calls, pre-approve them before starting.
+  Since v7.59.0 the plugin approves no Bash command. Before that release
+  the compression hook answered "allow" for each single command that one of
+  its rules matched (for example `git push`, `git commit`, `npm install`,
+  `make`), so such a command ran with no prompt. These commands now follow
+  your permission rules like every other command. For a command that no
+  allow rule covers, the result depends on the permission mode: in the modes
+  `default`, `acceptEdits` and `plan` a prompt appears and the run waits;
+  in the mode `dontAsk` and in a headless run (`claude -p`) Claude Code
+  denies the command with no prompt; in the mode `bypassPermissions`
+  nothing changes; in the mode `auto` a classifier of Claude Code decides.
+  Add allow rules to your settings for the commands that a run needs.
 
 ### What happens while you're away
 
@@ -1131,7 +1142,14 @@ The same file-based durability serves everyday work:
    run commits or repairs them. Batched plan execution and `executing-plans`
    have no clean-tree check at resume, so look at `git status` yourself
    before you paste the resume prompt.
-2. **`state.md` and `.superpowers/` are git-excluded.** They survive a crash
+2. **`state.md` and `.superpowers/` are git-excluded.** A pipeline run adds
+   both exclude entries itself at its start. Outside a pipeline run, the
+   plugin's edit hook adds the entry for `state.md`, and since v7.59.0 only
+   when the file lies in the top folder of its git work tree (the folder
+   that holds the checked-out files) or in the session's project folder (the
+   folder named by the environment variable `CLAUDE_PROJECT_DIR`). A
+   `state.md` in any other folder gets no entry, and `git status` shows it.
+   The excluded files survive a crash
    on the same machine, but not a fresh clone or `git clean -fdx`. The
    committed artifacts (plan, checkboxes, the orchestration log, and — for a
    pipeline run — everything under the topic's `implementation/`) are the
@@ -1256,6 +1274,15 @@ What you should know as the owner of these files:
 - **`state.md` and `.superpowers/` are git-excluded** (the plugin adds the
   exclude entries itself): they survive crashes on the same machine but not a
   fresh clone or `git clean -fdx` — the recovery caveat from §5.
+- **The exclude entry depends on the folder (since v7.59.0).** The edit hook
+  hides `state.md`, `known-issues.md`, `session-log.md` and `project-map.md`
+  from `git status` only when the file lies in the top folder of its git
+  work tree or in the session's project folder (the folder named by the
+  environment variable `CLAUDE_PROJECT_DIR`). A file with one of these names
+  in any other folder, for example `docs/known-issues.md`, is a document of
+  your project: git shows it, and `git add -A` stages it. If an older
+  version hid such a document, see the check in the v7.59.0 entry of
+  `RELEASE-NOTES.md`.
 
 ### Work logs — one tracking document for multi-part work
 
@@ -1534,6 +1561,12 @@ permission prompt: a subagent asked for an approval nobody is watching for,
 and the run stalls indefinitely — this is exactly what §4's Phase 0
 permissions confirmation exists to prevent. Check the terminal for a pending
 dialog; after answering it, let the run continue or stop it and resume (§5).
+After an update to v7.59.0 or later, a prompt can appear in the permission
+modes `default`, `acceptEdits` and `plan` for a Bash command that ran with
+no prompt before (`git push`, `git commit`, `npm install`): the compression
+hook no longer approves commands. In the mode `dontAsk` and in a headless
+run, Claude Code denies such a command with no prompt, so the run does not
+wait but the command does not run (§4, Permissions).
 The other cause seen in practice — a controller subagent that ended its
 turn "waiting for" a reviewer and never resumed — is closed in v7.5.0;
 if you still see it, the installed copy is older than that (§1). Until

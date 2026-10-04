@@ -89,4 +89,4 @@ function excludeFromGit(filePath) {
   }
 }
 
-module.exports = { excludeFromGit };
+module.exports = { excludeFromGit, git };

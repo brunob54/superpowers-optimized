@@ -48,6 +48,7 @@ run_test "session-start-adapter" "${SCRIPT_DIR}/test-session-start-adapter.js"
 run_test "session-start (superpowers-defaults block)" "${SCRIPT_DIR}/test-session-start-defaults-block.sh" bash
 run_test "session-start (10,000-character budget)" "${SCRIPT_DIR}/test-session-start-budget.sh" bash
 run_test "session-start (active work log notice)" "${SCRIPT_DIR}/test-session-start-worklog-notice.sh" bash
+run_test "session-start (update check only in a clone of the plugin)" "${SCRIPT_DIR}/test-session-start-update-check.sh" bash
 run_test "check-no-superpowers-defaults-setting" "${SCRIPT_DIR}/test-check-no-superpowers-defaults-setting.sh" bash
 run_test "claude-code work folder" "${SCRIPT_DIR}/test-claude-code-workdir.sh" bash
 run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activator.js"
@@ -55,6 +56,7 @@ run_test "statusline-context-cache" "${SCRIPT_DIR}/test-statusline-cache.js"
 run_test "subagent-guard (SubagentStop)" "${SCRIPT_DIR}/test-subagent-guard.js"
 run_test "protect-secrets (PreToolUse Bash)" "${SCRIPT_DIR}/test-protect-secrets.js"
 run_test "track-edits and context-engine (git ignore entries)" "${SCRIPT_DIR}/test-git-exclude-hooks.js"
+run_test "context-engine (file names in the snapshot)" "${SCRIPT_DIR}/test-context-engine.js"
 run_test "save marker (track-edits, stop-reminders, context-management save command)" "${SCRIPT_DIR}/test-track-edits.js"
 run_test "version files (every place states one version)" "${SCRIPT_DIR}/test-version-files.js"
 
