@@ -16,7 +16,7 @@
  * Output: stdout {} always
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { createHash } = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -43,12 +43,27 @@ const BASENAME_DENYLIST = new Set([
   'config', 'setup', 'app', 'types', 'constants', 'common', 'shared', 'lib', 'mod',
 ]);
 
-function run(cmd, cwd) {
+// Runs git without a shell: each argument reaches git as one unchanged string,
+// so text from a file name or from a file is never read as shell syntax.
+// Returns '' on any error.
+function gitOutput(args, cwd) {
   try {
-    return execSync(cmd, { encoding: 'utf8', timeout: TIMEOUT_MS, cwd }).trim();
+    return execFileSync('git', args, { encoding: 'utf8', timeout: TIMEOUT_MS, cwd });
   } catch {
     return '';
   }
+}
+
+function run(args, cwd) {
+  return gitOutput(args, cwd).trim();
+}
+
+// Path names printed by a git command that is called with `-z`. With `-z`, git
+// prints each name unchanged and ends it with a NUL character. Without `-z`,
+// git puts quotes around a name that holds a non-ASCII letter, a double quote
+// or a control character, and escapes it (setting core.quotePath).
+function pathList(args, cwd) {
+  return gitOutput(args, cwd).split('\0').filter(Boolean);
 }
 
 async function main() {
@@ -64,13 +79,14 @@ async function main() {
   }
 
   // Bail silently if not a git repo
-  const gitDir = run('git rev-parse --git-dir', cwd);
+  const gitDir = run(['rev-parse', '--git-dir'], cwd);
   if (!gitDir) {
     process.stdout.write('{}');
     return;
   }
 
-  const gitHash = run('git rev-parse HEAD', cwd);
+  const gitHash = run(['rev-parse', 'HEAD'], cwd);
+  const filesChangedSince = base => pathList(['diff', '--name-only', '-z', `${base}..HEAD`], cwd);
   const lastHeadFile = getLastHeadFile(cwd);
 
   // Cross-session watermark: read BEFORE computing changedFiles so we can use
@@ -86,11 +102,10 @@ async function main() {
       : '';
     if (lastHead && lastHead !== gitHash) {
       // Confirm lastHead is an ancestor of HEAD (merge-base returns it if so)
-      mergeBase = run(`git merge-base ${lastHead} HEAD`, cwd);
+      mergeBase = run(['merge-base', lastHead, 'HEAD'], cwd);
       if (mergeBase === lastHead) {
-        const crossRaw = run(`git diff --name-only ${lastHead}..HEAD`, cwd);
-        crossSessionFiles = crossRaw ? crossRaw.split('\n').filter(Boolean) : [];
-        const logRaw2 = run(`git log --oneline ${lastHead}..HEAD`, cwd);
+        crossSessionFiles = filesChangedSince(lastHead);
+        const logRaw2 = run(['log', '--oneline', `${lastHead}..HEAD`], cwd);
         crossSessionCommitCount = logRaw2 ? logRaw2.split('\n').filter(Boolean).length : 0;
       }
     }
@@ -102,15 +117,14 @@ async function main() {
   // (shows everything since last session). Falls back to HEAD~1 on first session.
   const useWatermark = lastHead && lastHead !== gitHash && mergeBase === lastHead;
   const diffBase = useWatermark ? lastHead : 'HEAD~1';
-  const changedRaw = run(`git diff --name-only ${diffBase}..HEAD`, cwd);
-  const changedFiles = changedRaw ? changedRaw.split('\n').filter(Boolean) : [];
+  const changedFiles = filesChangedSince(diffBase);
 
   // Change statistics
-  const statOutput = run(`git diff --stat ${diffBase}..HEAD`, cwd);
+  const statOutput = run(['diff', '--stat', `${diffBase}..HEAD`], cwd);
   const changeStat = statOutput ? statOutput.split('\n').pop() : '';
 
   // Recent commits
-  const logRaw = run('git log --oneline -5', cwd);
+  const logRaw = run(['log', '--oneline', '-5'], cwd);
   const recentCommits = logRaw ? logRaw.split('\n').filter(Boolean) : [];
 
   // Persist current HEAD as watermark for the next session
@@ -132,14 +146,11 @@ async function main() {
     const safeName = basename.replace(/[^a-zA-Z0-9_\-]/g, '');
     if (!safeName) continue;
 
-    const refs = run(
-      `git grep -l "${safeName}" -- ":(exclude)*.lock" ":(exclude)package-lock.json" ":(exclude)*.min.js" ":(exclude)*.map"`,
+    // `-e`: the name is the search pattern, also when it starts with a dash.
+    const refs = pathList(
+      ['grep', '-l', '-z', '-e', safeName, '--', ':(exclude)*.lock', ':(exclude)package-lock.json', ':(exclude)*.min.js', ':(exclude)*.map'],
       cwd
     );
-    if (!refs) {
-      blastRadius[file] = [];
-      continue;
-    }
 
     // Secondary filter: keep only files where the match looks like an import/reference,
     // not a prose mention. Fail-open: if the content check errors, keep the ref.
@@ -147,9 +158,10 @@ async function main() {
       new RegExp(`(import|require|from).*${safeName}`, 'i'),
       new RegExp(`[./]${safeName}[./'";\`]`),
     ];
-    blastRadius[file] = refs.split('\n').filter(f => {
-      if (!f || f === file) return false;
-      const content = run(`git grep -h "${safeName}" -- "${f}"`, cwd);
+    blastRadius[file] = refs.filter(f => {
+      if (f === file) return false;
+      // --literal-pathspecs: git reads `f` as one file name, not as a pattern.
+      const content = run(['--literal-pathspecs', 'grep', '-h', '-e', safeName, '--', f], cwd);
       if (!content) return true; // fail-open
       return importPatterns.some(p => p.test(content));
     });
