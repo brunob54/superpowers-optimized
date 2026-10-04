@@ -86,7 +86,9 @@ async function main() {
   }
 
   const gitHash = run(['rev-parse', 'HEAD'], cwd);
-  const filesChangedSince = base => pathList(['diff', '--name-only', '-z', `${base}..HEAD`], cwd);
+  // `--` after a revision range: git reads the range as revisions, also when a
+  // tracked file has the same name as the range.
+  const filesChangedSince = base => pathList(['diff', '--name-only', '-z', `${base}..HEAD`, '--'], cwd);
   const lastHeadFile = getLastHeadFile(cwd);
 
   // Cross-session watermark: read BEFORE computing changedFiles so we can use
@@ -105,7 +107,7 @@ async function main() {
       mergeBase = run(['merge-base', lastHead, 'HEAD'], cwd);
       if (mergeBase === lastHead) {
         crossSessionFiles = filesChangedSince(lastHead);
-        const logRaw2 = run(['log', '--oneline', `${lastHead}..HEAD`], cwd);
+        const logRaw2 = run(['log', '--oneline', `${lastHead}..HEAD`, '--'], cwd);
         crossSessionCommitCount = logRaw2 ? logRaw2.split('\n').filter(Boolean).length : 0;
       }
     }
@@ -120,7 +122,7 @@ async function main() {
   const changedFiles = filesChangedSince(diffBase);
 
   // Change statistics
-  const statOutput = run(['diff', '--stat', `${diffBase}..HEAD`], cwd);
+  const statOutput = run(['diff', '--stat', `${diffBase}..HEAD`, '--'], cwd);
   const changeStat = statOutput ? statOutput.split('\n').pop() : '';
 
   // Recent commits

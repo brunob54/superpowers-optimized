@@ -8,8 +8,8 @@
  *   - Module loads without error
  *   - Behaviour on a temporary git repository (the hook runs as a separate
  *     process): a file name is never read as shell syntax or as a git
- *     pattern, every name is written to the snapshot unchanged, and the diff
- *     starts at the commit of the previous session start
+ *     pattern or option, every name is written to the snapshot unchanged, and
+ *     the diff starts at the commit of the previous session start
  *
  * Run: node tests/codex/test-context-engine.js
  * No dependencies beyond Node.js stdlib and git.
@@ -124,11 +124,6 @@ test('Checks for import/require/from patterns', () => {
   assert.ok(source.includes('import|require|from'), 'Missing import/require/from pattern');
 });
 
-test('Fail-open: keeps ref if content check errors', () => {
-  // If content check returns empty, should keep the reference (fail-open)
-  assert.ok(source.includes('if (!content) return true'), 'Missing fail-open logic');
-});
-
 // ── BASENAME_DENYLIST ────────────────────────────────────────────────────────
 
 console.log('\nBasename denylist');
@@ -145,14 +140,18 @@ test('BASENAME_DENYLIST blocks common generic names', () => {
 // repository. It then reads context-snapshot.json and lists the folder.
 
 const SNAPSHOT_FILE = 'context-snapshot.json';
-const CHANGED_FILE = 'widget.js';
-const CHANGED_TEXT = 'module.exports = {};\n';
-// Names the changed file in a sentence. This is not a reference to it.
-const PROSE_TEXT = 'See widget for details.\n';
-// Loads the changed file. This is a reference to it.
-const IMPORT_TEXT = "const widget = require('./widget');\n";
-const PROSE_EXTENSION = '.txt';
+const EMPTY_HOOK_OUTPUT = '{}';
+const CHANGED_BASE = 'widget';
 const IMPORT_EXTENSION = '.js';
+const PROSE_EXTENSION = '.txt';
+const CHANGED_FILE = CHANGED_BASE + IMPORT_EXTENSION;
+const CHANGED_TEXT = 'module.exports = {};\n';
+/** Text that names a file in a sentence. This is not a reference to the file. */
+const proseText = base => `See ${base} for details.\n`;
+/** Text that loads a file. This is a reference to the file. */
+const importText = base => `const dependency = require('./${base}');\n`;
+const PROSE_TEXT = proseText(CHANGED_BASE);
+const IMPORT_TEXT = importText(CHANGED_BASE);
 const TEST_NAME = 'test';
 const TEST_EMAIL = 'test@example.com';
 const WINDOWS = process.platform === 'win32';
@@ -166,6 +165,8 @@ process.on('exit', () => fs.rmSync(WORK_ROOT, { recursive: true, force: true }))
 //   with the commit of the previous session start there;
 // - the global and system git configuration are empty, so core.quotePath has
 //   its default value;
+// - XDG_CONFIG_HOME points into WORK_ROOT, so git does not read the developer's
+//   own ignore file ($XDG_CONFIG_HOME/git/ignore), which can hide fixture files;
 // - GIT_DIR and the other GIT_* variables (set when this runs inside a git
 //   hook) would send every git command to another repository, so they are
 //   removed;
@@ -176,6 +177,7 @@ const ENV = Object.fromEntries(Object.entries(process.env).filter(([key]) => !ke
 Object.assign(ENV, {
   HOME: WORK_ROOT,
   USERPROFILE: WORK_ROOT,
+  XDG_CONFIG_HOME: path.join(WORK_ROOT, 'xdg-config'),
   GIT_CONFIG_GLOBAL: EMPTY_GLOBAL_CONFIG,
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CEILING_DIRECTORIES: path.dirname(WORK_ROOT),
@@ -199,23 +201,24 @@ function commitFiles(repo, files) {
 }
 
 /**
- * A new repository with two commits. The first commit holds `otherFiles` (a
- * map from file name to text). The last commit adds `changedFile`, so the hook
- * reports that file as changed and searches the other files for its name.
+ * A new repository with two commits. The first commit holds `otherFiles`, the
+ * last commit adds `changedFiles` (each a map from file name to text). So the
+ * hook reports the files of the last commit as changed and searches the other
+ * files for their names.
  */
-function makeRepo(otherFiles, changedFile = CHANGED_FILE) {
+function makeRepo(otherFiles, changedFiles = { [CHANGED_FILE]: CHANGED_TEXT }) {
   repoCount++;
   const repo = path.join(WORK_ROOT, `repo-${repoCount}`);
   fs.mkdirSync(repo);
   git(repo, 'init', '-q');
   commitFiles(repo, otherFiles);
-  commitFiles(repo, { [changedFile]: CHANGED_TEXT });
+  commitFiles(repo, changedFiles);
   return repo;
 }
 
-/** Run the hook in the repository and return the snapshot that it wrote. */
-function runHook(repo) {
-  const output = execFileSync(process.execPath, [SOURCE_PATH], {
+/** Run the hook in the repository and return what it printed. */
+function runHookProcess(repo) {
+  return execFileSync(process.execPath, [SOURCE_PATH], {
     cwd: repo,
     env: ENV,
     input: JSON.stringify({ cwd: repo }),
@@ -223,8 +226,18 @@ function runHook(repo) {
     // The hook lets git print its error messages; they are not part of the result.
     stdio: ['pipe', 'pipe', 'ignore'],
   });
-  assert.strictEqual(output, '{}');
+}
+
+/** Run the hook in the repository and return the snapshot that it wrote. */
+function runHook(repo) {
+  assert.strictEqual(runHookProcess(repo), EMPTY_HOOK_OUTPUT);
   return JSON.parse(fs.readFileSync(path.join(repo, SNAPSHOT_FILE), 'utf8'));
+}
+
+/** Like test(), but on Windows the case does not run and one line names it. */
+function testExceptOnWindows(label, reason, fn) {
+  if (!WINDOWS) return test(label, fn);
+  console.log(`  - skipped on Windows (${reason}): ${label}`);
 }
 
 /**
@@ -249,46 +262,106 @@ function runHookWithoutSideEffects(repo) {
   return snapshot;
 }
 
-function dependentsOfChangedFile(snapshot) {
-  return normalized(snapshot.blast_radius[CHANGED_FILE]);
+function dependentsOf(snapshot, changedFile = CHANGED_FILE) {
+  return normalized(snapshot.blast_radius[changedFile]);
+}
+
+/**
+ * Run the hook once and return the path of the file in which it stored the
+ * commit of that session start. The file is found as the one new file in the
+ * hook's log folder, so this helper does not repeat how the hook builds the name.
+ */
+function storedCommitFileAfterFirstRun(repo) {
+  const logFolder = path.join(WORK_ROOT, '.claude', 'hooks-logs');
+  const before = new Set(fs.existsSync(logFolder) ? fs.readdirSync(logFolder) : []);
+  runHook(repo);
+  const created = fs.readdirSync(logFolder).filter(name => !before.has(name));
+  assert.strictEqual(created.length, 1, 'the first run did not create exactly one file in the log folder');
+  return path.join(logFolder, created[0]);
+}
+
+/** The text of the repository's local exclude file, or '' when there is none. */
+function excludeContent(repo) {
+  const file = path.join(repo, '.git', 'info', 'exclude');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 }
 
 console.log('\nFile names in the list of dependents');
 
 // Each entry: what the name holds, the name without its extension, and whether
-// Windows allows the name. é is the letter e with an acute accent.
+// Windows allows the name. A name with a leading dash looks like an option. é is the letter e with an acute accent.
 const FILE_NAME_STEMS = [
   ['only ordinary characters', 'consumer', true],
   ['a space', 'plain notes', true],
   ['a shell command substitution', 'notes $(touch INJECTED_BY_SUBSTITUTION)', true],
   ['a backtick pair', 'notes `touch INJECTED_BY_BACKTICK`', true],
   ['a shell variable (route.$id.js)', 'route.$id', true],
+  ['a single quote', "it's notes", true],
+  ['a leading dash', '-notes', true],
   ['a non-ASCII letter', 'résumé', true],
   ['a double quote', 'say "hello"', false],
   ['a line break', 'line\nbreak', false],
 ];
 
-for (const [what, stem] of FILE_NAME_STEMS.filter(([, , onWindows]) => onWindows || !WINDOWS)) {
-  test(`a name with ${what}: the importing file is a dependent, the prose file is not, no file is created`, () => {
+for (const [what, stem, onWindows] of FILE_NAME_STEMS) {
+  const label = `a name with ${what}: the importing file is a dependent, the prose file is not, no file is created`;
+  const check = () => {
     const proseFile = stem + PROSE_EXTENSION;
     const importingFile = stem + IMPORT_EXTENSION;
     const repo = makeRepo({ [proseFile]: PROSE_TEXT, [importingFile]: IMPORT_TEXT });
     const snapshot = runHookWithoutSideEffects(repo);
-    assert.deepStrictEqual(dependentsOfChangedFile(snapshot), normalized([importingFile]));
-  });
+    assert.deepStrictEqual(dependentsOf(snapshot), normalized([importingFile]));
+  };
+  if (onWindows) test(label, check);
+  else testExceptOnWindows(label, 'the file system does not allow the name', check);
 }
 
 test('a name with git pattern characters is checked as that file only, not as a pattern', () => {
   // As a git pattern, "note[s].txt" also matches "notes.txt", which imports the changed file.
   const repo = makeRepo({ 'note[s].txt': PROSE_TEXT, 'notes.txt': IMPORT_TEXT });
-  assert.deepStrictEqual(dependentsOfChangedFile(runHook(repo)), ['notes.txt']);
+  assert.deepStrictEqual(dependentsOf(runHook(repo)), ['notes.txt']);
+});
+
+test('a changed file with a leading dash in its name keeps its dependent and gains no prose file', () => {
+  const changedBase = `-${CHANGED_BASE}`;
+  const changedFile = changedBase + IMPORT_EXTENSION;
+  const repo = makeRepo(
+    { 'consumer.js': importText(changedBase), 'notes.txt': proseText(changedBase) },
+    { [changedFile]: CHANGED_TEXT }
+  );
+  assert.deepStrictEqual(dependentsOf(runHook(repo), changedFile), ['consumer.js']);
+});
+
+test('a lock file, a minified file and a source map are never dependents', () => {
+  const repo = makeRepo({
+    'consumer.js': IMPORT_TEXT,
+    'yarn.lock': IMPORT_TEXT,
+    'package-lock.json': IMPORT_TEXT,
+    'bundle.min.js': IMPORT_TEXT,
+    'bundle.js.map': IMPORT_TEXT,
+  });
+  assert.deepStrictEqual(dependentsOf(runHook(repo)), ['consumer.js']);
+});
+
+test('a changed file that names itself is not its own dependent', () => {
+  const repo = makeRepo({}, { [CHANGED_FILE]: IMPORT_TEXT });
+  assert.deepStrictEqual(dependentsOf(runHook(repo)), []);
+});
+
+test('a file whose content check fails stays a dependent', () => {
+  // The hook accepts at most 1 MiB (1,048,576 bytes) of output from one git
+  // command. The matching lines of this file are larger, so the check of its
+  // content fails. The hook then keeps the file, although it holds prose only.
+  const longFile = 'long notes.txt';
+  const repo = makeRepo({ [longFile]: PROSE_TEXT.repeat(100000) });
+  assert.deepStrictEqual(dependentsOf(runHook(repo)), [longFile]);
 });
 
 console.log('\nFile names in the list of changed files');
 
 test('a changed file with a non-ASCII name and a space is listed under its real name', () => {
   const changedFile = 'café menu.js';
-  const repo = makeRepo({}, changedFile);
+  const repo = makeRepo({}, { [changedFile]: CHANGED_TEXT });
   const snapshot = runHook(repo);
   assert.deepStrictEqual(normalized(snapshot.changed_files), [changedFile]);
   assert.deepStrictEqual(normalized(Object.keys(snapshot.blast_radius)), [changedFile]);
@@ -303,6 +376,22 @@ test('the second session start lists every file changed since the first one', ()
   assert.deepStrictEqual(normalized(snapshot.changed_files), normalized(newFiles));
   assert.deepStrictEqual(normalized(snapshot.cross_session_files), normalized(newFiles));
   assert.strictEqual(snapshot.cross_session_commit_count, newFiles.length);
+});
+
+test('a tracked file with the name of the revision range does not empty the list of changed files', () => {
+  const repo = makeRepo({ 'HEAD~1..HEAD': PROSE_TEXT });
+  const snapshot = runHook(repo);
+  assert.deepStrictEqual(snapshot.changed_files, [CHANGED_FILE]);
+  assert.ok(snapshot.change_stat.includes('1 file changed'), `change_stat is "${snapshot.change_stat}"`);
+});
+
+console.log('\nThe file with the commit of the previous session start');
+
+test('text in that file is never run as a command', () => {
+  const repo = makeRepo({});
+  fs.writeFileSync(storedCommitFileAfterFirstRun(repo), 'HEAD~1; touch INJECTED_BY_STORED_COMMIT');
+  const snapshot = runHookWithoutSideEffects(repo);
+  assert.deepStrictEqual(snapshot.changed_files, [CHANGED_FILE]);
 });
 
 // ── Summary ──────────────────────────────────────────────────────────────────
