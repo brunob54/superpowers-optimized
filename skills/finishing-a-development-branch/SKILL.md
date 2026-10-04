@@ -66,7 +66,7 @@ repository) only with this procedure.
 
 `git worktree remove` refuses when the worktree holds a modified file. It
 refuses for an untracked file only while the git setting
-`status.showUntrackedFiles` has its default value. It does not refuse for a
+`status.showUntrackedFiles` is not `no`. It does not refuse for a
 file that git ignores: it deletes that file with no message. Git ignores
 the workspace files of this plugin (`session-log.md`, `state.md`,
 `known-issues.md`, `project-map.md`), because the hooks of the plugin hide

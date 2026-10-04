@@ -105,7 +105,7 @@ UNTRACKED_SETTING='status.showUntrackedFiles'
 # starts with "- " in the skill text; the marker is added where the sentences
 # are joined (see PARAGRAPH_EXPECTED).
 S_SCOPE='Options 1, 2 and 4 remove a worktree (a second working folder of the same repository) only with this procedure.'
-S_WHY="\`git worktree remove\` refuses when the worktree holds a modified file. It refuses for an untracked file only while the git setting \`$UNTRACKED_SETTING\` has its default value. It does not refuse for a file that git ignores: it deletes that file with no message. Git ignores the workspace files of this plugin (\`$SAVED_LOG\`, \`$STATE_FILE\`, \`$KNOWN_ISSUES\`, \`$PROJECT_MAP\`), because the hooks of the plugin hide them from git."
+S_WHY="\`git worktree remove\` refuses when the worktree holds a modified file. It refuses for an untracked file only while the git setting \`$UNTRACKED_SETTING\` is not \`no\`. It does not refuse for a file that git ignores: it deletes that file with no message. Git ignores the workspace files of this plugin (\`$SAVED_LOG\`, \`$STATE_FILE\`, \`$KNOWN_ISSUES\`, \`$PROJECT_MAP\`), because the hooks of the plugin hide them from git."
 S_MAIN_PATH='First take the path of the main checkout: the first line of `git worktree list`.'
 S_MAIN_WHY='The session can run inside the worktree, and a git command fails in a folder that no longer exists.'
 S_MAIN_RULE="So run the removal, and every later git command, with \`$MAIN_PREFIX\`."
