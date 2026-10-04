@@ -127,7 +127,7 @@ These commands produce output where some lines are signal and others are noise. 
 | `find` (>60 results) | Results beyond 60 | First 60 + count of remaining |
 | `docker build` (success) | Layer download/extract progress | Step headers + final result |
 
-**Lint output is not compressed.** There is no rule for lint tools (eslint, pylint, ruff, flake8 and others). An earlier version had one. It counted the lines that hold the word "error" or "warning" and printed the two counts. These counts were not the counts of the lint tool. Measured examples: real pylint output with 42 messages gave "2 error(s), 0 warning(s)"; real eslint output with 28 warnings, 7 of them about a variable with the name `error`, gave "7 error(s), 21 warning(s)" where eslint reported 0 errors. The rule also saved little: the alert lines (see "Alert Lines") added most removed messages again.
+**Lint output is not compressed.** There is no rule for lint tools (eslint, pylint, ruff, flake8 and others). A lint tool that `make` starts (`make lint`) still goes through the build rule. An earlier version had one. It counted the lines that hold the word "error" or "warning" and printed the two counts. These counts were not the counts of the lint tool. Measured examples: real pylint output with 42 messages gave "2 error(s), 0 warning(s)"; real eslint output with 28 warnings, 7 of them about a variable with the name `error`, gave "7 error(s), 21 warning(s)" where eslint reported 0 errors. The rule also saved little: the alert lines (see "Alert Lines") added most removed messages again.
 
 **A rule states only what the output states.** Exit status 0 does not prove that a test ran or that git made a commit. Two rules therefore leave output raw when they cannot read the result in it:
 
@@ -151,7 +151,7 @@ These commands always pass through with raw, unmodified output — regardless of
 | `echo`, `printf` | User is constructing specific output |
 | `node -e`, `python -e`, `ruby -e` | Inline script output is the point |
 | A dry run: any command with an option that starts with `--dry` (`git push --dry-run`, `npm install --dry-run`, `git add --dry`), and `git add -n` (also in a group of short options such as `-An`) | The command changes nothing, so the result that a rule states (`ok`, `added 25 packages`) would be false. Quotes are not parsed, so a commit message that holds ` --dry` also stops compression. |
-| Lint output (eslint, pylint, ruff and others) | No rule matches a lint command (see "Lint output is not compressed") |
+| Lint output (eslint, pylint, ruff and others) | No rule matches a lint command called by its own name (see "Lint output is not compressed") |
 | A test run whose output holds no summary line that the test rule reads, or holds a removed line about a test that did not run; `git commit` output without the commit line | The rule cannot read the result, and exit status 0 does not prove it (see "A rule states only what the output states") |
 | **Any command that fails** (non-zero exit code) | Error output must be seen in full |
 | Output shorter than 200 characters | Not worth the compression overhead |

@@ -1582,7 +1582,7 @@ test('The reminder is postponed, not removed: the next stop without a running su
   }), 6);
 });
 
-// The field is not in the documentation of Claude Code, so every other value
+// The documentation of Claude Code does not list the status values, so every other value
 // must leave the reminder as it is without the field.
 const VALUES_THAT_KEEP_THE_REMINDER = [
   ...['completed', 'failed', 'pending', 'RUNNING', ''].map(status =>

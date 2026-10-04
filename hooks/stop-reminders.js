@@ -488,10 +488,11 @@ const RUNNING_TASK_STATUS = 'running';
 /**
  * Return true when the stop payload lists a subagent that is still running.
  * `backgroundTasks` is the field `background_tasks` of the Stop hook input.
- * The documentation of Claude Code does not describe this field. Measured:
- * the program text of Claude Code 2.1.287 to 2.1.289 defines it as the list
- * of the unfinished background work of the session, and a payload recorded
- * with 2.1.289 held `{ "type": "subagent", "status": "running", ... }` for a
+ * The hooks reference of Claude Code describes this field under "Stop
+ * input": the list of the unfinished background work of the session, each
+ * entry with a `type` (for example `subagent`) and a `status`. It does not
+ * list the values of `status`. Measured: a payload recorded with Claude Code
+ * 2.1.289 held `{ "type": "subagent", "status": "running", ... }` for a
  * subagent that was still working. When the field is absent (an older Claude
  * Code, another platform), is not a list, or holds entries of another shape,
  * the result is false, and the hook behaves as it does without the field.
