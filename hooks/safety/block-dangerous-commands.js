@@ -30,6 +30,11 @@
  *     quoted text (`os.system("...")`, `execSync('...')`, Perl
  *     `system "..."`) or with a list of quoted words
  *     (`subprocess.run(["git", "reset", "--hard"])`);
+ *   - these forms of the positions above: `su -lc <text>`, a Python tuple
+ *     or a list over several lines, a call with several quoted arguments
+ *     (`system("a", "b")`), `echo <text> | bash -s <arg>`, a script that
+ *     the same call writes and then runs with a shell option that takes a
+ *     value (`bash -euo pipefail x.sh`), `find -name '.git*' -exec rm`;
  *   - a command that is written to hide its meaning on purpose.
  *
  * Based on claude-code-hooks by karanb192 (MIT License).
@@ -69,6 +74,10 @@ const DOWNLOADERS = new Set(['curl', 'wget']);
 const CURL = 'curl';
 // Words of the shell that run a text or a file in the present shell.
 const RUNS_IN_SHELL = new Set(['eval', 'source', '.']);
+// A group of shell options whose last letter takes the next word as its value (`-o pipefail`, `-euo pipefail`).
+const SHELL_OPTION_WITH_VALUE = /^[-+][A-Za-z]*[oO]$/;
+// The option of a shell that reads a script and runs nothing: `-n`, also inside a group, and `--noexec`.
+const SHELL_SYNTAX_CHECK = /^(-[A-Za-z]*n[A-Za-z]*|--noexec)$/;
 // Devices that `dd of=` may write to: none of them is a disk.
 const HARMLESS_DEVICE = /^\/dev\/(null|zero|stdout|stderr|tty|fd\/.*)$/;
 const DISK_FORMATTERS = /^(mkfs(\..+)?|newfs(_.+)?|wipefs)$/;
@@ -387,12 +396,20 @@ function downloadRule(c, context) {
   const earlier = (order) => order !== undefined && order < c.order;
   const piped = (isShell || RUNS_IN_SHELL.has(c.program) || runsStdin) && (fed.has(c) || earlier(firstInPipeline.get(c.pipeline)));
   const isStored = (word) => earlier(stored.get(withoutDotSlash(word.text)));
-  // The stored file runs as an operand of a shell or of an interpreter, or as the command word itself
-  // (`./install.sh`). A shell with `-n` only checks the syntax of the file.
-  const syntaxCheck = isShell && splitArgs(c.args).short.has('n');
+  // The stored file runs when it is the script of a shell, of an interpreter or of `source`: the first
+  // word after the options of that program. The words after the script are arguments of the script,
+  // and a stored file that is only an argument is data (`python3 parse.py data.json`).
+  let scriptAt = 0;
+  while (scriptAt < c.args.length && c.args[scriptAt].text.startsWith('-')) {
+    scriptAt += isShell && SHELL_OPTION_WITH_VALUE.test(c.args[scriptAt].text) ? 2 : 1;
+  }
+  const script = c.args[scriptAt];
+  // A shell with `-n` before the script only checks the syntax of the file.
+  const syntaxCheck = isShell && c.args.slice(0, scriptAt).some((a) => SHELL_SYNTAX_CHECK.test(a.text));
+  // The stored file also runs as the command word itself (`./install.sh`).
   const commandWord = c.words.find((w) => !ASSIGNMENT.test(w.text));
   const runsStored = isShell || isInterpreter || RUNS_IN_SHELL.has(c.program)
-    ? !syntaxCheck && c.args.some(isStored)
+    ? Boolean(script) && !syntaxCheck && isStored(script)
     : Boolean(commandWord) && commandWord.text.includes('/') && isStored(commandWord);
   return piped || runsStored
     ? refusal('curl-pipe-sh', `\`${c.program}\` would run a downloaded script that nobody has read.`, 'download to a file, read the file, then run it in a separate command')

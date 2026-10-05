@@ -341,7 +341,7 @@ function readText(text, sink, origin, bodyOnly = false) {
     const groups = [];             // for each open "(" of this list, the scope around it
     let plainWords = 0;            // words of the present command that are not keywords
     let plainWordsNotFor = 0;      // the same, without the word `for`
-    let caseDepth = 0;
+    const caseStarts = [];         // for each open `case`, the number of open "(" at its start
     let pipeline = sink.pipelines++;
     let previous = null;           // the command before the present one in this list
     let w = null;
@@ -370,8 +370,8 @@ function readText(text, sink, origin, bodyOnly = false) {
       }
       if (!done.quoted && atCommandStart()) {
         if (done.text === '[[') inTest = true;
-        if (done.text === 'case') caseDepth++;
-        if (done.text === 'esac' && caseDepth > 0) caseDepth--;
+        if (done.text === 'case') caseStarts.push(groups.length);
+        if (done.text === 'esac') caseStarts.pop();
       }
       if (done.text === ']]') inTest = false;
       if (done.quoted || !KEYWORDS.has(done.text)) {
@@ -432,8 +432,10 @@ function readText(text, sink, origin, bodyOnly = false) {
       }
       if (c === ')') {
         endWord();                                                     // `esac)` : the word ends the `case` first
-        if (groups.length) endCommand(')');
-        else if (caseDepth > 0) endCommand(';');                       // the end of a pattern of `case`
+        // Inside a `case`, a `)` with no "(" of its own ends a pattern. This also holds for a `case`
+        // that stands inside a subshell: the subshell closes only after `esac`.
+        if (caseStarts.length && caseStarts[caseStarts.length - 1] === groups.length) endCommand(';');
+        else if (groups.length) endCommand(')');
         else if (closer === ')') { endCommand(''); i++; return true; }
         else { fail(PROBLEM.parenthesis); endCommand(';'); }
         i++;
@@ -487,7 +489,7 @@ function skipOptions(words, i, shortWithValue = '', longWithValue = []) {
   for (; i < words.length; i++) {
     const v = words[i].text;
     if (v === '--') return i + 1;
-    if (!v.startsWith('-') || v === '-') return i;
+    if (!v.startsWith('-')) return i;                                  // a lone `-` is an option (`env -`)
     if (v.startsWith('--')) {
       if (!v.includes('=') && longWithValue.includes(v.slice(2))) i++;
       continue;
@@ -715,7 +717,11 @@ function codeOf(c, sink, written) {
   }
   if (c.program === 'eval') texts.push(joinWords(c.args), ...c.args.flatMap(printedBy));
   // ssh and watch join every word after their own options to one text, and a shell reads that text.
-  if (c.program === 'ssh') texts.push(joinWords(c.args.slice(skipOptions(c.args, 0, SSH_VALUE_OPTIONS) + 1)));
+  // ssh also takes options after the host (`ssh host -t <command>`, `ssh host -- <command>`).
+  if (c.program === 'ssh') {
+    const afterHost = c.args.slice(skipOptions(c.args, 0, SSH_VALUE_OPTIONS) + 1);
+    texts.push(joinWords(afterHost.slice(skipOptions(afterHost, 0, SSH_VALUE_OPTIONS))));
+  }
   if (c.program === 'watch') texts.push(joinWords(c.args.slice(skipOptions(c.args, 0, 'n', ['interval']))));
   if (c.program === 'su') {
     c.args.forEach((a, j) => {
