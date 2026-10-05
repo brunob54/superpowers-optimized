@@ -81,7 +81,7 @@ Do not wait for context to auto-compress mid-task. Break proactively at logical 
 |---|---|
 | `CLAUDE.md` and `project-map.md` | Intermediate reasoning and analysis |
 | Last 2 `[saved]` entries from `session-log.md` | File contents previously read into context |
-| `known-issues.md` and `context-snapshot.json` | Tool call history |
+| `known-issues.md`; the summary of `context-snapshot.json`, only when the file's `git_hash` is the present HEAD (after a commit made in the session it is not injected again) | Tool call history |
 | `state.md` (if written before compacting) | Multi-step conversation context |
 | Git state, files on disk | Variable names, paths, facts not saved to `state.md` |
 

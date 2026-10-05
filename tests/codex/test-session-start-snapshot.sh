@@ -20,18 +20,23 @@
 #      with no file. An assertion "the block is absent" alone would also pass
 #      on a hook that printed a note, so every case without a block compares
 #      the whole output with the output of the same folder with no file.
-#   4. A hash that is a prefix of HEAD, and a hash that starts with HEAD.
-#   5. No git_hash field; an empty git_hash.
+#      The same for an old hash in a snapshot taken in this minute, and in a
+#      snapshot that counts commits made since the snapshot before it.
+#   4. A hash that is a prefix of HEAD (7, 12 and 39 characters), a hash that
+#      starts with HEAD, HEAD in capital letters, HEAD between two blanks.
+#   5. No git_hash field, also with no generated_at field; an empty git_hash.
 #   6. A file cut in the middle (the engine is writing it).
 #   7. A repository with no commit, with three values of git_hash.
 #   8. A folder that is not a repository.
 #   9. No time in the snapshot, or a text that is not a time.
-#  10. Equal hash and no changed file: no block.
+#  10. Equal hash and no changed file: no block. With a blast radius in the
+#      file: a block that starts with the time line.
 #  11. The hook starts in a sub-folder of the repository.
 #  12. A snapshot too large for the output budget: named in <not-injected>
 #      when its hash is HEAD, not named when its hash is old; the output
 #      stays at or under 10,000 characters.
-#  13. The two skills that read the file compare git_hash with HEAD.
+#  13. The two skills that read the file compare git_hash with HEAD; the
+#      lines of systematic-debugging are compared whole.
 #
 # Self-contained like tests/codex/test-session-start-budget.sh: no network
 # (SUPERPOWERS_AUTO_UPDATE=0), a temporary HOME, CLAUDE_PLUGIN_ROOT set. The
@@ -227,9 +232,28 @@ assert_contains "one commit since the snapshot before: the count is 1" "$(block)
 assert_absent "one commit since the snapshot before: not called the newest commit" "$(block)" "newest commit"
 rm -f "$REPO/$SNAPSHOT_FILE"
 
+# A snapshot taken in this minute: the heading gives that time. The expected
+# text is cut out of the field as text, not computed with a second clock read.
+NOW_FIELD=$(node -e 'process.stdout.write(new Date().toISOString())')
+NOW_TEXT="${NOW_FIELD:0:10} ${NOW_FIELD:11:5} UTC"
+write_snapshot "$REPO" "$HEAD_NOW" "{\"generated_at\":\"${NOW_FIELD}\"}"
+run_hook "$REPO"
+assert_contains "equal hash, snapshot taken now: the heading gives that time" "$(block)" \
+  "Snapshot taken ${NOW_TEXT} at the commit that is HEAD now.${NL}Files changed by the newest commit: snapshot-sentinel.js${NL}"
+rm -f "$REPO/$SNAPSHOT_FILE"
+
 # ── Case 3: the old hash ───────────────────────────────────────────────────
+# Nothing else in the file may replace the comparison: not a snapshot taken
+# a moment ago, and not a count of commits made since the snapshot before.
+SINCE_BEFORE='"cross_session_files":["snapshot-sentinel.js"],"cross_session_commit_count":2'
 write_snapshot "$REPO" "$OLD_HEAD"
 expect_no_block "old hash (the commit before HEAD)" "$REPO" "$BASE_REPO"
+write_snapshot "$REPO" "$OLD_HEAD" "{\"generated_at\":\"${NOW_FIELD}\"}"
+expect_no_block "old hash, snapshot taken now" "$REPO" "$BASE_REPO"
+write_snapshot "$REPO" "$OLD_HEAD" "{${SINCE_BEFORE}}"
+expect_no_block "old hash, 2 commits since the snapshot before" "$REPO" "$BASE_REPO"
+write_snapshot "$REPO" "$OLD_HEAD" "{\"generated_at\":\"${NOW_FIELD}\",${SINCE_BEFORE}}"
+expect_no_block "old hash, snapshot taken now, 2 commits since the snapshot before" "$REPO" "$BASE_REPO"
 
 # The same file is injected, then a commit is made: the comparison is with
 # the HEAD of this moment, not with a stored value.
@@ -247,14 +271,30 @@ assert_absent "after a new commit: no text of the snapshot is injected" "$CTX" "
 assert_absent "after a new commit: the output does not name the file" "$CTX" "$SNAPSHOT_FILE"
 
 # ── Case 4: a part of the hash is not the hash ─────────────────────────────
-write_snapshot "$REPO" "$(printf '%s' "$HEAD_NOW" | cut -c1-7)"
-expect_no_block "hash cut to 7 characters" "$REPO" "$BASE_REPO"
+# 39 characters: every character of the hash but the last one.
+for length in 7 12 39; do
+  write_snapshot "$REPO" "${HEAD_NOW:0:$length}"
+  expect_no_block "hash cut to ${length} characters" "$REPO" "$BASE_REPO"
+done
 write_snapshot "$REPO" "${HEAD_NOW}0"
 expect_no_block "hash with one more character" "$REPO" "$BASE_REPO"
+# git prints the hash in small letters and with no blank; the file must hold
+# the same text. A fixture hash with no letter would make the first case
+# equal to case 1, so the fixture is checked.
+HEAD_CAPITALS=$(printf '%s' "$HEAD_NOW" | tr 'a-f' 'A-F')
+if [ "$HEAD_CAPITALS" = "$HEAD_NOW" ]; then
+  bad "the fixture hash holds no letter, so the capital-letter case tests nothing"
+fi
+write_snapshot "$REPO" "$HEAD_CAPITALS"
+expect_no_block "hash in capital letters" "$REPO" "$BASE_REPO"
+write_snapshot "$REPO" " ${HEAD_NOW} "
+expect_no_block "hash with a blank before and after" "$REPO" "$BASE_REPO"
 
 # ── Case 5: no hash ────────────────────────────────────────────────────────
 write_snapshot "$REPO" "" '{"git_hash":null}'
 expect_no_block "no git_hash field" "$REPO" "$BASE_REPO"
+write_snapshot "$REPO" "" '{"git_hash":null,"generated_at":null}'
+expect_no_block "no git_hash field and no generated_at field" "$REPO" "$BASE_REPO"
 write_snapshot "$REPO" ""
 expect_no_block "empty git_hash" "$REPO" "$BASE_REPO"
 
@@ -307,6 +347,16 @@ expect_no_block "equal hash, generated_at is a number" "$REPO" "$BASE_REPO"
 # ── Case 10: no changed file ───────────────────────────────────────────────
 write_snapshot "$REPO" "$HEAD_NOW" '{"changed_files":[],"blast_radius":{}}'
 expect_no_block "equal hash, no changed file" "$REPO" "$BASE_REPO"
+# The engine never writes a blast radius with no changed file. If a file
+# holds one, the block is printed, and it still starts with the time line.
+# (An empty line follows the time line in that block; the whole block is
+# therefore not compared.)
+write_snapshot "$REPO" "$HEAD_NOW" '{"changed_files":[]}'
+run_hook "$REPO"
+assert_eq "equal hash, no changed file, a blast radius: the first line is the time line" \
+  "$(block | head -n 1)" "$HEADING"
+assert_contains "equal hash, no changed file, a blast radius: the blast radius is printed" "$(block)" "$BLAST_LINES"
+rm -f "$REPO/$SNAPSHOT_FILE"
 
 # ── Case 11: the hook starts in a sub-folder ───────────────────────────────
 # The engine writes the file into the folder of the session, and the hook
@@ -349,11 +399,30 @@ for skill in requesting-code-review systematic-debugging; do
   assert_contains "skill ${skill}: names the equal case" "$text" '**Hashes match (fresh):**'
   assert_contains "skill ${skill}: names the unequal case" "$text" '**Hashes differ (stale):**'
 done
-debugging=$(cat "${REPO_ROOT}/skills/systematic-debugging/SKILL.md")
-assert_contains "skill systematic-debugging: an old snapshot is not used" "$debugging" \
-  '**Hashes differ (stale):** the snapshot is from a previous commit; do not use it'
-assert_absent "skill systematic-debugging: the file is not read without the comparison" "$debugging" \
-  'exists at the project root: read it.'
+# systematic-debugging: the lines under the step "Check recent changes" are
+# compared whole. A check of the first words of each sentence would also pass
+# on a sentence with an exception added at its end, on a missing command and
+# on a consequence turned into its opposite.
+DEBUGGING_STEP='- Check recent changes — what changed since it last worked?'
+DEBUGGING_LINES='  - If `context-snapshot.json` exists at the project root: run `git rev-parse HEAD` and compare to `git_hash` in the file.
+    - **Hashes match (fresh):** the `changed_files` and `recent_commits` fields answer this for the committed changes.
+    - **Hashes differ (stale):** the snapshot is from a previous commit; do not use it. Run the two commands of the next line.
+  - If absent: run `git log --oneline -10` and `git diff HEAD~1..HEAD --name-only`.'
+# The lines from the step to the next step of the list (a line that starts
+# with "- "), without the step line itself.
+debugging_lines=$(awk -v step="$DEBUGGING_STEP" '
+  found && /^- / { exit }
+  found { print }
+  $0 == step { found = 1 }' "${REPO_ROOT}/skills/systematic-debugging/SKILL.md")
+assert_eq "skill systematic-debugging: the lines under 'Check recent changes' are the exact text" \
+  "$debugging_lines" "$DEBUGGING_LINES"
+for word in unless except; do
+  if printf '%s' "$debugging_lines" | grep -qi -- "$word"; then
+    bad "skill systematic-debugging: the lines under 'Check recent changes' hold the word '${word}'"
+  else
+    ok "skill systematic-debugging: the lines under 'Check recent changes' do not hold the word '${word}'"
+  fi
+done
 
 echo "  ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

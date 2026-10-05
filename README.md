@@ -243,13 +243,17 @@ Written automatically by the `context-engine` hook on every session start. No se
 
 ```json
 {
-  "git_hash": "9636c5c",
+  "generated_at": "2026-03-23T21:40:12.118Z",
+  "git_hash": "9636c5c8b20282c1c90f0246a1621e982358b5d6",
   "changed_files": ["hooks/context-engine.js", "hooks/hooks.json"],
-  "change_stat": "2 files changed, 140 insertions(+)",
+  "change_stat": " 2 files changed, 140 insertions(+)",
   "recent_commits": ["9636c5c Check context-snapshot.json in Phase 1", "..."],
   "blast_radius": {
-    "hooks/context-engine.js": ["hooks/hooks.json", "docs/plans/..."]
-  }
+    "hooks/context-engine.js": ["hooks/hooks.json", "docs/plans/..."],
+    "hooks/hooks.json": []
+  },
+  "cross_session_files": ["hooks/context-engine.js", "hooks/hooks.json"],
+  "cross_session_commit_count": 2
 }
 ```
 
