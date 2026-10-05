@@ -8,6 +8,474 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.61.0 — the two safety hooks read the words of a command, and one table of secret file paths applies to five tools
+
+**Problem.** The two safety hooks (programs that can refuse a tool call)
+tested text patterns with a fixed word order. `git reset HEAD~1 --hard`
+passed; `git rm -r --cached .` was refused. Bash could read `.env`; the
+Read tool could not.
+
+**Change.** Each rule now tests the words of a Bash command in any order. One
+path table (patterns of secret file paths) decides for Read, Edit, Write,
+Grep and Bash.
+
+**Effect.** Update the plugin and restart Claude Code. On 34,373 real
+commands the old hooks refused 102 and the new hooks refuse 51; only 14 are
+refused by both. Nothing to migrate; section 7 lists the limits.
+
+The review is the whole-project code review of 2026-10-03 (15 findings).
+Findings 1 to 4 were corrected in v7.59.0, and findings 6, 10 and 11 in
+v7.60.0. Finding 5 no longer exists, because v7.59.0 deleted the file it
+named. This release corrects findings 7 and 8. Findings 9, 12, 13, 14 and
+15 are still open.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the command-line
+interface (CLI).
+
+A hook is a small program that Claude Code runs at a fixed moment. A
+PreToolUse hook runs before a tool call, and it can refuse the call. The
+plugin has two PreToolUse hooks for safety:
+
+- `hooks/safety/block-dangerous-commands.js` checks every Bash command. It
+  refuses a command that destroys work or data.
+- `hooks/safety/protect-secrets.js` checks Read, Edit, Write, Grep and Bash.
+  It refuses a call that reads, changes or copies to another place a file
+  that holds secrets (passwords, keys, tokens).
+
+### 1. What was wrong (findings 7 and 8)
+
+Each rule was one regular expression (a text pattern) that was tested on the
+whole command text. The pattern fixed the order of the words. The release
+author measured these forms with the old hook scripts:
+
+- Dangerous commands passed when their words were in another order:
+  `git reset HEAD~1 --hard`, `git -C repo reset -q --hard`,
+  `git push origin main --force`, `git push origin +main`, `rm -rf ~/*`,
+  `rm -rf ..`. These passed too: `git checkout .`, `git restore .`,
+  `git stash clear`, `git push --mirror` and `rm -rf .git`.
+- Harmless commands were refused. `git rm -r --cached .` only removes files
+  from the index of git (the list of files for the next commit), and the
+  rule for `rm` of the current folder refused it. Text that only names a
+  command was refused: `echo "git reset --hard"`, a commit message that
+  holds these words, a comment, and a here-document that is written to a
+  file. (A here-document is the `<<EOF` form: lines of text that the shell
+  gives to a program as its input.)
+- Read, Edit and Write on `.env` were refused, but the Bash tool could read
+  and write the same file: `grep API_KEY .env`, `echo "A=1" > .env`,
+  `wc -l .env`, `git add .env` and `tar czf a.tgz .env` passed.
+  protect-secrets did not check the Grep tool. Read of `.ENV` and of
+  `C:\proj\.env` passed.
+- The message for a secret value in the content of a Write call told the
+  model to move the value into the `.env` file. The same hook refuses to
+  write that file.
+- Both hooks had a constant `SAFETY_LEVEL` with the value `high`. Nothing
+  could change it, so the 11 rules of level `strict` never ran.
+
+### 2. The new design
+
+Three design agents with different tasks (completeness, attack, false
+refusals, which are refusals of harmless commands) proposed designs. Then
+each agent answered the results of the other two (a rebuttal round). The
+user chose the design and decided four questions: the scratch folder
+exemption (section 4), a command that cannot be read fully, code inside
+`python -c` and similar calls, and the redesign itself.
+
+**One shared reader.** The new file `hooks/safety/shell-words.js` is the
+reader: it turns the text of one Bash call into a list of simple commands. A
+simple command is one program with its words, for example
+`git reset --hard`. The reader removes quotes. It reads comments, redirects
+(`<`, `>`, `>>`: the shell connects a file to the program), pipes (`|`: the
+output of one program is the input of the next), the separators `;`, `&&`
+and `||`, subshells (`( ... )`: commands that run in a separate copy of the
+shell), `$( ... )` and backticks (`` `...` ``; for both forms, the shell
+replaces the text with the output of the commands inside), here-documents
+and `case ... esac`. It skips a prefix program (a program that runs the
+program named after it) and its options, so that it finds the real program:
+`sudo --user bob git ...`, `env NAME=value git ...`, `timeout 5 git ...`. The reader only reads text. It runs nothing.
+
+**Rules on words.** Each rule tests one program, its sub-command (the word
+after the program, such as `reset` in `git reset`), the set of its options
+and its operands (an operand is an argument that is not an option), in any
+order. The options of git itself (`-C <folder>`, `-c <setting>`,
+`--no-pager`) are skipped. A shortened long option counts: `git reset --har`
+is refused like `git reset --hard`.
+
+**Text that is a command by its position is read again** with the same
+rules. The release author measured these forms as refused, with a dangerous
+command inside: `bash -c <text>` (also `bash -euo pipefail -c`),
+`eval <text>`, text piped into a shell, a here-document for a shell, a file
+that the same call writes and then runs, the command after `ssh host` (SSH,
+Secure Shell: `ssh` runs a command on another computer) and after `watch`,
+`su -c <text>`, `find -exec`, `git rebase -x`, `git submodule foreach`, and,
+inside `python -c`, `node -e` or `perl -e`, a call that starts a process:
+`os.system("...")`, `execSync('...')`, Perl `system "..."`,
+`subprocess.run(["git", "reset", "--hard"])`.
+
+**Text that only names a command is data** and passes: an argument of
+`echo` or `grep`, a commit message, a comment, a here-document that is
+written to a file.
+
+**A command that the reader cannot read to its end is refused**, by both
+hooks, with the rule name `unreadable-command`. Example: a quote that is not
+closed. The rules test only the words that the reader returns. When the
+reader stops before the end, the rules do not test the rest of the command,
+and the rest can hold a dangerous command.
+
+**No second check on the whole text.** The old hooks matched a pattern
+anywhere in the command text. The new hooks have no such check. This is why
+quoted text passes. It is also why some commands that were refused before
+pass now; section 7 names them.
+
+**Other changes.**
+
+- The new file `hooks/safety/hook-io.js` holds what both hooks share: the
+  input, the output, the log and the last sentences of every message.
+- An error inside a hook: for a Bash command the call is refused; for Read,
+  Edit, Write and Grep the call passes and the error is written to the log.
+  The reason for the second rule: a defect that refused every Read, Edit and
+  Write would stop all work.
+- `SAFETY_LEVEL` and the 11 rules of level `strict` are removed from both
+  hooks (`git-force-any`, `git-checkout-dot`, `sudo-rm`, `docker-prune`,
+  `crontab-r`, `database-config`, `ssh-known-hosts`, `gitconfig`, `curlrc`,
+  `grep-password`, `base64-secrets`). `git checkout .` is refused now by the
+  rule `git-checkout-tree`. `crontab -r` and `docker system prune` pass, as
+  before.
+- The rules about secret files and secret variables were moved out of
+  block-dangerous-commands. Only protect-secrets holds them now.
+- In `hooks/hooks.json` and `plugin.universal.yaml`, the matcher of
+  protect-secrets (the list of tools for which Claude Code runs the hook)
+  now lists Grep.
+
+### 3. What block-dangerous-commands refuses, and what passes
+
+Three terms: the work tree is the set of files of a repository as they are
+on disk; a force push is a push that overwrites the history of a branch on
+the remote repository; a dry run only lists what a command would do.
+
+Git forms that are refused (the release author measured each one):
+
+| Refused | Rule name |
+|---|---|
+| `git reset` with `--hard` or `--merge`, in any position | `git-reset-hard` |
+| `git clean` without `-n` or `--dry-run` | `git-clean` |
+| `git checkout -f`, `git checkout --force` | `git-checkout-force` |
+| `git checkout .`, `git checkout -- .`, `git checkout HEAD -- .` | `git-checkout-tree` |
+| `git restore .`, `git restore :/`, also with `--source` or with `--staged --worktree` | `git-restore-tree` |
+| `git switch -f`, `git switch --discard-changes` | `git-switch-force` |
+| `git push --force` or `-f` with no branch | `git-force-unnamed` |
+| A force push to `main`, to `master`, to `HEAD` or to a variable: `git push -f origin main`, `git push origin main --force`, `git push origin +main`, `git push origin +HEAD:main` | `git-force-main` |
+| `git push --mirror` | `git-push-mirror` |
+| `git push origin :main`, `git push origin --delete main`, `git push -d origin master` | `git-delete-main` |
+| `git stash clear` | `git-stash-clear` |
+
+Git forms that pass (the release author measured each one):
+
+| Passes | Why |
+|---|---|
+| `git reset --soft`, `--mixed`, `--keep`, `git reset HEAD <file>` | These modes keep the changes of the work tree |
+| `git clean -n`, `git clean -nd`, `git clean --dry-run -d` | A dry run deletes nothing |
+| `git checkout <branch>`, `git checkout -b <branch>`, `git checkout -- <path>` | A branch or named files, not the whole work tree |
+| `git restore <path>`, `git restore --staged .` | Named files, or the index only |
+| `git switch <branch>`, `git switch -c <branch>` | No force option |
+| `git push`, `git push origin feature`, `git push --force origin feature`, `git push origin +feature`, `git push origin :feature` | The branch is not `main` or `master` |
+| `git push --force-with-lease`, with any branch or with none | The rule does not count this option as a force |
+| `git stash`, `git stash pop`, `git stash drop` | Only `git stash clear` has a rule |
+| `git branch -D`, `git rm -r --cached .`, `git rebase main`, `git commit --amend`, `git revert` | No rule |
+
+Other programs (the release author measured each form):
+
+- Refused: `rm -r` of the home folder (`~`, `~/*`, `$HOME`), of a folder
+  directly in the home folder (`~/Documents`), of `/`, of a system folder
+  (`/etc`), of `.`, `..` and `*`, and of `.git`, also inside a brace list
+  (`rm -rf {.git,dist}`; the shell builds one word for each item of
+  `{a,b}`); `rm` of an SSH key file; `find / -delete`;
+  `find . -name .git -exec rm -rf {} +`; `chmod 777`; `dd` to a disk device
+  and a redirect to a disk device (`> /dev/disk2`); `mkfs` on a device
+  (`mkfs.ext4 /dev/sda1`); `docker volume rm`, `docker volume prune`,
+  `docker system prune --volumes`; a download that a shell runs in the
+  same command, before a person can read it
+  (`curl <address> | sh`, `curl -o f.sh <address> && bash f.sh`); a function
+  that starts copies of itself without end.
+- Passes: `rm -rf node_modules`, `rm -rf ./build`, `rm -rf ./{dist,build}`,
+  `rm -rf ~/projects/demo/build`, `find . -name '*.tmp' -delete`,
+  `find . -mmin +60 -delete`, `chmod 755`, `dd` to a file,
+  `docker compose down -v`, `curl -o f.sh <address> && bash -n f.sh`
+  (`bash -n` only checks the syntax), and a downloaded file that is only an
+  argument (`curl -o d.json <address> && python3 parse.py d.json`).
+
+### 4. The scratch folder exemption
+
+A scratch folder is a folder below a temporary folder of the operating
+system (`/tmp`, `/private/tmp`, `/var/tmp`, `/var/folders`, the folder of
+`TMPDIR`). Tests and experiments build git repositories there. An exemption
+is a named condition under which a rule lets a command pass.
+
+The rules for the git work tree (reset, clean, checkout, restore, switch)
+pass when the command text itself names the folder, in one of two forms:
+
+- `git -C <folder> ...`, or
+- `cd <folder> && git ...`, with the `cd` directly before the git command.
+
+`<folder>` must be a full path without a variable and without `~`. It must
+lie below a temporary folder. It must not be the project folder, a folder
+inside the project, or a folder above the project. The project folder is
+`CLAUDE_PROJECT_DIR`; without that variable, the `cwd` field of the hook
+input.
+
+The release author measured these forms as still refused:
+
+- `cd <folder>; git reset --hard`, and the same with a line end in place of
+  `;`. When the `cd` fails, git runs in the folder before it, and that
+  folder can be the project.
+- `cd <folder> && ls && git reset --hard`: the `cd` is not directly before
+  the git command.
+- A relative folder, a folder with a variable (`"$TMPDIR/scratch"`), a
+  folder with `~`, and a folder that is not below a temporary folder.
+- Every push and `git stash clear`. A push changes the remote repository,
+  and the stash belongs to the whole repository.
+- A command with `--git-dir` or with `GIT_DIR=...`.
+
+The same folder test lets `rm -rf <full path>/.git` and
+`cd <full path> && rm -rf .git` pass.
+
+### 5. Secret files: one path table for five tools (finding 8)
+
+A path table is a list of patterns for file paths. The table of
+protect-secrets has 27 rows: `.env` files, `.envrc`, SSH private keys,
+`.pem` and `.key` files, the credential files of AWS, Kubernetes, Google
+Cloud, Azure, Docker, npm and PyPI, `.netrc`, `/proc/<pid>/environ`, and
+others. Paths are compared in lower case and with `/` as the separator, so
+`.ENV` and `C:\proj\.env` are refused. Template files (`.env.example`,
+`.env.sample`, `.env.template`) and public keys (`*.pub`) pass.
+
+The one table decides for five tools: Read, Edit, Write, Grep and Bash.
+
+- **Read, Edit, Write:** the `file_path`.
+- **Grep tool** (new): its `path` and its `glob` (a file name pattern such
+  as `*.env` that selects the files that the search reads). The
+  `pattern` of Grep is
+  text and is never tested. Refused: `path` `.env`; `glob` `*.env`,
+  `.env*`, `{.env,.env.local}`, `**/*.{pem,key}`. A glob that starts with
+  `!` names files that the search leaves out, and it passes.
+- **Bash:** every redirect target and every word of every program. The
+  release author measured these as refused: `grep API_KEY .env`, `echo "A=1" > .env`,
+  `cat < .env`, `wc -l .env`, `sed -n 1p .env`, `git add .env`,
+  `git diff .env`, `git log -p .env`, `tar` and `zip` of the file,
+  `cp x .env`, `mv`, `scp`, `curl -F file=@.env`, `python3 load.py .env`,
+  and a program that the hook does not know (`mytool --config .env`).
+- **A file name pattern** (a name with `*`, `?` or `[...]`) is tested
+  itself, and against the names of secret files that it can match:
+  `cat .env*`, `find . -name '*.env*' -exec cat {} +`,
+  `grep -r --include='*.env' KEY .` and `rg -g '*.env*' KEY` are refused.
+
+A Bash word that names a secret file passes only through an exemption of the
+program that receives it. Two option exemptions hold for every program: the
+value of `--env-file` and the value of `--exclude`. The exemptions, with the
+forms that the release author measured (the code holds the full lists):
+
+- A program that neither prints nor changes the content: `ls`, `test`, `[`,
+  `stat`, `chmod`, `touch`, and `find` without `-exec` and `-delete`.
+- A text argument: the words of `echo`, the pattern of `grep`, the value of
+  `grep -e`, a commit message.
+- A program that loads the file and does not print it: `source` and `.` set
+  the variables of the file in the shell; `ssh-add` loads a private key for
+  later `ssh` logins.
+- An option whose value is a file that the program uses and does not print:
+  `ssh -i` (a private key for the login), `curl --cacert` (certificates
+  that check the server), `kubectl --kubeconfig` (the addresses and
+  credentials of clusters), `dotenv -e` (variables for the command that
+  follows).
+- `--env-file`, for every program: a program such as `docker run` loads the
+  variables of the file and does not print them.
+- `--exclude`, for every program: the value names files that the program
+  leaves out. The program loads nothing from them.
+- `openssl x509 -in`: openssl reads the certificate in the file and prints
+  it, or prints its fields. A certificate holds no secret.
+- `cp -n <template> .env`: `cp -n` never replaces a file that exists.
+- `git check-ignore`, `git ls-files`, `git status`, `git rm --cached`.
+
+An environment variable is a named value that the system gives to every
+program; some hold secrets. A list of every environment variable is
+refused: `env`, `printenv`, `export -p` and `set` without arguments.
+`printenv HOME` passes. `echo` of a variable with a secret name is refused:
+a name in upper case in which one part between `_` is a secret word
+(`$API_KEY`, `$PGPASSWORD`, `$DB_PASS`, `$FILE_ENCRYPTION_KEY`), also as
+`printenv API_KEY` and `declare -p API_KEY`. Counters and addresses pass
+(`$TOKEN_COUNT`, `$PASS`, `$TESTS_PASS`, `$AUTH_URL`, `$SSH_AUTH_SOCK`).
+`echo "${API_KEY:+set}"` passes too: it prints only whether the variable is
+set.
+
+The 14 patterns for a secret value in the content of Edit and Write are
+unchanged. Their message no longer names the `.env` file: it tells the model
+to write code that reads the value from the environment, and to ask the user
+to store the value.
+
+### 6. What a user sees after a refusal
+
+The hook returns the decision `deny` with one message. Every message has the
+same form: the rule name in brackets, what the command would do, a safe
+form, and one or two closing sentences. Example for
+`git reset HEAD~1 --hard` (the hook prints the message on one line):
+
+```
+[git-reset-hard] `git reset --hard` would discard the uncommitted changes of
+the work tree. Safe form: `git stash` first, or `git reset --soft`, `--mixed`
+or `--keep`; in a scratch repository below a temporary folder, name the
+folder in the command: `git -C <full path> ...`. For text that only names a
+command, use the Write tool. Do not retry with another spelling.
+```
+
+What to do after a refusal:
+
+- You want the command, and you accept what it destroys: run it yourself in
+  a terminal outside the session. The plugin has no setting that turns one
+  rule off.
+- The command works in a scratch repository: name the folder in the command
+  (section 4).
+- The text only names a command (a note, a document, a test input): let the
+  model write it with the Write tool, not through the Bash tool.
+- The rule name is `unreadable-command`: the message names the problem, for
+  example "a double quote is not closed". Split the command into simpler
+  commands.
+- A secret file: create or change the file yourself, or give the model the
+  one value that the task needs. `cp -n <template> <file>` passes.
+
+Each refusal adds one record to `~/.claude/hooks-logs/<date>.jsonl`, with
+the fields `ts`, `hook`, `level`, `id`, `tool`, `target`, `session_id` and
+`cwd`, and `permission_mode` when the hook input holds it. For a Bash call,
+`target` holds the whole command text as it was written. The log can
+therefore hold a secret that was part of a refused command. Before this
+release block-dangerous-commands stored the whole command in a field `cmd`,
+and protect-secrets stored its first 100 characters.
+
+### 7. Limits
+
+The hooks read text and run nothing. The release author measured each form
+below. It passes both hooks, unless the line says "refused".
+
+1. A variable as the program or as a path: `$CMD --hard`, `rm -rf "$DIR"`,
+   `F=.env; cat "$F"`. `CMD='git reset --hard'; $CMD` was refused before
+   and passes now.
+2. An alias (a short name that the shell replaces by a command):
+   `alias undo='git reset --hard'; undo` was refused before and passes now.
+3. A script file that exists already: `bash cleanup.sh`, `./cleanup.sh`.
+4. `make clean` and `npm run clean`: the commands are in another file.
+5. A read of a whole folder: `grep -r KEY .`, `tar czf all.tgz .`,
+   `git add .`, `git add -A`, and the Grep tool with `path` `.`.
+6. `xargs` that gets its operands from a pipe: `ls | xargs rm -rf`,
+   `git ls-files | xargs cat`.
+7. A file name pattern: `rm -rf b*`, `cat *`, and a pattern with a negated
+   set of characters: `rm -rf .[!.]*`, `cat .[!.]*`.
+8. Interpreter code (program text that `python`, `node` or `perl` runs)
+   other than the calls of section 2:
+   `python3 -c "print(open('.env').read())"`, a Python tuple (a list
+   written in round brackets: `subprocess.run(("git", "reset", "--hard"))`),
+   a list over several
+   lines, and a call with several quoted arguments
+   (`perl -e 'system("git", "reset", "--hard")'`).
+9. A secret variable name in lower case: `echo "$api_key"`, `echo "$token"`.
+   Both were refused before.
+10. Some forms of the positions of section 2: `su -lc <text>`,
+    `echo <text> | bash -s arg`, and a script that the same call writes and
+    then runs as `bash -euo pipefail x.sh`. These three were refused before,
+    because the old pattern matched anywhere in the text.
+    `find . -name '.git*' -exec rm -rf {} +` also passes.
+11. `git push --force-with-lease origin main` passes, and
+    `git push --force` passes for a branch other than `main` and `master`.
+12. Run time. The release author ran two input shapes of one megabyte, and
+    the hooks had not finished after 65 seconds, when the measuring script
+    stopped them: 125,000 `tee` programs in one pipe (both hooks), and one
+    quoted `rm` word that starts a brace list of 500,000 items and does not
+    close it (block-dangerous-commands). The same `rm` word without quotes
+    is as slow: block-dangerous-commands had not finished it after 66
+    seconds, when the script stopped it. No one measured the full run time
+    of these shapes. A pipe of 12,500 `tee` programs (100 KB) needs about 2
+    seconds: the median (the middle value of the sorted times) of 3 runs on
+    one computer (macOS) was 2.02 seconds for block-dangerous-commands and
+    2.04 seconds for protect-secrets.
+    `hooks/hooks.json` sets no time limit for the two hooks. The hooks
+    reference of Claude Code (a copy saved on 2026-10-05) gives 600 seconds
+    as the default limit of a command hook, and it says that the tool call
+    continues when a PreToolUse hook reaches its limit. A closed brace list
+    of 500,001 items is refused in 0.08 seconds as `unreadable-command`.
+13. Harmless commands that are refused (false refusals):
+    `zip -r a.zip . -x '*.pem' -x '.env*'` (only the words after the first
+    `-x` are read as patterns to leave out;
+    `zip -r a.zip . -x '*.pem' '.env*'` passes); `echo $KEY_FILE`;
+    `yq eval '.tls.key' values.yaml`;
+    `python -m uvicorn app:app --ssl-keyfile tls.key`; `cat *.cnf`;
+    `grep KEY *.env`.
+14. A refused command is written to the hook log as it was written
+    (section 6).
+15. `.opencode/plugins/superpowers-orchestrator.js` holds an older copy of
+    the rule tables of both hooks, with `SAFETY_LEVEL` and the 11 `strict`
+    rows. This release does not change that file.
+16. The Codex adapter (`hooks/codex/pretool-bash-adapter.js`, the script
+    that runs the hook rules for Codex, another coding agent) calls the rule
+    functions of both hooks for a Bash command, so it has the new Bash
+    rules. It checks no other tool. This release changed it to print the
+    new message form and to give the `cwd` field of the hook input to the
+    rules of block-dangerous-commands. Codex is no longer supported.
+17. No hook checks the Glob tool: no matcher lists it. Glob lists file names
+    and prints no content.
+18. A program that reads the file named after `--env-file` or `--exclude`
+    (section 5): a script that receives `--exclude=.env` and opens the file
+    is not refused.
+19. `git -C <scratch folder> -c core.worktree=<project> reset --hard`. The
+    setting `core.worktree` names the project folder as the work tree, so
+    the reset changes the files of the project. Only a command that is
+    written to hide its target would use this option.
+20. A command that is written to hide its meaning on purpose.
+
+### 8. Tests and measurements
+
+- `tests/codex/test-block-dangerous-commands.js`: 1,043 checks on the real
+  hook script, one process for each input. 359 are named checks, and 684 are
+  the cases of two decision tables (a decision table is a file that lists
+  inputs, each with its expected decision):
+  `tests/codex/fixtures/block-dangerous-cases.json`, 645 cases, and
+  `block-dangerous-regressions.json`, 39 cases.
+- `tests/codex/test-protect-secrets.js`: 1,015 checks. 375 are named checks,
+  and 640 are the cases of two decision tables
+  (`protect-secrets-cases.json`, 572 cases;
+  `protect-secrets-regressions.json`, 68 cases).
+- `bash tests/codex/run-unit-tests.sh`: 20 suites.
+- For this entry, the release author ran 340 different inputs through the
+  real hook scripts of the old version (commit `7698f52`) and of the new
+  version, one process for each input. Every form that sections 1 to 7 name
+  as measured was one of them, except the forms of limit 12. The forms of
+  limits 18 and 19 and the example `mkfs.ext4 /dev/sda1` (section 3) come
+  from a later fact check, which ran them through the real hook scripts in
+  the same way.
+- Run time of one hook process on one computer (macOS), median of 21 runs:
+  18 to 19 milliseconds for a normal command such as `git status`. The old
+  hooks needed 17 to 18 milliseconds, and a Node process that does nothing
+  needs 14.
+- Inputs of one megabyte, median of 3 runs, in seconds for
+  block-dangerous-commands and for protect-secrets: a list of commands
+  joined by `&&`, 0.14 and 0.15; a here-document for a shell, 0.13 and
+  0.13; one long word, 0.02 and 0.02; nested subshells, 0.04 and 0.04;
+  files that are written and then run, 0.21 and 0.29; a list of pipes into
+  `xargs`, 0.14 and 0.14; one word of one megabyte of `*`, 0.02 and 0.03.
+- The decisions on real commands. A private list holds 34,373 different
+  Bash commands of past sessions. The rule functions of both versions
+  decided each command, in one process. The old hooks refused 102 commands,
+  and the new hooks refuse 51. 14 commands are refused by both, 88 only by
+  the old hooks and 37 only by the new hooks. The smaller number 51 does
+  not show fewer false refusals: 37 of the 51 commands passed the old
+  hooks, and the rule `unreadable-command` refuses 19 of these 37. The 51
+  by rule: `unreadable-command` 19, `env-dump` 17, `git-reset-hard` 9,
+  `git-checkout-tree` 5, `git-checkout-force` 2 (one command has two
+  rules). Of the 19 commands that the reader could not read, `bash -n` and
+  `zsh -n` (a syntax check that runs nothing) both reject 17 and both
+  accept 1; bash alone accepts 1. The slowest command needed 3.1
+  milliseconds for both rule sets. These are figures only: nobody judged for
+  this entry which of the refusals are right.
+
+No one tested the new hooks in an interactive session, on Windows, with the
+behavioural suites or in Copilot CLI.
+
 ## v7.60.0 — a commit reminder for the session's own files, no invented test result, and a worktree removal that asks first
 
 **Problem.** The stop hook's commit reminder also counted files the session
