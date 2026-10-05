@@ -67,15 +67,31 @@ const SED_SKILL_READ_PATTERN = /sed -n ['"](\d+),(\d+)p['"]\s+(\S*SKILL\.md)/;
 const REDIRECT_OPERATOR_PATTERN = />>?[ \t]*/g;
 // Characters that end a shell word when they are outside quotes.
 const SHELL_WORD_END_CHARS = ' \t\n;&|<>()';
+// The quote characters of the shell.
+const SHELL_QUOTE_CHARS = `"'`;
+// The start of a command substitution `$(...)`. It is read as a part of the
+// word, up to its closing ")".
+const COMMAND_SUBSTITUTION_OPEN = '$(';
+// A heredoc operator "<<" or "<<-" (not the here-string operator "<<<") and
+// the blanks after it; the delimiter word starts where the match ends.
+const HEREDOC_OPERATOR_PATTERN = /(?<!<)<<(?!<)(-?)[ \t]*/g;
+// The tabs at the start of a body line, which the "<<-" operator removes.
+const LEADING_TABS_PATTERN = /^\t*/;
 // A shell variable name: a letter or "_", then letters, digits or "_".
 const SHELL_NAME_SOURCE = '[A-Za-z_]\\w*';
 // A shell variable assignment `NAME=`; the value word starts where the match
 // ends. NAME must start a word, so `--opt=x` and `a.b=x` do not match.
 const SHELL_ASSIGNMENT_PATTERN = new RegExp(`(?:^|[\\s;&|(])(${SHELL_NAME_SOURCE})=`, 'g');
+// One blank between two words: a space, a tab, or a backslash before a new
+// line (the shell joins the two lines).
+const SHELL_BLANK_SOURCE = String.raw`(?:[ \t]|\\\n)`;
 // What must follow an assigned value so that later words of the same command
-// see it: "&&", ";" or a new line. Without it, `NAME=value cmd` only sets
-// NAME for cmd, and a redirect on cmd does not see the value.
-const ASSIGNMENT_END_PATTERN = /^[ \t]*(?:&&|;|\n)/;
+// see it: "&&", "||", ";" or a new line, after blanks or after a "#" comment.
+// Without it, `NAME=value cmd` only sets NAME for cmd, and a redirect on cmd
+// does not see the value.
+const ASSIGNMENT_END_PATTERN = new RegExp(String.raw`^${SHELL_BLANK_SOURCE}*(?:#.*\n|&&|\|\||;|\n)`);
+// Only blanks: the text between two assignments of one line (`A=1 B=2;`).
+const BLANKS_ONLY_PATTERN = new RegExp(`^${SHELL_BLANK_SOURCE}+$`);
 // A redirect target that is one variable and nothing else: $NAME or ${NAME},
 // bare or in double quotes. In single quotes the shell does not expand it.
 const VARIABLE_TARGET_PATTERN = new RegExp(`^(")?\\$(?:\\{(${SHELL_NAME_SOURCE})\\}|(${SHELL_NAME_SOURCE}))\\1$`);
@@ -207,20 +223,45 @@ function matchEnd(match) {
   return match.index + match[0].length;
 }
 
+// The position of the quote that closes the quote at position `open` of
+// `text`, or the end of `text` when no quote closes it.
+function closingQuote(text, open) {
+  const close = text.indexOf(text[open], open + 1);
+  return close === -1 ? text.length : close;
+}
+
+// The position after the ")" that closes the "$(" at position `start` of
+// `text`, or the end of `text` when no ")" closes it. Parentheses inside
+// quotes are not counted.
+function commandSubstitutionEnd(text, start) {
+  let depth = 0;
+  for (let i = start + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (SHELL_QUOTE_CHARS.includes(ch)) i = closingQuote(text, i);
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return i + 1;
+  }
+  return text.length;
+}
+
 // Read the shell word that starts at position `start` of `text`. The word
-// ends at the first character of SHELL_WORD_END_CHARS outside quotes. The
-// quotes are removed: `value` holds the text inside them as written. `raw`
-// is the word as written in the command, and `end` is the position after it.
+// ends at the first character of SHELL_WORD_END_CHARS outside quotes and
+// outside a `$(...)`. The quotes are removed: `value` holds the text inside
+// them as written. A `$(...)` stays in `value` as written. `raw` is the word
+// as written in the command, and `end` is the position after it.
 function readShellWord(text, start) {
   let value = '';
   let i = start;
   while (i < text.length && !SHELL_WORD_END_CHARS.includes(text[i])) {
     const ch = text[i];
-    if (ch === '"' || ch === "'") {
-      const close = text.indexOf(ch, i + 1);
-      const stop = close === -1 ? text.length : close;
+    if (SHELL_QUOTE_CHARS.includes(ch)) {
+      const stop = closingQuote(text, i);
       value += text.slice(i + 1, stop);
       i = stop + 1;
+    } else if (text.startsWith(COMMAND_SUBSTITUTION_OPEN, i)) {
+      const stop = commandSubstitutionEnd(text, i);
+      value += text.slice(i, stop);
+      i = stop;
     } else {
       value += ch;
       i++;
@@ -230,16 +271,47 @@ function readShellWord(text, start) {
   return { value, raw: text.slice(start, end), end };
 }
 
-// The variables that a command assigns before its later words run, in order.
-function shellAssignments(command) {
-  const assignments = [];
-  for (const m of command.matchAll(SHELL_ASSIGNMENT_PATTERN)) {
-    const word = readShellWord(command, matchEnd(m));
-    if (ASSIGNMENT_END_PATTERN.test(command.slice(word.end))) {
-      assignments.push({ name: m[1], value: word.value, end: word.end });
+// The command without its heredoc bodies. A body is the lines after the line
+// that holds its "<<WORD" operator, up to the line that is WORD alone (for
+// "<<-WORD": WORD after leading tabs). A body is data for the command, not
+// code, so a redirect written inside a body does not run. An operator whose
+// closing line never comes is not read as a heredoc: most often it is "<<"
+// inside a quoted string.
+function withoutHeredocBodies(command) {
+  const lines = command.split('\n');
+  const code = [];
+  let next = 0;
+  while (next < lines.length) {
+    const line = lines[next++];
+    code.push(line);
+    for (const m of line.matchAll(HEREDOC_OPERATOR_PATTERN)) {
+      const delimiter = readShellWord(line, matchEnd(m)).value;
+      const bodyLength = lines.slice(next)
+        .findIndex((l) => (m[1] ? l.replace(LEADING_TABS_PATTERN, '') : l) === delimiter);
+      if (delimiter && bodyLength !== -1) next += bodyLength + 1;
     }
   }
-  return assignments;
+  return code.join('\n');
+}
+
+// The variables that a command assigns before its later words run, in order.
+// An assignment counts when ASSIGNMENT_END_PATTERN follows it, or when only
+// blanks separate it from a next assignment that counts (`A=1 B=2; cmd` sets
+// both). The list is built from the last assignment to the first.
+function shellAssignments(command) {
+  const candidates = [...command.matchAll(SHELL_ASSIGNMENT_PATTERN)].map((m) => {
+    const valueStart = matchEnd(m);
+    const word = readShellWord(command, valueStart);
+    return { name: m[1], value: word.value, nameStart: valueStart - `${m[1]}=`.length, end: word.end };
+  });
+  for (let k = candidates.length - 1; k >= 0; k--) {
+    const assignment = candidates[k];
+    const next = candidates[k + 1];
+    assignment.persists = ASSIGNMENT_END_PATTERN.test(command.slice(assignment.end))
+      || (next !== undefined && next.persists
+        && BLANKS_ONLY_PATTERN.test(command.slice(assignment.end, next.nameStart)));
+  }
+  return candidates.filter((assignment) => assignment.persists);
 }
 
 // The path a redirect target names. A target that is one variable is
@@ -255,21 +327,29 @@ function redirectTargetPath(word, assignments, redirectIndex) {
 
 // True when a Bash command redirects (">" or ">>") into a ruling/log file,
 // for example a heredoc append of a ruling entry. Only the file name (the
-// last part of the path) must be literal: `$ROOT/docs/orchestration-log.md`
-// and `~/docs/orchestration-log.md` count.
+// last part of the path) must be literal: `$ROOT/docs/orchestration-log.md`,
+// `$(git rev-parse --show-toplevel)/docs/orchestration-log.md` and
+// `~/docs/orchestration-log.md` count. Heredoc bodies are not searched for
+// redirects.
 // Limits: the tool does not run the shell, so these targets are not
 // recognised and get no mark:
 // - a variable assigned in another Bash call, assigned after the redirect,
 //   or assigned only as a prefix of the command (`NAME=value cmd >> "$NAME"`);
 // - a variable whose value is itself only a variable (one level is resolved);
 // - a file name made by a command substitution (`$(...)` or backquotes) or by
-//   a variable inside the file name (`/x/$NAME.md`);
+//   a variable inside the file name (`/x/$NAME.md`); a backquote substitution
+//   that holds a blank also ends the word early;
 // - a target that holds a backslash escape (the backslash is kept) or a
 //   double quote inside double quotes (the word ends too early).
+// Heredoc limits: a body is found only by its closing line, so
+// - a body after `<<\EOF` is searched as code (the backslash is kept in the
+//   delimiter, and no line is equal to it);
+// - a "<<WORD" inside quotes hides the lines up to a later line WORD alone.
 function bashWritesRulingLog(command) {
-  const assignments = shellAssignments(command);
-  return [...command.matchAll(REDIRECT_OPERATOR_PATTERN)].some((m) => {
-    const word = readShellWord(command, matchEnd(m));
+  const code = withoutHeredocBodies(command);
+  const assignments = shellAssignments(code);
+  return [...code.matchAll(REDIRECT_OPERATOR_PATTERN)].some((m) => {
+    const word = readShellWord(code, matchEnd(m));
     return isRulingLogBasename(baseName(redirectTargetPath(word, assignments, m.index)));
   });
 }
@@ -423,6 +503,10 @@ function analyze(records) {
         if (written && (block.name === TOOL_EDIT || block.name === TOOL_WRITE)) {
           collectHeadings(written, index, headings);
         }
+        // The headings are read from the whole command, heredoc bodies
+        // included: a ruling is written to the log through a heredoc body.
+        // Limit: the headings of a second body that goes to another file
+        // are counted too.
         if (block.name === TOOL_BASH && bashWritesRulingLog(String(input.command || ''))) {
           collectHeadings(String(input.command), index, headings);
         }

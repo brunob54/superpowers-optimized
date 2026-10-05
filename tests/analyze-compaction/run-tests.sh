@@ -20,15 +20,10 @@
 # The fixture `fixtures/edge-cases.jsonl` holds a `null` line, a blank line
 # and two records without a `message` field.
 # The fixture `fixtures/redirect-targets.jsonl` holds one compaction and then
-# eleven Bash heredoc appends, each with one heading. Calls 1 to 6 write the
-# log through a target form the tool must read: double quotes, single quotes,
-# `$L` assigned before `&&`, `${D}` assigned before `;`, `"${LOG}"` assigned
-# on the line before, and a quoted target followed directly by `;`. Calls 7 to
-# 11 use a form the tool cannot resolve, so they stay unmarked: a variable
-# assigned in another call, a command substitution, an assignment that is
-# only a prefix of the command (no `&&`, `;` or new line after it), a
-# variable name in single quotes (the shell does not expand it), and a
-# variable assigned after the redirect.
+# 33 Bash calls. Each call is one form of a redirect target, of a variable
+# assignment or of a heredoc. Section 8 names the form of each call and says
+# whether the tool must mark it as a log write. Every call except 24 holds
+# one heading; only the headings of the marked calls are collected.
 
 set -u
 # Stop the suite when a command is not found; the file explains the reason.
@@ -41,6 +36,9 @@ FIXTURE="$FIX/compaction.jsonl"
 FIX_EDGE="$FIX/edge-cases.jsonl"
 FIX_REDIRECT="$FIX/redirect-targets.jsonl"
 MARK_LOG_WRITE=' <-- ruling/log write'
+# What call_mark prints.
+MARKED=marked
+UNMARKED=unmarked
 
 # The fixture's hand-chosen figures.
 EXP_RECORDS=19
@@ -77,10 +75,23 @@ OLD_AGENT_STOP='(list ended at an Agent dispatch)'
 EXP_C_ROW='    2 C  rec    6  16:02:00  ctx    1015  Bash'
 EXP_USAGE='usage: node tools/analyze-compaction.js <transcript.jsonl> [--after N]'
 EXP_AFTER_ERROR='--after needs a positive integer'
-# The redirect-targets fixture: 11 calls, and the 6 headings of calls 1 to 6
-# (records 1 to 6). The headings of calls 7 to 11 must not be collected.
-EXP_REDIRECT_LIST_HEADER='next 11 tool calls:'
-EXP_REDIRECT_HEADINGS='RULING/STOPPED headings written: 6 — rec 1: ## RULING 1 — double quotes; rec 2: ## RULING 2 — single quotes; rec 3: ## RULING 3 — variable; rec 4: ## STOPPED — braces; rec 5: ## RULING 4 — new line; rec 6: ## RULING 5 — semicolon'
+# The redirect-targets fixture: 33 calls, and the 19 headings of calls 1 to 6,
+# 12 to 21, 26, 27 and 31 (call N is record N). The headings of the unmarked
+# calls must not be collected.
+EXP_REDIRECT_LIST_HEADER='next 33 tool calls:'
+# More than the 33 calls, so the default cap of 30 listed calls hides none.
+REDIRECT_AFTER=40
+EXP_REDIRECT_HEADINGS='RULING/STOPPED headings written: 19 — '\
+'rec 1: ## RULING 1 — double quotes; rec 2: ## RULING 2 — single quotes; '\
+'rec 3: ## RULING 3 — variable; rec 4: ## STOPPED — braces; '\
+'rec 5: ## RULING 4 — new line; rec 6: ## RULING 5 — semicolon; '\
+'rec 12: ## RULING 11 — substitution in a value; rec 13: ## RULING 12 — substitution in a target; '\
+'rec 14: ## RULING 13 — variable directory; rec 15: ## STOPPED — overwrite; '\
+'rec 16: ## RULING 14 — ampersand; rec 17: ## RULING 15 — comment; '\
+'rec 18: ## RULING 16 — or; rec 19: ## RULING 17 — two assignments; '\
+'rec 20: ## RULING 18 — continued line; rec 21: ## RULING 19 — after an unclosed operator; '\
+'rec 26: ## RULING 23 — after an empty delimiter; rec 27: ## RULING 24 — parenthesis in quotes; '\
+'rec 31: ## RULING 28 — nested substitution'
 
 PASS=0
 FAIL=0
@@ -117,10 +128,10 @@ run_text() { # transcript [args...]
   STATUS=$?
 }
 
-# Prints "marked" when line N of the tool-call list in the last output ends
-# with the ruling/log write mark, and "unmarked" otherwise.
+# Prints $MARKED when line N of the tool-call list in the last output ends
+# with the ruling/log write mark, and $UNMARKED otherwise.
 call_mark() { # call-number
-  if grep -E "^  $1\\. " "$OUTF" | grep -q -- "$MARK_LOG_WRITE\$"; then echo marked; else echo unmarked; fi
+  if grep -E "^  $1\\. " "$OUTF" | grep -q -- "$MARK_LOG_WRITE\$"; then echo "$MARKED"; else echo "$UNMARKED"; fi
 }
 
 bold "1. Header figures"
@@ -184,21 +195,43 @@ assert_eq "--after 0 exits 1" "$STATUS" "1"
 assert_file_has_line "--after 0 names the rule" "$ERRF" "$EXP_AFTER_ERROR"
 
 bold "8. Redirect targets in quotes or in a variable"
-run_text "$FIX_REDIRECT"
+run_text "$FIX_REDIRECT" --after "$REDIRECT_AFTER"
 assert_eq "exits 0" "$STATUS" "0"
-assert_file_has_line "all eleven calls are listed" "$OUTF" "$EXP_REDIRECT_LIST_HEADER"
-assert_eq "a target in double quotes is marked" "$(call_mark 1)" "marked"
-assert_eq "a target in single quotes is marked" "$(call_mark 2)" "marked"
-assert_eq "\$L assigned before && is marked" "$(call_mark 3)" "marked"
-assert_eq "\${D} assigned a quoted value before ; is marked" "$(call_mark 4)" "marked"
-assert_eq "\"\${LOG}\" assigned on the line before is marked" "$(call_mark 5)" "marked"
-assert_eq "a quoted target followed directly by ; is marked" "$(call_mark 6)" "marked"
-assert_eq "a variable assigned in another call stays unmarked" "$(call_mark 7)" "unmarked"
-assert_eq "a command substitution stays unmarked" "$(call_mark 8)" "unmarked"
-assert_eq "an assignment that is only a command prefix stays unmarked" "$(call_mark 9)" "unmarked"
-assert_eq "a variable name in single quotes stays unmarked" "$(call_mark 10)" "unmarked"
-assert_eq "a variable assigned after the redirect stays unmarked" "$(call_mark 11)" "unmarked"
-assert_file_has_line "the headings of the six marked calls, and only those, are collected" "$OUTF" "$EXP_REDIRECT_HEADINGS"
+assert_file_has_line "all 33 calls are listed" "$OUTF" "$EXP_REDIRECT_LIST_HEADER"
+assert_eq "a target in double quotes is marked" "$(call_mark 1)" "$MARKED"
+assert_eq "a target in single quotes is marked" "$(call_mark 2)" "$MARKED"
+assert_eq "\$L assigned before && is marked" "$(call_mark 3)" "$MARKED"
+assert_eq "\${D} assigned a quoted value before ; is marked" "$(call_mark 4)" "$MARKED"
+assert_eq "\"\${LOG}\" assigned on the line before is marked" "$(call_mark 5)" "$MARKED"
+assert_eq "a quoted target followed directly by ; is marked" "$(call_mark 6)" "$MARKED"
+assert_eq "a variable assigned in another call stays unmarked" "$(call_mark 7)" "$UNMARKED"
+assert_eq "a command substitution that makes the file name stays unmarked" "$(call_mark 8)" "$UNMARKED"
+assert_eq "an assignment that is only a command prefix stays unmarked" "$(call_mark 9)" "$UNMARKED"
+assert_eq "a variable name in single quotes stays unmarked" "$(call_mark 10)" "$UNMARKED"
+assert_eq "a variable assigned after the redirect stays unmarked" "$(call_mark 11)" "$UNMARKED"
+assert_eq "an assigned value that starts with an unquoted \$(...) is marked" "$(call_mark 12)" "$MARKED"
+assert_eq "an unquoted target that starts with \$(...) is marked" "$(call_mark 13)" "$MARKED"
+assert_eq "a target \$R/<log file name> is marked" "$(call_mark 14)" "$MARKED"
+assert_eq "a single > into a log file is marked" "$(call_mark 15)" "$MARKED"
+assert_eq "a target followed directly by && is marked" "$(call_mark 16)" "$MARKED"
+assert_eq "an assignment followed by a # comment is marked" "$(call_mark 17)" "$MARKED"
+assert_eq "an assignment followed by || is marked" "$(call_mark 18)" "$MARKED"
+assert_eq "an assignment followed by a second assignment and ; is marked" "$(call_mark 19)" "$MARKED"
+assert_eq "an assignment followed by a backslash and a new line is marked" "$(call_mark 20)" "$MARKED"
+assert_eq "a heredoc after a quoted <<EOF that never closes is marked" "$(call_mark 21)" "$MARKED"
+assert_eq "L assigned a log path and then another file stays unmarked" "$(call_mark 22)" "$UNMARKED"
+assert_eq "a log write that is only text in a heredoc body stays unmarked" "$(call_mark 23)" "$UNMARKED"
+assert_eq "a commit message heredoc inside \"\$(...)\" that names the log stays unmarked" "$(call_mark 24)" "$UNMARKED"
+assert_eq "two assignments that are only command prefixes stay unmarked" "$(call_mark 25)" "$UNMARKED"
+assert_eq "an empty delimiter after '<<' does not hide the next heredoc" "$(call_mark 26)" "$MARKED"
+assert_eq "a ) inside quotes does not close a \$(...)" "$(call_mark 27)" "$MARKED"
+assert_eq "a prefix assignment before an assignment on a later line stays unmarked" "$(call_mark 28)" "$UNMARKED"
+assert_eq "an assignment followed by a single & stays unmarked" "$(call_mark 29)" "$UNMARKED"
+assert_eq "an assignment followed by a single | stays unmarked" "$(call_mark 30)" "$UNMARKED"
+assert_eq "a \$(...) inside a \$(...) is read to its outer )" "$(call_mark 31)" "$MARKED"
+assert_eq "a <<-EOF body closed by <tab>EOF stays unmarked" "$(call_mark 32)" "$UNMARKED"
+assert_eq "a <<EOF body that holds a <tab>EOF line stays unmarked" "$(call_mark 33)" "$UNMARKED"
+assert_file_has_line "the headings of the marked calls, and only those, are collected" "$OUTF" "$EXP_REDIRECT_HEADINGS"
 
 echo
 bold "Results: $PASS passed, $FAIL failed"
