@@ -15,6 +15,13 @@
 # "special", or when the path held "test" or "spec" inside another word
 # (components/Inspector.ts, attestation/verify.go). Measured with BSD grep:
 # the old command printed 2 of the 9 production stubs of the fixture below.
+#
+# A second defect (review of 2026-10-05): the filter of commit 4f76ec9 read
+# the whole path that grep printed, also the part above the scanned folder.
+# With an absolute <src-dir> under a parent folder named "tests" (for example
+# /x/tests/myproj/src), the filter dropped every line and the scan printed
+# nothing. The fixture folder of this suite has such a parent folder, and the
+# suite runs the scan with a relative and with an absolute <src-dir>.
 
 set -u
 # Stop the suite when a command is not found; the file explains the reason.
@@ -24,9 +31,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SKILL="$ROOT/skills/verification-before-completion/SKILL.md"
 SCAN_HEADING='## Stub Scan (Implementation Tasks)'
 SRC_PLACEHOLDER='<src-dir>'
-# The fixture folder, relative to $TMP. The scan runs from $TMP with this
-# relative name, so the path of the temporary folder never reaches a filter.
-FIXTURE_DIR='src'
+# The scanned folder, relative to $TMP. Its parent folder is named "tests" on
+# purpose: the part of a path above the scanned folder must never decide.
+FIXTURE_DIR='tests/proj/src'
 NL=$'\n'
 PASS=0
 FAIL=0
@@ -57,10 +64,11 @@ block_after() {
 }
 SCAN_CMD=$(block_after "$SCAN_HEADING")
 
-# stub <path> <line>: writes a fixture file under $TMP that holds <line>.
+# stub <path> <line>: writes a fixture file that holds <line>. <path> is
+# relative to the scanned folder $TMP/$FIXTURE_DIR.
 stub() {
-  mkdir -p "$(dirname "$TMP/$1")"
-  printf '%s\n' "$2" > "$TMP/$1"
+  mkdir -p "$(dirname "$TMP/$FIXTURE_DIR/$1")"
+  printf '%s\n' "$2" > "$TMP/$FIXTURE_DIR/$1"
 }
 # prod <path> <line>: a stub in a production file. The scan must print it.
 EXPECTED=''
@@ -72,43 +80,94 @@ prod() {
 test_file() { stub "$1" "$2"; }
 
 # Production files. Each one breaks the old filter in a different way.
-prod "$FIXTURE_DIR/app/version.ts"           '// TODO: read the latest version from the server'
-prod "$FIXTURE_DIR/app/pricing.py"           '# FIXME: the special price rule is missing'
-prod "$FIXTURE_DIR/components/Inspector.ts"  '// TODO: draw the panel'
-prod "$FIXTURE_DIR/attestation/verify.go"    '// TODO: check the signature'
-prod "$FIXTURE_DIR/latest/build.rs"          '// TODO: add the build step'
+prod "app/version.ts"                         '// TODO: read the latest version from the server'
+prod "app/pricing.py"                         '# FIXME: the special price rule is missing'
+prod "components/Inspector.ts"                '// TODO: draw the panel'
+prod "attestation/verify.go"                  '// TODO: check the signature'
+prod "latest/build.rs"                        '// TODO: add the build step'
 # A file name that ends in "test.go" without the "_test.go" form, and a file
 # name that holds "test_" after its first letter.
-prod "$FIXTURE_DIR/app/contest.go"           '// TODO: rank the players'
-prod "$FIXTURE_DIR/app/attest_report.py"     '# TODO: write the report'
+prod "app/contest.go"                         '// TODO: rank the players'
+prod "app/attest_report.py"                   '# TODO: write the report'
 # Code text that names a test folder. Only the path of a line may decide.
-prod "$FIXTURE_DIR/app/loader.py"            '# TODO: read the files in data/tests/ too'
+prod "app/loader.py"                          '# TODO: read the files in data/tests/ too'
 # Two production files that the old filter printed too.
-prod "$FIXTURE_DIR/app/main.js"              '// FIXME: handle the error'
-prod "$FIXTURE_DIR/app/service.py"           '    raise NotImplementedError'
+prod "app/main.js"                            '// FIXME: handle the error'
+prod "app/service.py"                         '    raise NotImplementedError'
+# A file at the top of the scanned folder. Some grep programs print it as
+# "./index.ts", others as "index.ts"; both forms must reach the list.
+prod "index.ts"                               '// TODO: export the public names'
+# Production files that pin the exact list of test forms: each one is close
+# to a test form, and a filter that drops more than the listed forms drops it.
+prod "app/x.spectrum.ts"                      '// TODO: draw the spectrum'
+prod "mocks/server.ts"                        '// TODO: answer the requests'
+prod "fixtures/data.py"                       '# TODO: load the data'
+prod "app/lib_test.rs"                        '// TODO: parse the input'
+prod "app/contests.py"                        '# TODO: list the contests'
+# Go compiles only *_test.go files as tests, so tests.go is production code.
+prod "app/tests.go"                           '// TODO: count the tests'
+# Folder names match with case: a "Tests" folder is not a test folder. This
+# is a known limit in the safe direction: the scan prints too much, and it
+# never drops a production stub.
+prod "lib/Tests/m.py"                         '# TODO: a folder named Tests'
 
 # Test files: one for each test form that the skill text names.
-test_file "$FIXTURE_DIR/test/a.py"           '# TODO: a test folder'
-test_file "$FIXTURE_DIR/tests/b.rs"          '// TODO: a tests folder'
-test_file "$FIXTURE_DIR/__tests__/c.js"      '// TODO: a __tests__ folder'
-test_file "$FIXTURE_DIR/spec/d.ts"           '// TODO: a spec folder'
-test_file "$FIXTURE_DIR/specs/e.go"          '// TODO: a specs folder'
-test_file "$FIXTURE_DIR/pkg/tests/unit/f.py" '# TODO: a tests folder deeper down'
-test_file "$FIXTURE_DIR/app/g.test.ts"       '// TODO: a .test. file name'
-test_file "$FIXTURE_DIR/app/h.spec.js"       '// TODO: a .spec. file name'
-test_file "$FIXTURE_DIR/app/i_test.go"       '// TODO: a _test.go file name'
-test_file "$FIXTURE_DIR/app/j_test.py"       '# TODO: a _test.py file name'
-test_file "$FIXTURE_DIR/app/test_k.py"       '# TODO: a test_*.py file name'
+test_file "test/a.py"                         '# TODO: a test folder'
+test_file "tests/b.rs"                        '// TODO: a tests folder'
+test_file "__tests__/c.js"                    '// TODO: a __tests__ folder'
+test_file "spec/d.ts"                         '// TODO: a spec folder'
+test_file "specs/e.go"                        '// TODO: a specs folder'
+test_file "pkg/tests/unit/f.py"               '# TODO: a tests folder deeper down'
+test_file "app/g.test.ts"                     '// TODO: a .test. file name'
+test_file "app/h.spec.js"                     '// TODO: a .spec. file name'
+test_file "app/i_test.go"                     '// TODO: a _test.go file name'
+test_file "app/j_test.py"                     '# TODO: a _test.py file name'
+test_file "app/test_k.py"                     '# TODO: a test_*.py file name'
+test_file "app/tests.py"                      '# TODO: a Django tests.py file'
+test_file "conftest.py"                       '# TODO: a pytest conftest.py file at the top'
 
 EXPECTED=$(printf '%s' "$EXPECTED" | LC_ALL=C sort)
 
-# run_scan <shell>: runs the scan command from $TMP with <shell>; sets FILES
-# to the sorted list of the files that the command printed. A line that does
-# not have the form <path>:<line number>:<text>, for example an error
-# message, stays whole in FILES, so the comparison shows it.
+# run_scan <src-dir> <shell> [<shell option>...]: puts <src-dir> in place of
+# the placeholder and runs the scan command from $TMP with <shell>. Sets
+# FILES to the sorted list of the files that the command printed, each one
+# relative to the scanned folder: a leading "<src-dir>/" or "./" is removed.
+# A line that does not have the form <path>:<line number>:<text>, for
+# example an error message, stays whole in FILES, so the comparison shows it.
+# The script also writes the current folder before and after the command
+# into $CWD_BEFORE and $CWD_AFTER.
+CWD_BEFORE="$TMP/cwd-before"
+CWD_AFTER="$TMP/cwd-after"
 run_scan() {
-  printf '%s\n' "${SCAN_CMD//$SRC_PLACEHOLDER/$FIXTURE_DIR}" > "$TMP/scan.sh"
-  FILES=$(cd "$TMP" && "$@" scan.sh 2>&1 | sed -E 's/:[0-9]+:.*$//' | LC_ALL=C sort -u)
+  local dir="$1"
+  shift
+  rm -f "$CWD_BEFORE" "$CWD_AFTER"
+  {
+    printf 'pwd > "%s"\n' "$CWD_BEFORE"
+    printf '%s\n' "${SCAN_CMD//$SRC_PLACEHOLDER/$dir}"
+    printf 'pwd > "%s"\n' "$CWD_AFTER"
+  } > "$TMP/scan.sh"
+  FILES=$(cd "$TMP" && "$@" "$TMP/scan.sh" 2>&1 | sed -E 's/:[0-9]+:.*$//' \
+    | while IFS= read -r p; do p=${p#"$dir"/}; printf '%s\n' "${p#./}"; done \
+    | LC_ALL=C sort -u)
+}
+
+# check_scan <label> <src-dir> <shell> [<shell option>...]: runs the scan
+# and checks the printed files and the current folder after the command.
+check_scan() {
+  local label="$1" dir="$2"
+  shift 2
+  run_scan "$dir" "$@"
+  assert_eq "$label: the scan prints every production stub and no test file" "$FILES" "$EXPECTED"
+  assert_eq "$label: the scan leaves the caller in its folder" \
+    "$(cat "$CWD_AFTER" 2>/dev/null)" "$(cat "$CWD_BEFORE" 2>/dev/null)"
+}
+
+# scan_with <shell> [<shell option>...]: checks a relative and an absolute
+# <src-dir>. Both hold the parent folder named "tests".
+scan_with() {
+  check_scan "$1, relative <src-dir>" "$FIXTURE_DIR" "$@"
+  check_scan "$1, absolute <src-dir>" "$TMP/$FIXTURE_DIR" "$@"
 }
 
 bold "1. The skill text holds the stub-scan command"
@@ -118,11 +177,9 @@ case "$SCAN_CMD" in
 esac
 
 bold "2. The stub scan prints the production stubs and drops the test files"
-run_scan bash
-assert_eq "bash: the scan prints every production stub and no test file" "$FILES" "$EXPECTED"
+scan_with bash
 if command -v zsh >/dev/null 2>&1; then
-  run_scan zsh -f
-  assert_eq "zsh: the scan prints every production stub and no test file" "$FILES" "$EXPECTED"
+  scan_with zsh -f
 else
   note "zsh is not installed; the zsh check is skipped"
 fi

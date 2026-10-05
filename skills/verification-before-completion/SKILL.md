@@ -47,12 +47,12 @@ Before any completion claim:
 When verifying completion of any task that created or modified production code, run a stub scan before claiming done:
 
 ```bash
-grep -rn "TODO\|FIXME\|placeholder\|NotImplementedError\|raise NotImplementedError" <src-dir> \
-  --include="*.ts" --include="*.js" --include="*.py" --include="*.go" --include="*.rs" \
-  | grep -v -E '^([^:]*/)?((tests?|__tests__|specs?)/|[^/:]*\.(test|spec)\.[^/:]*:|[^/:]*_test\.(go|py):|test_[^/:]*\.py:)'
+(cd <src-dir> && grep -rn "TODO\|FIXME\|placeholder\|NotImplementedError\|raise NotImplementedError" . \
+  --include="*.ts" --include="*.js" --include="*.py" --include="*.go" --include="*.rs") \
+  | grep -v -E '^([^:]*/)?((tests?|__tests__|specs?)/|[^/:]*\.(test|spec)\.[^/:]*:|[^/:]*_test\.(go|py):|test_[^/:]*\.py:|(tests|conftest)\.py:)'
 ```
 
-The last filter reads only the file path before the first colon, and it drops a line only when the file is a test file: a folder named `test`, `tests`, `__tests__`, `spec` or `specs`, or a file named `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.py` or `test_*.py`. Adjust `<src-dir>` and `--include` patterns to the project's language and source structure. If any match falls in a file this task created or modified: the task is not done. Remove the stub or confirm with the user it is intentional before claiming completion.
+The command runs grep inside `<src-dir>` in a subshell (a child shell), so the caller's current folder does not change. `<src-dir>` is one folder, relative or absolute. Each printed path is relative to `<src-dir>` (for example `./app/main.ts` or `app/main.ts`), so the folders above `<src-dir>` never reach the filter. The last filter reads only this path, up to the first colon, and it drops a line only when the file is a test file: a folder in the path is named `test`, `tests`, `__tests__`, `spec` or `specs`, or the file is named `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.py`, `test_*.py`, `tests.py` or `conftest.py`. The names match with case: a folder named `Tests` is not a test folder, so the scan prints its stubs. This is a known limit; the scan then prints too much, and it never drops a production stub. Adjust `<src-dir>` and `--include` patterns to the project's language and source structure. If any match falls in a file this task created or modified: the task is not done. Remove the stub or confirm with the user it is intentional before claiming completion.
 
 ## Regression Test Verification (Red-Green Cycle)
 
