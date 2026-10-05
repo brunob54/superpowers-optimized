@@ -19,6 +19,16 @@
 # twice so the deduplication of API calls is exercised.
 # The fixture `fixtures/edge-cases.jsonl` holds a `null` line, a blank line
 # and two records without a `message` field.
+# The fixture `fixtures/redirect-targets.jsonl` holds one compaction and then
+# eleven Bash heredoc appends, each with one heading. Calls 1 to 6 write the
+# log through a target form the tool must read: double quotes, single quotes,
+# `$L` assigned before `&&`, `${D}` assigned before `;`, `"${LOG}"` assigned
+# on the line before, and a quoted target followed directly by `;`. Calls 7 to
+# 11 use a form the tool cannot resolve, so they stay unmarked: a variable
+# assigned in another call, a command substitution, an assignment that is
+# only a prefix of the command (no `&&`, `;` or new line after it), a
+# variable name in single quotes (the shell does not expand it), and a
+# variable assigned after the redirect.
 
 set -u
 # Stop the suite when a command is not found; the file explains the reason.
@@ -29,6 +39,8 @@ SCRIPT="$ROOT/tools/analyze-compaction.js"
 FIX="$ROOT/tests/analyze-compaction/fixtures"
 FIXTURE="$FIX/compaction.jsonl"
 FIX_EDGE="$FIX/edge-cases.jsonl"
+FIX_REDIRECT="$FIX/redirect-targets.jsonl"
+MARK_LOG_WRITE=' <-- ruling/log write'
 
 # The fixture's hand-chosen figures.
 EXP_RECORDS=19
@@ -52,10 +64,10 @@ EXP_READ_ATTACHMENT_NOTICE='  3. Read orchestrating-development/SKILL.md (offset
 # The sed command is 151 characters long: the tool keeps the first 100, then
 # " … ", then the last 40, so the file name stays visible.
 EXP_SED="  4. Bash sed -n '1201,1243p' /home/user/.claude/plugins/cache/superpowers-orchestrator/superpowers-orchestrat … kills/orchestrating-development/SKILL.md <-- SKILL.md sed 1201-1243"
-EXP_HEREDOC="  5. Bash cat >> /x/docs/orchestration-log.md <<'EOF'\\n## RULING 1 — phase 4\\nEOF <-- ruling/log write"
+EXP_HEREDOC="  5. Bash cat >> /x/docs/orchestration-log.md <<'EOF'\\n## RULING 1 — phase 4\\nEOF$MARK_LOG_WRITE"
 EXP_AGENT='  6. Agent fork-1 — Fork 1 <-- Agent dispatch'
-EXP_EDIT='  7. Edit orchestration-log.md <-- ruling/log write'
-EXP_WRITE='  8. Write open-decisions.md <-- ruling/log write'
+EXP_EDIT="  7. Edit orchestration-log.md$MARK_LOG_WRITE"
+EXP_WRITE="  8. Write open-decisions.md$MARK_LOG_WRITE"
 EXP_NOTHING_AFTER='  (no tool calls after this compaction)'
 EXP_HEADINGS='RULING/STOPPED headings written: 3 — rec 14: ## RULING 1 — phase 4; rec 16: ## RULING 2 — phase 4; rec 17: ## STOPPED — probe'
 OLD_AGENT_STOP='(list ended at an Agent dispatch)'
@@ -65,6 +77,10 @@ OLD_AGENT_STOP='(list ended at an Agent dispatch)'
 EXP_C_ROW='    2 C  rec    6  16:02:00  ctx    1015  Bash'
 EXP_USAGE='usage: node tools/analyze-compaction.js <transcript.jsonl> [--after N]'
 EXP_AFTER_ERROR='--after needs a positive integer'
+# The redirect-targets fixture: 11 calls, and the 6 headings of calls 1 to 6
+# (records 1 to 6). The headings of calls 7 to 11 must not be collected.
+EXP_REDIRECT_LIST_HEADER='next 11 tool calls:'
+EXP_REDIRECT_HEADINGS='RULING/STOPPED headings written: 6 — rec 1: ## RULING 1 — double quotes; rec 2: ## RULING 2 — single quotes; rec 3: ## RULING 3 — variable; rec 4: ## STOPPED — braces; rec 5: ## RULING 4 — new line; rec 6: ## RULING 5 — semicolon'
 
 PASS=0
 FAIL=0
@@ -99,6 +115,12 @@ assert_file_not_contains() { # desc file needle
 run_text() { # transcript [args...]
   node "$SCRIPT" "$@" >"$OUTF" 2>"$ERRF"
   STATUS=$?
+}
+
+# Prints "marked" when line N of the tool-call list in the last output ends
+# with the ruling/log write mark, and "unmarked" otherwise.
+call_mark() { # call-number
+  if grep -E "^  $1\\. " "$OUTF" | grep -q -- "$MARK_LOG_WRITE\$"; then echo marked; else echo unmarked; fi
 }
 
 bold "1. Header figures"
@@ -160,6 +182,23 @@ assert_file_has_line "no argument prints the usage line" "$ERRF" "$EXP_USAGE"
 run_text "$FIXTURE" --after 0
 assert_eq "--after 0 exits 1" "$STATUS" "1"
 assert_file_has_line "--after 0 names the rule" "$ERRF" "$EXP_AFTER_ERROR"
+
+bold "8. Redirect targets in quotes or in a variable"
+run_text "$FIX_REDIRECT"
+assert_eq "exits 0" "$STATUS" "0"
+assert_file_has_line "all eleven calls are listed" "$OUTF" "$EXP_REDIRECT_LIST_HEADER"
+assert_eq "a target in double quotes is marked" "$(call_mark 1)" "marked"
+assert_eq "a target in single quotes is marked" "$(call_mark 2)" "marked"
+assert_eq "\$L assigned before && is marked" "$(call_mark 3)" "marked"
+assert_eq "\${D} assigned a quoted value before ; is marked" "$(call_mark 4)" "marked"
+assert_eq "\"\${LOG}\" assigned on the line before is marked" "$(call_mark 5)" "marked"
+assert_eq "a quoted target followed directly by ; is marked" "$(call_mark 6)" "marked"
+assert_eq "a variable assigned in another call stays unmarked" "$(call_mark 7)" "unmarked"
+assert_eq "a command substitution stays unmarked" "$(call_mark 8)" "unmarked"
+assert_eq "an assignment that is only a command prefix stays unmarked" "$(call_mark 9)" "unmarked"
+assert_eq "a variable name in single quotes stays unmarked" "$(call_mark 10)" "unmarked"
+assert_eq "a variable assigned after the redirect stays unmarked" "$(call_mark 11)" "unmarked"
+assert_file_has_line "the headings of the six marked calls, and only those, are collected" "$OUTF" "$EXP_REDIRECT_HEADINGS"
 
 echo
 bold "Results: $PASS passed, $FAIL failed"

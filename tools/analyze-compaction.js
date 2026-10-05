@@ -62,8 +62,23 @@ const BASH_COMMAND_TAIL_CHARS = 40;
 const BASH_COMMAND_GAP = ' … ';
 // `sed -n '<first>,<last>p' <...>SKILL.md`, with single or double quotes.
 const SED_SKILL_READ_PATTERN = /sed -n ['"](\d+),(\d+)p['"]\s+(\S*SKILL\.md)/;
-// A shell redirect (">" or ">>") into a file: the path that follows it.
-const REDIRECT_TARGET_PATTERN = />>?\s*(\S+)/g;
+// A shell redirect operator (">" or ">>") and the blanks after it; the target
+// word starts where the match ends.
+const REDIRECT_OPERATOR_PATTERN = />>?[ \t]*/g;
+// Characters that end a shell word when they are outside quotes.
+const SHELL_WORD_END_CHARS = ' \t\n;&|<>()';
+// A shell variable name: a letter or "_", then letters, digits or "_".
+const SHELL_NAME_SOURCE = '[A-Za-z_]\\w*';
+// A shell variable assignment `NAME=`; the value word starts where the match
+// ends. NAME must start a word, so `--opt=x` and `a.b=x` do not match.
+const SHELL_ASSIGNMENT_PATTERN = new RegExp(`(?:^|[\\s;&|(])(${SHELL_NAME_SOURCE})=`, 'g');
+// What must follow an assigned value so that later words of the same command
+// see it: "&&", ";" or a new line. Without it, `NAME=value cmd` only sets
+// NAME for cmd, and a redirect on cmd does not see the value.
+const ASSIGNMENT_END_PATTERN = /^[ \t]*(?:&&|;|\n)/;
+// A redirect target that is one variable and nothing else: $NAME or ${NAME},
+// bare or in double quotes. In single quotes the shell does not expand it.
+const VARIABLE_TARGET_PATTERN = new RegExp(`^(")?\\$(?:\\{(${SHELL_NAME_SOURCE})\\}|(${SHELL_NAME_SOURCE}))\\1$`);
 const ATTACHMENT_READ_TRUNCATION_NOTICE = 'read_truncation_notice';
 const MARK_GREP_HEADINGS = ` <-- grep '^## '`;
 const MARK_PARTIAL = ' <-- PARTIAL';
@@ -187,10 +202,76 @@ function isRulingLogBasename(base) {
   return RULING_LOG_BASENAMES.some((suffix) => base.endsWith(suffix));
 }
 
+// The position right after a regular-expression match.
+function matchEnd(match) {
+  return match.index + match[0].length;
+}
+
+// Read the shell word that starts at position `start` of `text`. The word
+// ends at the first character of SHELL_WORD_END_CHARS outside quotes. The
+// quotes are removed: `value` holds the text inside them as written. `raw`
+// is the word as written in the command, and `end` is the position after it.
+function readShellWord(text, start) {
+  let value = '';
+  let i = start;
+  while (i < text.length && !SHELL_WORD_END_CHARS.includes(text[i])) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") {
+      const close = text.indexOf(ch, i + 1);
+      const stop = close === -1 ? text.length : close;
+      value += text.slice(i + 1, stop);
+      i = stop + 1;
+    } else {
+      value += ch;
+      i++;
+    }
+  }
+  const end = Math.min(i, text.length);
+  return { value, raw: text.slice(start, end), end };
+}
+
+// The variables that a command assigns before its later words run, in order.
+function shellAssignments(command) {
+  const assignments = [];
+  for (const m of command.matchAll(SHELL_ASSIGNMENT_PATTERN)) {
+    const word = readShellWord(command, matchEnd(m));
+    if (ASSIGNMENT_END_PATTERN.test(command.slice(word.end))) {
+      assignments.push({ name: m[1], value: word.value, end: word.end });
+    }
+  }
+  return assignments;
+}
+
+// The path a redirect target names. A target that is one variable is
+// replaced by the value of the last assignment of that variable before the
+// redirect in the same command; with no such assignment it stays as written.
+function redirectTargetPath(word, assignments, redirectIndex) {
+  const variable = word.raw.match(VARIABLE_TARGET_PATTERN);
+  if (!variable) return word.value;
+  const name = variable[2] || variable[3];
+  const assigned = assignments.filter((a) => a.name === name && a.end <= redirectIndex).pop();
+  return assigned ? assigned.value : word.value;
+}
+
 // True when a Bash command redirects (">" or ">>") into a ruling/log file,
-// for example a heredoc append of a ruling entry.
+// for example a heredoc append of a ruling entry. Only the file name (the
+// last part of the path) must be literal: `$ROOT/docs/orchestration-log.md`
+// and `~/docs/orchestration-log.md` count.
+// Limits: the tool does not run the shell, so these targets are not
+// recognised and get no mark:
+// - a variable assigned in another Bash call, assigned after the redirect,
+//   or assigned only as a prefix of the command (`NAME=value cmd >> "$NAME"`);
+// - a variable whose value is itself only a variable (one level is resolved);
+// - a file name made by a command substitution (`$(...)` or backquotes) or by
+//   a variable inside the file name (`/x/$NAME.md`);
+// - a target that holds a backslash escape (the backslash is kept) or a
+//   double quote inside double quotes (the word ends too early).
 function bashWritesRulingLog(command) {
-  return [...command.matchAll(REDIRECT_TARGET_PATTERN)].some((m) => isRulingLogBasename(baseName(m[1])));
+  const assignments = shellAssignments(command);
+  return [...command.matchAll(REDIRECT_OPERATOR_PATTERN)].some((m) => {
+    const word = readShellWord(command, matchEnd(m));
+    return isRulingLogBasename(baseName(redirectTargetPath(word, assignments, m.index)));
+  });
 }
 
 function collectHeadings(text, index, headings) {
