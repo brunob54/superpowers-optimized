@@ -141,7 +141,7 @@ Session starts (session-start hook fires automatically)
     ├── Inject state.md in full (if exists — means work is in progress)
     ├── Inject last 2 [saved] entries from session-log.md (if exists)
     ├── Inject known-issues.md in full (if exists)
-    └── Inject context-snapshot.json summary (changed files + recent commits)
+    └── Inject context-snapshot.json summary (changed files + recent commits), only when its git_hash is the present HEAD
             │
             ▼
         Work happens

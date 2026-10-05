@@ -478,15 +478,40 @@ fi
 
 # ── context-snapshot.json injection ───────────────────────────────────────────
 # Inject changed files + recent commits from context-snapshot.json so the AI
-# knows what changed since last session without reading the file manually.
+# knows them without reading the file manually.
 # Also surfaces blast radius — dependents of changed files not already in the
 # changed set — so the AI knows which other files may need review. Capped at
 # 3 entries to stay concise. Only non-trivial blast radius lines are shown.
+#
+# The file that this hook reads is never the snapshot of this session start.
+# Claude Code starts every hook of one event at the same moment, and the
+# order cannot be configured, so hooks/context-engine.js writes the new file
+# after this hook has read the old one. The old file describes an earlier
+# session start. The block is therefore injected only when the file records
+# the commit that is HEAD now (its git_hash equals the output of
+# `git rev-parse HEAD`). In every other case nothing is injected and nothing
+# is printed: an older commit, no git_hash, a file that is being written, a
+# repository with no commit (git fails there, and the catch below ends the
+# script) and a folder that is not a repository.
+#
+# An equal commit does not decide every statement of the block. The blast
+# radius is read from the working tree, and the engine lists the files changed
+# since the snapshot before it, when commits were made between the two. So
+# the first line of the block states when the snapshot was taken (field
+# generated_at). A snapshot with no valid time is not injected: toISOString
+# throws a RangeError for it.
+#
+# The engine writes one list to changed_files and to cross_session_files when
+# cross_session_commit_count is above 0, so the list is printed once. With a
+# count of 0 the base of changed_files is the commit before HEAD.
 context_snapshot_content=""
 if [ -f "context-snapshot.json" ]; then
     changed=$(node -e "
         try {
             const s = JSON.parse(require('fs').readFileSync('context-snapshot.json','utf8'));
+            const head = require('child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            if (s.git_hash !== head || typeof s.generated_at !== 'string') process.exit(0);
+            const taken = new Date(s.generated_at).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
             const files = (s.changed_files||[]).join(', ');
             const commits = (s.recent_commits||[]).slice(0,3).join('\n  ');
             const changedSet = new Set(s.changed_files||[]);
@@ -498,15 +523,14 @@ if [ -f "context-snapshot.json" ]; then
               })
               .filter(Boolean)
               .slice(0,3);
-            const xsFiles = s.cross_session_files || [];
             const xsCount = s.cross_session_commit_count || 0;
+            const filesLabel = xsCount > 0
+              ? 'Commits made between the snapshot before this one and this one: ' + xsCount + '. Files they changed: '
+              : 'Files changed by the newest commit: ';
             let out = '';
-            if (files) out += 'Changed since last commit: ' + files + '\nRecent commits:\n  ' + commits;
-            if (brLines.length > 0) out += '\nBlast radius (dependents to review):\n' + brLines.join('\n');
-            if (xsFiles.length > 0 && xsCount > 1) {
-                out += '\nChanged since last session (' + xsCount + ' commits): ' + xsFiles.join(', ');
-            }
-            if (out) process.stdout.write(out);
+            if (files) out += filesLabel + files + '\nRecent commits:\n  ' + commits;
+            if (brLines.length > 0) out += '\nBlast radius at the time of the snapshot (dependents to review):\n' + brLines.join('\n');
+            if (out) process.stdout.write('Snapshot taken ' + taken + ' at the commit that is HEAD now.\n' + out);
         } catch(e) {}
     " 2>/dev/null || echo "")
     if [ -n "$changed" ]; then

@@ -45,10 +45,12 @@ const BASENAME_DENYLIST = new Set([
 
 // Runs git without a shell: each argument reaches git as one unchanged string,
 // so text from a file name or from a file is never read as shell syntax.
-// Returns '' on any error.
+// Returns '' on any error. The third entry of `stdio` drops the error message
+// of git: without it the message goes to the standard error of this hook, for
+// example in a repository with no commit.
 function gitOutput(args, cwd) {
   try {
-    return execFileSync('git', args, { encoding: 'utf8', timeout: TIMEOUT_MS, cwd });
+    return execFileSync('git', args, { encoding: 'utf8', timeout: TIMEOUT_MS, cwd, stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
     return '';
   }
