@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# using-git-worktrees test suite: the step "Commit the spec and the plan" of
+# using-git-worktrees test suite: the steps "Check the spec and the plan" and
+# "Move the spec and the plan into the worktree" of
 # skills/using-git-worktrees/SKILL.md. A worktree is a second working folder
 # of the same git repository.
-# The check, the commit commands, the branch command and the worktree command
-# are copied out of the skill text and run on fixture repositories, so a check
-# fails when the text that the model runs changes. The wording checks join
-# wrapped lines first.
-# Pure bash, git, awk, sed and grep; no claude invocation.
+# The check, the branch command, the worktree command, the move commands and
+# the commit command are copied out of the skill text and run on fixture
+# repositories, so a check fails when the text that the model runs changes.
+# The wording checks join wrapped lines first.
+# Pure bash, git, awk, sed, grep and cksum; no claude invocation.
 # Windows note: avoids /dev/stdin (not available in Git Bash on Windows).
 #
-# The defect that the step closes: a new worktree holds only committed files.
+# The defect that the steps close: a new worktree holds only committed files.
 # The skills that write a spec and a plan do not commit them. The worktree
 # then had no spec and no plan, and a commit of the plan that ran in the first
 # folder landed on the branch of that folder.
+# The design: the worktree is created first, the untracked spec and plan are
+# moved into it, each by its own path, and they are committed there on the new
+# branch. Nothing is committed on the branch of the first folder.
 
 set -u
 # Stop the suite when a command is not found; the file explains the reason.
@@ -38,12 +42,13 @@ one_line() { printf '%s' "$1" | tr '\n' '|'; }
 assert_eq() { # desc actual expected
   if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$(one_line "$3")', got '$(one_line "$2")')"; fi
 }
-# assert_lacks <desc> <text> <extended regular expression>: no line of the
-# text matches the expression; letter case is ignored. An empty text fails,
-# so a section that was not found does not look like a success.
+# assert_lacks <desc> <text> <extended regular expression> [<grep options>]:
+# no line of the text matches the expression. Letter case is ignored; with
+# the options `-E` in the fourth place it is not. An empty text fails, so a
+# section that was not found does not look like a success.
 assert_lacks() {
   local found
-  found=$(printf '%s\n' "$2" | grep -iE -- "$3" | head -3)
+  found=$(printf '%s\n' "$2" | grep "${4:--iE}" -- "$3" | head -3)
   if [ -n "$2" ] && [ -z "$found" ]; then ok "$1"; else bad "$1 (found: '$(one_line "$found")')"; fi
 }
 # The output of a run is held in $OUT; this matches a whole line with
@@ -73,67 +78,141 @@ trap 'chmod -R u+rwx "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 export GIT_CEILING_DIRECTORIES="$TMP"
 
 # ---------------------------------------------------------------------------
-# The text that the step must hold
+# The text that the skill must hold
 # ---------------------------------------------------------------------------
 
-STEPS_HEADING='## Creation Steps'
-HEADING='### 2. Commit the spec and the plan'
+CHECK_HEADING='### 2. Check the spec and the plan'
 CREATE_HEADING='### 3. Create worktree and branch'
-# The headings of the section "Creation Steps", in their order.
-STEP_HEADINGS_EXPECTED="### 1. Detect project root and branch name$NL$HEADING$NL$CREATE_HEADING$NL### 4. Run project setup$NL### 5. Run baseline tests"
-# The places of the three values in a command of the skill text.
-TOPIC_PLACEHOLDER='<topic-folder>'
+MOVE_HEADING='### 4. Move the spec and the plan into the worktree'
+# Every heading line of the skill, in the order of the file.
+HEADINGS_EXPECTED="# Using Git Worktrees
+## Required Start
+## Directory Selection Priority
+## Safety Check
+## Creation Steps
+### 1. Detect project root and branch name
+$CHECK_HEADING
+$CREATE_HEADING
+$MOVE_HEADING
+### 5. Run project setup
+### 6. Run baseline tests
+## Failure Handling
+## Success Output
+## Integration"
+# The sections whose text this change does not write: each heading with the
+# checksum (the first number that `cksum` prints) of the text below it, wrapped
+# lines joined. The first entry is the text above the first heading. A sentence
+# that is added to one of these sections, for example "step 2 can wait",
+# changes the checksum.
+START_OF_FILE='(the text above the first heading)'
+SECTION_SUMS_EXPECTED="$START_OF_FILE	2105280590
+# Using Git Worktrees	1063324953
+## Required Start	1733568800
+## Directory Selection Priority	3730224365
+## Safety Check	969179287
+## Creation Steps	4294967295
+### 1. Detect project root and branch name	2796213261
+$CREATE_HEADING	3280141730
+### 5. Run project setup	1017929623
+### 6. Run baseline tests	591315796
+## Failure Handling	1111839692
+## Success Output	2932263891
+## Integration	1012482212"
+
+# The places of the five values in a command of the skill text.
+FILE_PLACEHOLDER='<file-path>'
+TOP_PATH_PLACEHOLDER='<path-from-the-top>'
+WT_FILE_PLACEHOLDER='<worktree-file-path>'
 BRANCH_PLACEHOLDER='<BRANCH_NAME>'
 WORKTREE_PLACEHOLDER='<path>'
-# The folder that holds every topic folder.
-LAYOUT_ROOT='docs/superpowers-orchestrator'
 # The first words of the line that the check prints for a path that does not
-# exist.
+# exist, and of the line that the first move command prints for a file that
+# the worktree already holds.
 NO_PATH='no such path'
+ALREADY_THERE='already in the worktree'
 # The mark that `git status --porcelain` prints for a file that git ignores,
-# for an untracked file and for a modified file.
+# for an untracked file, for a modified file and for a staged new file.
 IGNORED_MARK='!!'
 UNTRACKED_MARK='??'
 MODIFIED_MARK=' M'
-# The first words of the first line of the check.
-EXISTS_PREFIX="[ -e \"$TOPIC_PLACEHOLDER\" ] || echo \""
-EXISTS_CMD_EXPECTED="$EXISTS_PREFIX$NO_PATH: $TOPIC_PLACEHOLDER\""
-STATUS_CMD_EXPECTED="git status --porcelain --ignored --untracked-files=all -- \"$TOPIC_PLACEHOLDER\""
+STAGED_NEW_MARK='A '
+# The first words of the two test lines.
+EXISTS_PREFIX="[ -e \"$FILE_PLACEHOLDER\" ] || echo \""
+PRESENT_PREFIX="[ ! -e \"$WT_FILE_PLACEHOLDER\" ] || echo \""
+EXISTS_CMD_EXPECTED="$EXISTS_PREFIX$NO_PATH: $FILE_PLACEHOLDER\""
+STATUS_CMD_EXPECTED="git status --porcelain --ignored --untracked-files=all -- \"$FILE_PLACEHOLDER\""
 CHECK_CMD_EXPECTED="$EXISTS_CMD_EXPECTED$NL$STATUS_CMD_EXPECTED"
-ADD_CMD_EXPECTED="git add -- \"$TOPIC_PLACEHOLDER\""
-COMMIT_SUBJECT="docs: spec and plan of $BRANCH_PLACEHOLDER"
-COMMIT_CMD_EXPECTED="git commit -m \"$COMMIT_SUBJECT\" -- \"$TOPIC_PLACEHOLDER\""
 BRANCH_CMD_EXPECTED="git checkout -b $BRANCH_PLACEHOLDER"
 WORKTREE_CMD_EXPECTED="git worktree add $WORKTREE_PLACEHOLDER -b $BRANCH_PLACEHOLDER"
+PRESENT_CMD_EXPECTED="$PRESENT_PREFIX$ALREADY_THERE: $WT_FILE_PLACEHOLDER\""
+MKDIR_CMD_EXPECTED="mkdir -p \"\$(dirname \"$WT_FILE_PLACEHOLDER\")\""
+MV_CMD_EXPECTED="mv \"$FILE_PLACEHOLDER\" \"$WT_FILE_PLACEHOLDER\""
+ADD_CMD_EXPECTED="git -C \"$WORKTREE_PLACEHOLDER\" add -- \"$WT_FILE_PLACEHOLDER\""
+MOVE_CMDS_EXPECTED="$PRESENT_CMD_EXPECTED$NL$MKDIR_CMD_EXPECTED$NL$MV_CMD_EXPECTED$NL$ADD_CMD_EXPECTED"
+COMMIT_SUBJECT="docs: spec and plan of $BRANCH_PLACEHOLDER"
+COMMIT_CMD_EXPECTED="git -C \"$WORKTREE_PLACEHOLDER\" commit -m \"$COMMIT_SUBJECT\" -- \"$WT_FILE_PLACEHOLDER\""
+# The workspace file that names the plan of the work for a later session, and
+# the search that finds the lines of it that name a moved file.
+STATE_FILE='state.md'
+SEARCH_PREFIX='grep -n -F "'
+SEARCH_CMD_EXPECTED="$SEARCH_PREFIX$TOP_PATH_PLACEHOLDER\" $STATE_FILE"
 
-# Every sentence of the step, in the order of the step. A list item starts
-# with "- " in the skill text; the marker is added where the sentences are
-# joined (see STEP_EXPECTED).
-S_WHY='A new worktree holds only committed files. A spec or a plan that is not committed is absent there.'
-S_SKIP='Skip this step when the calling skill names no spec and no plan.'
-S_FOLDER="The topic folder is the folder \`$LAYOUT_ROOT/<date>-<slug>/\` that holds the spec and the plan of this work: the folder above the \`specs/\` or \`plans/\` folder of the path that the calling skill names."
-S_FILE="For a spec or a plan that is not under \`$LAYOUT_ROOT/\`, run this step once for each such file, with the path of the file in place of the topic folder."
-S_ABSOLUTE='Write the path as an absolute path: git reads a relative path from the folder the command runs in, so a relative path fails in a sub-folder.'
-S_RUN_CHECK='Run this check, both lines.'
-S_FIRST_ITEM='Apply the first list item that matches the result.'
-RULE_NO_PATH="A line \`$NO_PATH\`: correct the path and run the check again."
-RULE_ERROR='An error text, or an exit status that is not 0: create no worktree.'
-RULE_ERROR_SHOW='Show the error to the user.'
-RULE_IGNORED="A line that starts with \`$IGNORED_MARK\` and names the spec or the plan: git ignores that file, so no commit can carry it into a worktree."
-RULE_NO_WORKTREE='Create no worktree.'
-RULE_BRANCH="Create the branch in this folder with \`$BRANCH_CMD_EXPECTED\`, which keeps the untracked and the ignored files."
-RULE_BRANCH_NEXT='Then go on with step 4 in this folder.'
-RULE_COMMIT="A line that starts with another mark than \`$IGNORED_MARK\` (\`$UNTRACKED_MARK\` is an untracked file, \`$MODIFIED_MARK\` is a modified file): the file is not committed."
-RULE_APPROVAL='When a rule of the user or of the project (for example in `CLAUDE.md` or `AGENTS.md`) forbids a commit without approval, ask the user once.'
-RULE_APPROVAL_NO='On "no": create no worktree and create the branch in this folder, as the list item before this one says.'
-RULE_COMMIT_RUN="On \"yes\", and when no such rule exists: run \`$ADD_CMD_EXPECTED\`, then \`$COMMIT_CMD_EXPECTED\`, on the current branch."
-RULE_CHECK_AGAIN='Then run the check again.'
-RULE_GO_ON="No output, or only \`$IGNORED_MARK\` lines: go on with step 3."
-RULE_NOT_HELD="The worktree will not hold a file of a \`$IGNORED_MARK\` line."
-S_COPY='After step 3 the worktree holds its own copy of the topic folder.'
-S_USE_COPY='From then on, the spec and the plan of this work are the copies inside the worktree: use the path inside the worktree in every command and in every edit.'
-S_WRONG_BRANCH="A commit of the plan that runs in the folder of this step lands on the branch of that folder, not on \`$BRANCH_PLACEHOLDER\`."
-STEP_ITEM_COUNT=5
+# Every sentence of the two steps, in the order of the step. A list item
+# starts with "- " in the skill text; the marker is added where the sentences
+# are joined (see CHECK_STEP_EXPECTED and MOVE_STEP_EXPECTED).
+C_WHY='A new worktree holds only committed files. A spec or a plan that is not committed is absent there.'
+C_PLAN="Step 4 moves such a file into the worktree and commits it on \`$BRANCH_PLACEHOLDER\`."
+C_BEFORE='This step runs before the worktree exists, because some results forbid a worktree.'
+C_SKIP='Skip this step and step 4 when the calling skill names no spec and no plan, and for a file that is already inside a worktree.'
+C_PATH="\`$FILE_PLACEHOLDER\` is the path of the spec or of the plan that the calling skill names."
+C_ABSOLUTE='Write it as an absolute path: git reads a relative path from the folder the command runs in, so a relative path fails in a sub-folder.'
+C_RUN_CHECK='Run this check, both lines, one time for the spec and one time for the plan.'
+C_FIRST_ITEM='For each file, apply the first list item that matches the result.'
+C_NO_PATH="A line \`$NO_PATH\`: the path is wrong."
+C_NO_PATH_ONCE='Correct it and run the check one more time.'
+C_NO_PATH_AGAIN='When the line comes again: show it to the user, and step 4 does not move this file.'
+C_ERROR='An error text, or an exit status that is not 0: create no worktree.'
+C_SHOW_ERROR='Show the error to the user.'
+C_IGNORED="A line that starts with \`$IGNORED_MARK\`: git ignores the file, so no commit can carry it into a worktree."
+C_NO_WORKTREE='Create no worktree.'
+C_BRANCH="Create the branch in this folder with \`$BRANCH_CMD_EXPECTED\`, which keeps the untracked and the ignored files."
+C_BRANCH_NEXT='Then go on with step 5 in this folder.'
+C_UNTRACKED="A line that starts with \`$UNTRACKED_MARK\`: the file is untracked, and step 4 moves it."
+C_APPROVAL="When a rule of the user or of the project (for example in \`CLAUDE.md\` or \`AGENTS.md\`) forbids a commit without approval, ask the user once, before step 3, whether step 4 may commit the file on \`$BRANCH_PLACEHOLDER\`."
+C_APPROVAL_NO='On "no": create no worktree and create the branch in this folder, as the list item before this one says.'
+C_OTHER="A line that starts with another mark (\`$MODIFIED_MARK\` is a modified file): git tracks the file, and the file holds a change that is not committed."
+C_OTHER_WHY='The worktree gets the committed state of the file, without that change.'
+C_OTHER_ASK='Ask the user to choose one of two ways: the user commits the file, or the branch is created in this folder.'
+C_OTHER_AGAIN='After a commit by the user, run the check for this file one more time.'
+C_OTHER_BRANCH="For the other way: create no worktree and create the branch in this folder, as the list item about \`$IGNORED_MARK\` says."
+C_CLEAN='No output: the file is committed.'
+C_CLEAN_HELD='The worktree will hold it, and step 4 does not move it.'
+CHECK_STEP_ITEM_COUNT=6
+
+M_WHEN="Run this step only when the command of step 3 has ended with exit status 0, and only for a file whose check in step 2 printed a \`$UNTRACKED_MARK\` line."
+M_ONLY='Each file is named by its own path: no other file of its folder is moved or committed.'
+M_DEST="\`$WT_FILE_PLACEHOLDER\` is the place of the file inside the worktree: the path of the worktree, then the path of the file from the top of the repository."
+M_EXAMPLE="For the file \`docs/a/plan.md\` of the repository it is \`$WORKTREE_PLACEHOLDER/docs/a/plan.md\`."
+M_RUN='Run these four commands for one file, one command at a time, in this order.'
+M_NEXT_FILE='Then run them for the next file.'
+M_PRESENT="The first command prints a line \`$ALREADY_THERE\`: never overwrite that file."
+M_STOP='Run no later command of this step.'
+M_PRESENT_ASK='Tell the user that both files exist, and ask what to do.'
+M_FAILED="A command ends with an exit status that is not 0: run no later command of this step."
+M_SHOW_ERROR='Show the error to the user.'
+M_WHERE='Say where the file is now: in the folder of step 2 when the `mv` command has not succeeded, and in the worktree, not committed, when it has.'
+M_COMMIT='After the last file, commit the moved files with this command.'
+M_COMMIT_NAMES='Name every moved file in it, each path between its own quotes, and no other path.'
+M_COMMIT_FAILED='The commit ends with an exit status that is not 0 (for example, a commit hook refuses it): run it no second time, and do not switch the hook off.'
+M_COMMIT_WHERE='Say that the moved files are in the worktree, staged and not committed, and that the folder of step 2 holds no copy of them.'
+M_COMMIT_DONE='The commit ends with exit status 0: go on with step 5.'
+M_USE='From then on, the spec and the plan of this work are the files inside the worktree: use the path inside the worktree in every command and in every edit.'
+M_WRONG_BRANCH="A commit of the plan that runs in the folder of step 2 lands on the branch of that folder, not on \`$BRANCH_PLACEHOLDER\`."
+M_TELL='Tell the user the new absolute path of each moved file.'
+M_STATE="When \`$STATE_FILE\` at the top of the repository of step 2 names the old path of a moved file, write the path inside the worktree there, as an absolute path, in this step."
+M_STATE_FIND="\`$SEARCH_CMD_EXPECTED\`, run in that top folder with the path of the file from the top of the repository, prints the lines that name the file; a line that already holds the path inside the worktree needs no change."
+M_PROMPT='When this session gives the user a prompt for a later session, that prompt names the path inside the worktree.'
+MOVE_STEP_ITEM_COUNT=4
 
 # join_texts <text>...: the texts joined with one space.
 join_texts() {
@@ -141,14 +220,25 @@ join_texts() {
   for part in "$@"; do joined="$joined${joined:+ }$part"; done
   printf '%s' "$joined"
 }
-STEP_EXPECTED=$(join_texts "$S_WHY" "$S_SKIP" "$S_FOLDER" "$S_FILE" "$S_ABSOLUTE" \
-  "$S_RUN_CHECK" '```bash' "$EXISTS_CMD_EXPECTED" "$STATUS_CMD_EXPECTED" '```' "$S_FIRST_ITEM" \
-  "- $RULE_NO_PATH" \
-  "- $RULE_ERROR" "$RULE_ERROR_SHOW" \
-  "- $RULE_IGNORED" "$RULE_NO_WORKTREE" "$RULE_BRANCH" "$RULE_BRANCH_NEXT" \
-  "- $RULE_COMMIT" "$RULE_APPROVAL" "$RULE_APPROVAL_NO" "$RULE_COMMIT_RUN" "$RULE_CHECK_AGAIN" \
-  "- $RULE_GO_ON" "$RULE_NOT_HELD" \
-  "$S_COPY" "$S_USE_COPY" "$S_WRONG_BRANCH")
+FENCE_START='```bash'
+FENCE_END='```'
+CHECK_STEP_EXPECTED=$(join_texts "$C_WHY" "$C_PLAN" "$C_BEFORE" "$C_SKIP" "$C_PATH" "$C_ABSOLUTE" \
+  "$C_RUN_CHECK" "$FENCE_START" "$EXISTS_CMD_EXPECTED" "$STATUS_CMD_EXPECTED" "$FENCE_END" "$C_FIRST_ITEM" \
+  "- $C_NO_PATH" "$C_NO_PATH_ONCE" "$C_NO_PATH_AGAIN" \
+  "- $C_ERROR" "$C_SHOW_ERROR" \
+  "- $C_IGNORED" "$C_NO_WORKTREE" "$C_BRANCH" "$C_BRANCH_NEXT" \
+  "- $C_UNTRACKED" "$C_APPROVAL" "$C_APPROVAL_NO" \
+  "- $C_OTHER" "$C_OTHER_WHY" "$C_OTHER_ASK" "$C_OTHER_AGAIN" "$C_OTHER_BRANCH" \
+  "- $C_CLEAN" "$C_CLEAN_HELD")
+MOVE_STEP_EXPECTED=$(join_texts "$M_WHEN" "$M_ONLY" "$M_DEST" "$M_EXAMPLE" "$M_RUN" "$M_NEXT_FILE" \
+  "$FENCE_START" "$PRESENT_CMD_EXPECTED" "$MKDIR_CMD_EXPECTED" "$MV_CMD_EXPECTED" "$ADD_CMD_EXPECTED" "$FENCE_END" \
+  "- $M_PRESENT" "$M_STOP" "$M_PRESENT_ASK" \
+  "- $M_FAILED" "$M_SHOW_ERROR" "$M_WHERE" \
+  "$M_COMMIT" "$M_COMMIT_NAMES" "$FENCE_START" "$COMMIT_CMD_EXPECTED" "$FENCE_END" \
+  "- $M_COMMIT_FAILED" "$M_SHOW_ERROR" "$M_COMMIT_WHERE" \
+  "- $M_COMMIT_DONE" \
+  "$M_USE" "$M_WRONG_BRANCH" \
+  "$M_TELL" "$M_STATE" "$M_STATE_FIND" "$M_PROMPT")
 
 # ---------------------------------------------------------------------------
 # Text taken out of the skill file
@@ -159,11 +249,26 @@ STEP_EXPECTED=$(join_texts "$S_WHY" "$S_SKIP" "$S_FOLDER" "$S_FILE" "$S_ABSOLUTE
 # so a phrase can stand on two lines.
 fold_text() { tr '\n\t' '  ' | tr -s ' ' | sed 's/^ //; s/ $//'; }
 
-# section <heading>: the lines of the skill file after the line <heading>, up
-# to the next heading line.
-section() {
-  awk -v h="$1" '$0 == h { f = 1; next } f && /^#/ { exit } f { print }' "$SKILL" 2>/dev/null
+# A heading line is a line that starts with `#` marks and a blank, outside a
+# fenced block: a fenced block of the skill holds shell comment lines that
+# start with `# `.
+# headings: every heading line of the skill file.
+headings() {
+  awk '/^```/ { fence = !fence; next } !fence && /^#+ / { print }' "$SKILL" 2>/dev/null
 }
+# section <heading>: the lines of the skill file after the line <heading>, up
+# to the next heading line. For $START_OF_FILE: the lines above the first
+# heading.
+section() {
+  awk -v h="$1" -v start="$START_OF_FILE" '
+    BEGIN { f = (h == start) }
+    /^```/ { fence = !fence }
+    !fence && /^#+ / { if (f) exit; if ($0 == h) f = 1; next }
+    f { print }' "$SKILL" 2>/dev/null
+}
+# section_sum <heading>: the checksum of the text of the section, wrapped
+# lines joined.
+section_sum() { section "$1" | fold_text | cksum | cut -d' ' -f1; }
 # bullet <text> <first words>: the list item of <text> whose first line starts
 # with "- <first words>", with its continuation lines, joined to one line.
 bullet() {
@@ -175,11 +280,19 @@ bullet() {
 # item_count <text>: the number of list items of the text that start at the
 # left margin.
 item_count() { printf '%s\n' "$1" | grep -c '^- '; }
-# first_block <text>: the lines of the first ```bash block of the text,
-# without the fences.
-first_block() {
-  printf '%s\n' "$1" | awk '/^```bash$/ { c = 1; next } c && /^```$/ { exit } c { print }'
+# fence_line_count <text>: the number of lines of the text that start or end a
+# fenced block.
+fence_line_count() { printf '%s\n' "$1" | grep -c '^[[:space:]]*```'; }
+# block <text> <number>: the lines of the ```bash block of the text with that
+# number (1 is the first), without the fences.
+block() {
+  printf '%s\n' "$1" | awk -v want="$2" '
+    /^```bash$/ { n++; c = (n == want); next }
+    c && /^```$/ { exit }
+    c { print }'
 }
+# line_number <text> <number>: that line of the text.
+line_number() { printf '%s\n' "$1" | sed -n "${2}p"; }
 # code_span <text> <first words>: the first text between two ` characters of
 # <text> that starts with <first words>. Both reach awk through the
 # environment, so no character of them is read as a pattern.
@@ -196,23 +309,6 @@ line_of() {
   number=$(grep -nF -- "$1" "$SKILL" 2>/dev/null | head -1 | cut -d: -f1)
   echo "${number:-0}"
 }
-# offset_of <text> <needle>: the 1-based position of the first occurrence of
-# the fixed text <needle> in <text>; 0 when it is absent.
-offset_of() {
-  hay="$1" needle="$2" awk 'BEGIN { print index(ENVIRON["hay"], ENVIRON["needle"]) }'
-}
-# assert_before <desc> <text> <earlier> <later>: both fixed texts are present
-# and <earlier> starts before <later>.
-assert_before() {
-  local first second
-  first=$(offset_of "$2" "$3")
-  second=$(offset_of "$2" "$4")
-  if [ "$first" -gt 0 ] && [ "$second" -gt 0 ] && [ "$first" -lt "$second" ]; then
-    ok "$1"
-  else
-    bad "$1 (position of '$3': $first; position of '$4': $second; 0 means absent)"
-  fi
-}
 # first_difference <actual> <expected>: the position of the first character
 # that differs, and the text of both around that position.
 first_difference() {
@@ -225,69 +321,130 @@ first_difference() {
   }'
 }
 
-STEP=$(section "$HEADING")
-STEP_FOLDED=$(printf '%s\n' "$STEP" | fold_text)
-CHECK_CMD=$(first_block "$STEP")
-EXISTS_CMD=$(printf '%s\n' "$CHECK_CMD" | sed -n '1p')
-STATUS_CMD=$(printf '%s\n' "$CHECK_CMD" | sed -n '2p')
-COMMIT_ITEM=$(bullet "$STEP" 'A line that starts with another mark')
-ADD_CMD=$(code_span "$COMMIT_ITEM" 'git add')
-COMMIT_CMD=$(code_span "$COMMIT_ITEM" 'git commit')
-IGNORED_ITEM=$(bullet "$STEP" "A line that starts with \`$IGNORED_MARK\`")
+CHECK_STEP=$(section "$CHECK_HEADING")
+MOVE_STEP=$(section "$MOVE_HEADING")
+CHECK_CMD=$(block "$CHECK_STEP" 1)
+IGNORED_ITEM=$(bullet "$CHECK_STEP" "A line that starts with \`$IGNORED_MARK\`")
 BRANCH_CMD=$(code_span "$IGNORED_ITEM" 'git checkout')
-WORKTREE_CMD=$(first_block "$(section "$CREATE_HEADING")")
+WORKTREE_CMD=$(block "$(section "$CREATE_HEADING")" 1)
+MOVE_CMDS=$(block "$MOVE_STEP" 1)
+COMMIT_CMD=$(block "$MOVE_STEP" 2)
+SEARCH_CMD=$(code_span "$MOVE_STEP" "$SEARCH_PREFIX")
 
 # with_values <text>: the text with each placeholder replaced by the name of a
 # shell variable. The quotes around a path come from the skill text, so a
 # command that the skill writes without quotes fails on a path with a space.
 with_values() {
-  printf '%s\n' "$1" | sed "s/$TOPIC_PLACEHOLDER/\$TOPIC_PATH/g; s/$BRANCH_PLACEHOLDER/\$BRANCH/g; s/$WORKTREE_PLACEHOLDER/\$WT/g"
+  printf '%s\n' "$1" | sed "s/$FILE_PLACEHOLDER/\$FILE_PATH/g; s/$WT_FILE_PLACEHOLDER/\$WT_FILE/g; s/$BRANCH_PLACEHOLDER/\$BRANCH/g; s/$WORKTREE_PLACEHOLDER/\$WT/g; s/$TOP_PATH_PLACEHOLDER/\$TOP_PATH/g"
 }
 # runnable <command>: the command with the placeholders replaced, when the
-# command is one line that starts with `git ` or with the first words of the
-# existence test. In every other case the result is empty and the command is
-# not run: a behaviour check must never run an arbitrary line of a changed
-# skill file.
+# command is one line that starts with `git `, with the first words of one of
+# the two test lines, with `mkdir -p "`, with `mv "` or with the first words
+# of the search in the state file. In every other case
+# the result is empty and the command is not run: a behaviour check must never
+# run an arbitrary line of a changed skill file.
 runnable() {
   [ "$(line_count "$1")" -eq 1 ] || return 0
   case "$1" in
-    'git '*|"$EXISTS_PREFIX"*) with_values "$1" ;;
+    'git '*|"$EXISTS_PREFIX"*|"$PRESENT_PREFIX"*|'mkdir -p "'*|'mv "'*|"$SEARCH_PREFIX"*) with_values "$1" ;;
   esac
 }
-EXISTS_RUN=$(runnable "$EXISTS_CMD")
-STATUS_RUN=$(runnable "$STATUS_CMD")
-ADD_RUN=$(runnable "$ADD_CMD")
-COMMIT_RUN=$(runnable "$COMMIT_CMD")
+EXISTS_RUN=$(runnable "$(line_number "$CHECK_CMD" 1)")
+STATUS_RUN=$(runnable "$(line_number "$CHECK_CMD" 2)")
 BRANCH_RUN=$(runnable "$BRANCH_CMD")
 WORKTREE_RUN=$(runnable "$WORKTREE_CMD")
+PRESENT_RUN=$(runnable "$(line_number "$MOVE_CMDS" 1)")
+MKDIR_RUN=$(runnable "$(line_number "$MOVE_CMDS" 2)")
+MV_RUN=$(runnable "$(line_number "$MOVE_CMDS" 3)")
+ADD_RUN=$(runnable "$(line_number "$MOVE_CMDS" 4)")
+COMMIT_RUN=$(runnable "$COMMIT_CMD")
+SEARCH_RUN=$(runnable "$SEARCH_CMD")
+# commit_run_for <count>: the commit command with one quoted path for each
+# moved file, as the sentence after the command tells ("Name every moved file
+# in it, each path between its own quotes"). The paths are $WT_FILE_1,
+# $WT_FILE_2 and so on.
+commit_run_for() {
+  local names='' i=1
+  while [ "$i" -le "$1" ]; do
+    names="$names${names:+ }\"\$WT_FILE_$i\""
+    i=$((i+1))
+  done
+  printf '%s\n' "$COMMIT_RUN" | sed "s/\"\\\$WT_FILE\"/$names/"
+}
 
+# The values of the placeholders for the next run.
+FILE_PATH=''
+WT_FILE=''
+WT_FILE_1=''
+WT_FILE_2=''
+TOP_PATH=''
 NO_COMMAND='(the skill text holds no command that this suite can run)'
-# run_in <folder> <topic path> <command>...: run the commands, one after the
-# other, in <folder>; a command that fails ends the run. $TOPIC_PATH holds
-# <topic path>, $BRANCH the branch name of the fixture and $WT the worktree
-# path of the fixture. Leaves the output (both streams) in OUT and the exit
-# code in CODE. An empty command runs nothing: OUT then holds a message, so
-# that no check passes on an empty output, and RAN is 0.
-run_in() {
-  local folder="$1" topic="$2" command
-  shift 2
+# run_lines <folder> <command>...: run the commands, one after the other, in
+# <folder>; a command that fails ends the run. $FILE_PATH, $WT_FILE,
+# $WT_FILE_1, $WT_FILE_2 and $TOP_PATH hold the values that the caller has set, $BRANCH
+# the branch name of the fixture and $WT the worktree path of the fixture.
+# Leaves the output (both streams) in OUT and the exit code in CODE. An empty
+# command runs nothing: OUT then holds a message, so that no check passes on
+# an empty output, and RAN is 0.
+run_lines() {
+  local folder="$1" command
+  shift
   for command in "$@"; do
     if [ -z "$command" ]; then OUT="$NO_COMMAND"; CODE=1; RAN=0; return 0; fi
   done
   CODE=0
   RAN=1
-  OUT=$( { cd "$folder" && TOPIC_PATH="$topic" && BRANCH="$FEATURE_BRANCH" && WT="$WORKTREE" && for command in "$@"; do
+  OUT=$( { cd "$folder" && BRANCH="$FEATURE_BRANCH" && WT="$WORKTREE" && for command in "$@"; do
     eval "$command" || exit $?
   done; } 2>&1 ) || CODE=$?
 }
-# run_check <folder> <topic path>: the two lines of the check of the skill.
-run_check() { run_in "$1" "$2" "$EXISTS_RUN" "$STATUS_RUN"; }
-# run_commit <folder> <topic path>: the two commit commands of the skill.
-run_commit() { run_in "$1" "$2" "$ADD_RUN" "$COMMIT_RUN"; }
-# run_worktree: the worktree command of the skill, in the main checkout.
-run_worktree() { run_in "$MAIN" "$TOPIC" "$WORKTREE_RUN"; }
-# run_branch: the branch command of the skill, in the main checkout.
-run_branch() { run_in "$MAIN" "$TOPIC" "$BRANCH_RUN"; }
+# check_file <folder> <path>: the two lines of the check of step 2.
+check_file() {
+  FILE_PATH="$2"
+  run_lines "$1" "$EXISTS_RUN" "$STATUS_RUN"
+}
+# create_worktree: the worktree command of step 3, in the main checkout.
+create_worktree() { run_lines "$MAIN" "$WORKTREE_RUN"; }
+# create_branch: the branch command of step 2, in the main checkout.
+create_branch() { run_lines "$MAIN" "$BRANCH_RUN"; }
+# move_file <folder> <path from the top of the repository>: the four commands
+# of step 4 for one file, as the step tells: the first command alone, and the
+# three other commands only when the first one printed nothing. MOVED is 1
+# when all four ran and none failed.
+move_file() {
+  FILE_PATH="$MAIN/$2"
+  WT_FILE="$WORKTREE/$2"
+  MOVED=0
+  run_lines "$1" "$PRESENT_RUN"
+  if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ] && [ -z "$OUT" ]; then
+    run_lines "$1" "$MKDIR_RUN" "$MV_RUN" "$ADD_RUN"
+    if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ]; then MOVED=1; fi
+  fi
+}
+# commit_moved <folder> <path from the top>...: the commit command of step 4
+# with every named file.
+commit_moved() {
+  local folder="$1"
+  shift
+  WT_FILE_1="$WORKTREE/$1"
+  WT_FILE_2="$WORKTREE/${2:-}"
+  run_lines "$folder" "$(commit_run_for "$#")"
+}
+# do_steps <folder> <path from the top>...: step 3, then step 4 for the files.
+# ALL_MOVED is 1 when the worktree was created and every file was moved.
+do_steps() {
+  local folder="$1" file
+  shift
+  ALL_MOVED=0
+  create_worktree
+  if [ "$RAN" -ne 1 ] || [ "$CODE" -ne 0 ]; then return 0; fi
+  for file in "$@"; do
+    move_file "$folder" "$file"
+    if [ "$MOVED" -ne 1 ]; then return 0; fi
+  done
+  ALL_MOVED=1
+  commit_moved "$folder" "$@"
+}
 # assert_ran_ok <desc>: a command ran and ended with exit code 0.
 assert_ran_ok() {
   if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ]; then ok "$1"; else bad "$1 (exit code $CODE, output: $(one_line "$OUT"))"; fi
@@ -297,7 +454,14 @@ assert_ran_ok() {
 assert_ran_failed() {
   if [ "$RAN" -eq 1 ] && [ "$CODE" -ne 0 ] && [ -n "$OUT" ]; then ok "$1"; else bad "$1 (exit code $CODE, output: $(one_line "$OUT"))"; fi
 }
-
+# assert_eq_when <desc> <actual> <expected> <flag>: assert_eq, and a failure
+# when <flag> is not 1. The flag says that the commands before the check ran
+# and succeeded, so the check cannot pass on a fixture that nothing changed.
+assert_eq_when() {
+  if [ "$4" = 1 ]; then assert_eq "$1" "$2" "$3"; else bad "$1 (the commands before this check did not all run and succeed)"; fi
+}
+# ran_ok: prints 1 when the last run ran a command and ended with exit code 0.
+ran_ok() { if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ]; then echo 1; else echo 0; fi; }
 # assert_out_lacks <desc> <fixed text>: a command ran, and no line of its
 # output holds the text.
 assert_out_lacks() {
@@ -310,391 +474,536 @@ assert_out_lacks() {
 
 FEATURE_BRANCH='feature/demo'
 BASE_BRANCH='main'
+LAYOUT_ROOT='docs/superpowers-orchestrator'
 TOPIC_NAME='2026-10-04-demo'
 SPEC_FILE='specs/demo-design.md'
 SPEC_LOG_FILE='specs/demo-design-review-log.md'
 PLAN_FILE='plans/demo.md'
+# A file of the topic folder that no skill names.
+PRIVATE_FILE='credentials.env'
 TRACKED_FILE='src/a.js'
-OTHER_UNTRACKED='notes.md'
-# A file name that git ignores in the fixture "one ignored file".
-FINDER_FILE='.DS_Store'
 OPEN_TASK='- [ ] task 1'
 DONE_TASK='- [x] task 1'
+EXPECTED_SUBJECT="docs: spec and plan of $FEATURE_BRANCH"
 
-# new_fixture <name> [<line for .gitignore>] [<topic folder name>]: a
+# new_fixture <name> [<topic folder from the top>] [<line for .gitignore>]: a
 # repository $TMP/<name> with one commit on the branch main and a tracked
-# .gitignore, and an untracked topic folder with a spec, its review log and a
-# plan. Leaves the paths in MAIN, WORKTREE, TOPIC_REL (from the top of the
-# repository) and TOPIC (absolute).
+# .gitignore, and an untracked topic folder with a spec, its review log, a
+# plan and a private file. Leaves the paths in MAIN and WORKTREE, and the
+# paths from the top of the repository in TOPIC_REL, SPEC_REL and PLAN_REL.
 new_fixture() {
   MAIN="$TMP/$1"
   WORKTREE="$MAIN/.worktrees/demo"
-  TOPIC_REL="$LAYOUT_ROOT/${3:-$TOPIC_NAME}"
-  TOPIC="$MAIN/$TOPIC_REL"
+  TOPIC_REL="${2:-$LAYOUT_ROOT/$TOPIC_NAME}"
+  SPEC_REL="$TOPIC_REL/$SPEC_FILE"
+  PLAN_REL="$TOPIC_REL/$PLAN_FILE"
   git init -q "$MAIN"
   git -C "$MAIN" symbolic-ref HEAD "refs/heads/$BASE_BRANCH"
   mkdir "$MAIN/src"
   echo 'first version' > "$MAIN/$TRACKED_FILE"
-  printf '%s\n' '.worktrees/' "${2:-ignored-by-rule.md}" > "$MAIN/.gitignore"
+  printf '%s\n' '.worktrees/' "${3:-ignored-by-rule.md}" > "$MAIN/.gitignore"
   git -C "$MAIN" add -A
   git -C "$MAIN" commit -q -m 'base'
-  mkdir -p "$TOPIC/specs" "$TOPIC/plans"
-  echo '# Demo design' > "$TOPIC/$SPEC_FILE"
-  echo '# Demo design review log' > "$TOPIC/$SPEC_LOG_FILE"
-  printf '# Demo plan\n\n%s\n' "$OPEN_TASK" > "$TOPIC/$PLAN_FILE"
+  write_topic
 }
-# commit_topic: commit the topic folder of the fixture with plain git.
-commit_topic() {
-  git -C "$MAIN" add -- "$TOPIC_REL"
-  git -C "$MAIN" commit -q -m 'topic' -- "$TOPIC_REL"
+# write_topic: the four untracked files of the topic folder of the fixture.
+write_topic() {
+  mkdir -p "$MAIN/$TOPIC_REL/specs" "$MAIN/$TOPIC_REL/plans"
+  echo '# Demo design' > "$MAIN/$SPEC_REL"
+  echo '# Demo design review log' > "$MAIN/$TOPIC_REL/$SPEC_LOG_FILE"
+  printf '# Demo plan\n\n%s\n' "$OPEN_TASK" > "$MAIN/$PLAN_REL"
+  echo 'TOKEN=secret' > "$MAIN/$TOPIC_REL/$PRIVATE_FILE"
+}
+# commit_in_main <path from the top>...: commit the files with plain git on
+# the branch of the main checkout.
+commit_in_main() {
+  git -C "$MAIN" add -- "$@"
+  git -C "$MAIN" commit -q -m 'docs in the first folder' -- "$@"
 }
 # tick <plan file>: mark the task of the plan as done.
 tick() { printf '# Demo plan\n\n%s\n' "$DONE_TASK" > "$1"; }
-# status_lines <mark> <topic path from the top> <file>...: the lines that
-# `git status --porcelain` prints for the files, one per file.
-status_lines() {
-  local mark="$1" topic="$2" file lines=''
-  shift 2
-  for file in "$@"; do lines="$lines${lines:+$NL}$mark $topic/$file"; done
-  printf '%s' "$lines"
-}
-# three_lines <mark>: the status lines of the plan, the review log and the
-# spec of the fixture, in the order of git.
-three_lines() { status_lines "$1" "$TOPIC_REL" "$PLAN_FILE" "$SPEC_LOG_FILE" "$SPEC_FILE"; }
-# commit_count <branch>: the number of commits of the branch of the fixture.
-commit_count() { git -C "$MAIN" rev-list --count "$1" 2>/dev/null; }
-# head_files: the paths of the newest commit of the fixture, one per line.
-head_files() { git -C "$MAIN" show --name-only --format= HEAD 2>/dev/null; }
+# commit_count <branch>: the number of commits of the branch of the fixture; 0
+# when the branch does not exist.
+commit_count() { git -C "$MAIN" rev-list --count "$1" -- 2>/dev/null || echo 0; }
+# head_files <folder>: the paths of the newest commit in that working folder,
+# sorted, one per line.
+head_files() { git -C "$1" show --name-only --format= HEAD 2>/dev/null | sort; }
+# sorted <line>...: the arguments, sorted, one per line.
+sorted() { printf '%s\n' "$@" | sort; }
 # main_status: the whole status of the main checkout of the fixture.
 main_status() { git -C "$MAIN" status --porcelain --untracked-files=all 2>&1; }
-# worktree_holds <file>...: exit code 0 when the worktree of the fixture holds
-# every file of the topic folder that is named.
-worktree_holds() {
-  local file
-  for file in "$@"; do [ -f "$WORKTREE/$TOPIC_REL/$file" ] || return 1; done
+# The two files of the topic folder that the steps must not touch, as the
+# status of the main checkout names them.
+left_alone() { printf '%s\n%s' "$UNTRACKED_MARK $TOPIC_REL/$PRIVATE_FILE" "$UNTRACKED_MARK $TOPIC_REL/$SPEC_LOG_FILE"; }
+# assert_moved <desc> <path from the top>...: after steps 3 and 4, the main
+# checkout holds no copy of the files, the worktree holds them, the newest
+# commit of the worktree holds exactly these paths, and the status of the main
+# checkout has no line for them.
+assert_moved() {
+  local desc="$1" file here=1 lines=0
+  shift
+  for file in "$@"; do
+    if [ -e "$MAIN/$file" ] || [ ! -f "$WORKTREE/$file" ]; then here=0; fi
+    if main_status | grep -qF -- "$file"; then lines=1; fi
+  done
+  if [ "$ALL_MOVED" -eq 1 ] && [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ]; then
+    ok "$desc: every command of steps 3 and 4 succeeds"
+  else
+    bad "$desc: every command of steps 3 and 4 succeeds (exit code $CODE, output: $(one_line "$OUT"))"
+  fi
+  if [ "$here" -eq 1 ]; then
+    ok "$desc: the worktree holds the files, and the first folder holds no copy"
+  else
+    bad "$desc: the worktree holds the files, and the first folder holds no copy"
+  fi
+  assert_eq "$desc: the commit in the worktree holds exactly the moved paths" \
+    "$(head_files "$WORKTREE")" "$(sorted "$@")"
+  if [ "$lines" -eq 0 ]; then
+    ok "$desc: the status of the first folder has no line for the moved files"
+  else
+    bad "$desc: the status of the first folder has no line for the moved files (status: $(one_line "$(main_status)"))"
+  fi
 }
-THREE_FILES="$PLAN_FILE $SPEC_LOG_FILE $SPEC_FILE"
 
 # ---------------------------------------------------------------------------
-bold "1. A new worktree holds only committed files (why the step exists)"
+bold "1. What git does (why the steps exist)"
 # ---------------------------------------------------------------------------
 
 new_fixture defect
 git -C "$MAIN" worktree add -q "$WORKTREE" -b "$FEATURE_BRANCH"
-label="without the step, the new worktree holds no spec and no plan"
+label="a new worktree holds no untracked spec and no untracked plan"
 if [ -d "$WORKTREE" ] && [ ! -e "$WORKTREE/$TOPIC_REL" ]; then ok "$label"; else bad "$label"; fi
-tick "$TOPIC/$PLAN_FILE"
-git -C "$MAIN" add -- "$TOPIC_REL/$PLAN_FILE"
-git -C "$MAIN" commit -q -m 'chore(plan): demo task 1 complete' -- "$TOPIC_REL/$PLAN_FILE"
+tick "$MAIN/$PLAN_REL"
+commit_in_main "$PLAN_REL"
 assert_eq "a commit of the plan in the first folder lands on $BASE_BRANCH (2 commits there)" \
   "$(commit_count "$BASE_BRANCH")" '2'
 assert_eq "the same commit is not on $FEATURE_BRANCH (1 commit there)" \
   "$(commit_count "$FEATURE_BRANCH")" '1'
-echo 'other' > "$MAIN/$OTHER_UNTRACKED"
-label="a status call with '--' and no path reports on the whole repository"
-if git -C "$MAIN" status --porcelain --untracked-files=all -- | grep -qxF -- "$UNTRACKED_MARK $OTHER_UNTRACKED"; then
+
+# Why the steps move the files and do not copy them: a copy stays untracked in
+# the first folder, and git then refuses the merge of the branch there.
+new_fixture copy-defect
+git -C "$MAIN" worktree add -q "$WORKTREE" -b "$FEATURE_BRANCH"
+mkdir -p "$WORKTREE/$TOPIC_REL/plans"
+cp "$MAIN/$PLAN_REL" "$WORKTREE/$PLAN_REL"
+git -C "$WORKTREE" add -- "$PLAN_REL"
+git -C "$WORKTREE" commit -q -m 'plan copy' -- "$PLAN_REL"
+CODE=0
+OUT=$(git -C "$MAIN" merge --no-edit "$FEATURE_BRANCH" 2>&1) || CODE=$?
+label="after a copy in place of a move, git refuses the merge in the first folder"
+if [ "$CODE" -ne 0 ]; then ok "$label"; else bad "$label (output: $(one_line "$OUT"))"; fi
+
+# ---------------------------------------------------------------------------
+bold "2. The skill text holds the steps and their commands"
+# ---------------------------------------------------------------------------
+
+assert_eq "the skill has exactly these headings, in this order" "$(headings)" "$HEADINGS_EXPECTED"
+assert_eq "the fenced block of step 2 holds the two lines of the check" \
+  "$CHECK_CMD" "$CHECK_CMD_EXPECTED"
+assert_eq "the list item about an ignored file holds the branch command" \
+  "$BRANCH_CMD" "$BRANCH_CMD_EXPECTED"
+assert_eq "the fenced block of step 3 holds the worktree command" \
+  "$WORKTREE_CMD" "$WORKTREE_CMD_EXPECTED"
+assert_eq "the first fenced block of step 4 holds the four move commands" \
+  "$MOVE_CMDS" "$MOVE_CMDS_EXPECTED"
+assert_eq "the second fenced block of step 4 holds the commit command" \
+  "$COMMIT_CMD" "$COMMIT_CMD_EXPECTED"
+assert_eq "step 4 holds the search in the state file" "$SEARCH_CMD" "$SEARCH_CMD_EXPECTED"
+# The words of the worktree command in every spelling: any letter case, any
+# run of blanks or line breaks between the two words.
+assert_eq "the skill names 'worktree add' exactly one time, in every spelling" \
+  "$(fold_text < "$SKILL" | grep -oiE 'worktree[[:space:]]+add' | wc -l | tr -d ' ')" '1'
+CHECK_LINE=$(line_of "$STATUS_CMD_EXPECTED")
+WORKTREE_LINE=$(line_of "$WORKTREE_CMD_EXPECTED")
+MV_LINE=$(line_of "$MV_CMD_EXPECTED")
+COMMIT_LINE=$(line_of "$COMMIT_CMD_EXPECTED")
+label="in the skill file the check stands before the worktree command, the move after it, and the commit after the move"
+if [ "$CHECK_LINE" -gt 0 ] && [ "$CHECK_LINE" -lt "$WORKTREE_LINE" ] \
+  && [ "$WORKTREE_LINE" -lt "$MV_LINE" ] && [ "$MV_LINE" -lt "$COMMIT_LINE" ]; then
+  ok "$label"
+else
+  bad "$label (lines: check $CHECK_LINE, worktree $WORKTREE_LINE, move $MV_LINE, commit $COMMIT_LINE; 0 means absent)"
+fi
+
+# ---------------------------------------------------------------------------
+bold "3. The check of step 2 on fixture repositories"
+# ---------------------------------------------------------------------------
+
+new_fixture check-untracked
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "an untracked plan gives one '$UNTRACKED_MARK' line, and no line for another file of its folder" \
+  "$OUT" "$UNTRACKED_MARK $PLAN_REL"
+assert_eq "the check on an untracked plan gives exit code 0" "$CODE" '0'
+check_file "$MAIN" "$MAIN/$SPEC_REL"
+assert_eq "an untracked spec gives one '$UNTRACKED_MARK' line" "$OUT" "$UNTRACKED_MARK $SPEC_REL"
+check_file "$MAIN/src" "$MAIN/$PLAN_REL"
+assert_eq "a run in a sub-folder with the absolute path gives the same line" "$OUT" "$UNTRACKED_MARK $PLAN_REL"
+check_file "$MAIN/src" "$PLAN_REL"
+out_has_line "a run in a sub-folder with the relative path prints the line '$NO_PATH'" "$NO_PATH: $PLAN_REL"
+assert_out_lacks "a run in a sub-folder with the relative path prints no '$UNTRACKED_MARK' line" "$UNTRACKED_MARK"
+check_file "$MAIN" "$MAIN/$PLAN_REL-typo"
+assert_eq "a path that does not exist gives the line '$NO_PATH', and it is the only line" \
+  "$OUT" "$NO_PATH: $MAIN/$PLAN_REL-typo"
+check_file "$MAIN" ''
+out_has_line "an empty path gives the line '$NO_PATH'" "$NO_PATH: "
+assert_ran_failed "an empty path gives an exit code that is not 0"
+assert_out_lacks "an empty path does not report on the whole repository" "$PRIVATE_FILE"
+check_file "$MAIN" "$TMP"
+assert_ran_failed "a path outside the repository gives an exit code that is not 0, and an error text"
+
+new_fixture check-tracked
+commit_in_main "$SPEC_REL" "$PLAN_REL"
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a committed plan gives no output" "$OUT" ''
+assert_eq "a committed plan gives exit code 0" "$CODE" '0'
+tick "$MAIN/$PLAN_REL"
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a modified tracked plan gives one '$MODIFIED_MARK' line" "$OUT" "$MODIFIED_MARK $PLAN_REL"
+# The sentence "The worktree gets the committed state of the file, without
+# that change", and the reason why step 4 is not run for such a file.
+create_worktree
+assert_eq "the worktree gets the committed state of a modified plan, without the change" \
+  "$(grep -cxF -- "$OPEN_TASK" "$WORKTREE/$PLAN_REL" 2>/dev/null)" '1'
+
+new_fixture check-staged
+git -C "$MAIN" add -- "$PLAN_REL"
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a new plan that is staged and not committed gives one '$STAGED_NEW_MARK' line" \
+  "$OUT" "$STAGED_NEW_MARK $PLAN_REL"
+
+new_fixture check-ignored '' 'docs/'
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a plan in an ignored docs/ folder gives one '$IGNORED_MARK' line" "$OUT" "$IGNORED_MARK $PLAN_REL"
+
+# A user can hide untracked files from `git status` with a setting. The check
+# must name the file all the same.
+new_fixture check-setting
+git -C "$MAIN" config status.showUntrackedFiles no
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "with status.showUntrackedFiles=no the '$UNTRACKED_MARK' line is printed" "$OUT" "$UNTRACKED_MARK $PLAN_REL"
+
+# Git prints a path with a space between two " characters.
+new_fixture check-space "$LAYOUT_ROOT/2026-10-04-my demo"
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a path with a space gives one '$UNTRACKED_MARK' line" "$OUT" "$UNTRACKED_MARK \"$PLAN_REL\""
+
+mkdir -p "$TMP/no-repository/docs"
+echo 'plan' > "$TMP/no-repository/docs/plan.md"
+MAIN="$TMP/no-repository"
+check_file "$MAIN" "$MAIN/docs/plan.md"
+assert_ran_failed "a folder that is not a git repository gives an exit code that is not 0, and an error text"
+
+# ---------------------------------------------------------------------------
+bold "4. Step 3, then step 4: the files move into the worktree and are committed there"
+# ---------------------------------------------------------------------------
+
+new_fixture move-untracked
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "untracked spec and plan" "$SPEC_REL" "$PLAN_REL"
+assert_eq "the files that no skill names stay untracked in the first folder, and nothing else is there" \
+  "$(main_status)" "$(left_alone)"
+label="the worktree holds no file of the topic folder that no skill names"
+if [ "$ALL_MOVED" -eq 1 ] && [ ! -e "$WORKTREE/$TOPIC_REL/$PRIVATE_FILE" ] && [ ! -e "$WORKTREE/$TOPIC_REL/$SPEC_LOG_FILE" ]; then
   ok "$label"
 else
   bad "$label"
 fi
-
-# ---------------------------------------------------------------------------
-bold "2. The skill text holds the step and its commands"
-# ---------------------------------------------------------------------------
-
-assert_eq "the skill has exactly one heading '$HEADING'" \
-  "$(grep -cxF -- "$HEADING" "$SKILL")" '1'
-assert_eq "the section '$STEPS_HEADING' has exactly these five step headings, in this order" \
-  "$(awk -v h="$STEPS_HEADING" '$0 == h { f = 1; next } f && /^## / { exit } f && /^### / { print }' "$SKILL")" \
-  "$STEP_HEADINGS_EXPECTED"
-assert_eq "the fenced block of the step holds the two lines of the check" \
-  "$CHECK_CMD" "$CHECK_CMD_EXPECTED"
-assert_eq "the list item about an uncommitted file holds the command that stages the topic folder" \
-  "$ADD_CMD" "$ADD_CMD_EXPECTED"
-assert_eq "the list item about an uncommitted file holds the commit command" \
-  "$COMMIT_CMD" "$COMMIT_CMD_EXPECTED"
-assert_eq "the list item about an ignored spec or plan holds the branch command" \
-  "$BRANCH_CMD" "$BRANCH_CMD_EXPECTED"
-assert_eq "the fenced block of step 3 holds the worktree command" \
-  "$WORKTREE_CMD" "$WORKTREE_CMD_EXPECTED"
-assert_eq "the skill names 'git worktree add' exactly one time" \
-  "$(grep -o -- 'git worktree add' "$SKILL" | wc -l | tr -d ' ')" '1'
-# A command that no sentence tells to run is only an example to the reader.
-assert_before "a sentence with a verb tells to run the check, before the check" \
-  "$STEP_FOLDED" "$S_RUN_CHECK" "$STATUS_CMD_EXPECTED"
-assert_before "the check stands before the commit command" \
-  "$STEP_FOLDED" "$STATUS_CMD_EXPECTED" "$COMMIT_CMD_EXPECTED"
-COMMIT_LINE=$(line_of "$COMMIT_CMD_EXPECTED")
-WORKTREE_LINE=$(line_of "$WORKTREE_CMD_EXPECTED")
-label="the commit command stands before the worktree command in the skill file"
-if [ "$COMMIT_LINE" -gt 0 ] && [ "$COMMIT_LINE" -lt "$WORKTREE_LINE" ]; then
+assert_eq "no commit is made on $BASE_BRANCH (1 commit there), and one on $FEATURE_BRANCH (2 commits there)" \
+  "$(commit_count "$BASE_BRANCH") $(commit_count "$FEATURE_BRANCH")" '1 2'
+assert_eq "the subject of the commit names the branch" \
+  "$(git -C "$WORKTREE" log -1 --format=%s 2>/dev/null)" "$EXPECTED_SUBJECT"
+# The step run a second time, with the path that the calling skill named.
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a second run of the check with the first path gives the line '$NO_PATH', and it is the only line" \
+  "$OUT" "$NO_PATH: $MAIN/$PLAN_REL"
+create_worktree
+assert_ran_failed "a second run of the worktree command fails"
+label="after the failed second run the worktree still holds the spec and the plan"
+if [ -f "$WORKTREE/$SPEC_REL" ] && [ -f "$WORKTREE/$PLAN_REL" ]; then ok "$label"; else bad "$label"; fi
+# The sentences at the end of step 4: the plan of the work is the file inside
+# the worktree.
+{
+  tick "$WORKTREE/$PLAN_REL"
+  git -C "$WORKTREE" add -- "$PLAN_REL"
+  git -C "$WORKTREE" commit -q -m 'chore(plan): demo task 1 complete' -- "$PLAN_REL"
+} 2>/dev/null
+assert_eq "a commit of the plan inside the worktree lands on $FEATURE_BRANCH (3 commits there)" \
+  "$(commit_count "$FEATURE_BRANCH")" '3'
+# The later merge of the branch in the first folder.
+CODE=0
+OUT=$(git -C "$MAIN" merge -q --no-edit "$FEATURE_BRANCH" 2>&1) || CODE=$?
+label="the later merge of $FEATURE_BRANCH into $BASE_BRANCH in the first folder succeeds, and the first folder then holds the spec and the plan"
+if [ "$ALL_MOVED" -eq 1 ] && [ "$CODE" -eq 0 ] && [ -f "$MAIN/$SPEC_REL" ] && [ -f "$MAIN/$PLAN_REL" ]; then
   ok "$label"
 else
-  bad "$label (line of the commit command: $COMMIT_LINE; line of the worktree command: $WORKTREE_LINE; 0 means absent)"
+  bad "$label (exit code $CODE, output: $(one_line "$OUT"))"
 fi
 
-# ---------------------------------------------------------------------------
-bold "3. The check on fixture repositories"
-# ---------------------------------------------------------------------------
+new_fixture move-plan-only
+commit_in_main "$SPEC_REL"
+check_file "$MAIN" "$MAIN/$SPEC_REL"
+assert_eq "a committed spec gives no output" "$OUT" ''
+do_steps "$MAIN" "$PLAN_REL"
+assert_moved "committed spec, untracked plan" "$PLAN_REL"
+label="the worktree holds the committed spec too, and the first folder keeps its committed spec"
+if [ "$ALL_MOVED" -eq 1 ] && [ -f "$WORKTREE/$SPEC_REL" ] && [ -f "$MAIN/$SPEC_REL" ]; then ok "$label"; else bad "$label"; fi
 
-new_fixture untracked
-echo 'other' > "$MAIN/$OTHER_UNTRACKED"
-run_check "$MAIN" "$TOPIC"
-assert_eq "an untracked spec, review log and plan give three '$UNTRACKED_MARK' lines, and no line for a file outside the topic folder" \
-  "$OUT" "$(three_lines "$UNTRACKED_MARK")"
-assert_eq "the check on an untracked topic folder gives exit code 0" "$CODE" '0'
-REFERENCE="$OUT"
-run_check "$MAIN/src" "$TOPIC"
-label="a run in a sub-folder with the absolute path gives the same three lines"
-if [ "$RAN" -eq 1 ] && [ "$OUT" = "$REFERENCE" ]; then ok "$label"; else bad "$label (got: $(one_line "$OUT"))"; fi
-run_check "$MAIN/src" "$TOPIC_REL"
-out_has_line "a run in a sub-folder with the relative path prints the line '$NO_PATH'" "$NO_PATH: $TOPIC_REL"
-assert_out_lacks "a run in a sub-folder with the relative path names no file of the topic folder" "$PLAN_FILE"
-run_check "$MAIN" "$TOPIC-typo"
-assert_eq "a path that does not exist gives the line '$NO_PATH', and it is the only line" \
-  "$OUT" "$NO_PATH: $TOPIC-typo"
-run_check "$MAIN" ''
-out_has_line "an empty path gives the line '$NO_PATH'" "$NO_PATH: "
-assert_ran_failed "an empty path gives an exit code that is not 0"
-assert_out_lacks "an empty path does not report on the whole repository" "$OTHER_UNTRACKED"
-run_check "$MAIN" "$TMP"
-assert_ran_failed "a path outside the repository gives an exit code that is not 0, and an error text"
-run_check "$MAIN" "$TOPIC/$PLAN_FILE"
-assert_eq "the path of the plan file in place of the topic folder gives one line, for the plan" \
-  "$OUT" "$(status_lines "$UNTRACKED_MARK" "$TOPIC_REL" "$PLAN_FILE")"
+new_fixture move-detached
+git -C "$MAIN" checkout -q --detach
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "detached HEAD" "$SPEC_REL" "$PLAN_REL"
+assert_eq "detached HEAD: the commit is on $FEATURE_BRANCH only ($BASE_BRANCH has 1 commit)" \
+  "$(commit_count "$BASE_BRANCH") $(commit_count "$FEATURE_BRANCH")" '1 2'
 
-new_fixture modified
-commit_topic
-run_check "$MAIN" "$TOPIC"
-assert_eq "a committed topic folder gives no output" "$OUT" ''
-assert_eq "a committed topic folder gives exit code 0" "$CODE" '0'
-tick "$TOPIC/$PLAN_FILE"
-run_check "$MAIN" "$TOPIC"
-assert_eq "a modified tracked plan gives one '$MODIFIED_MARK' line" \
-  "$OUT" "$(status_lines "$MODIFIED_MARK" "$TOPIC_REL" "$PLAN_FILE")"
+new_fixture move-space "$LAYOUT_ROOT/2026-10-04-my demo"
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "a path with a space" "$SPEC_REL" "$PLAN_REL"
 
-new_fixture ignored 'docs/'
-run_check "$MAIN" "$TOPIC"
-assert_eq "an ignored docs/ folder gives three '$IGNORED_MARK' lines" \
-  "$OUT" "$(three_lines "$IGNORED_MARK")"
+new_fixture move-outside-layout 'notes/work'
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "a spec and a plan outside $LAYOUT_ROOT" "$SPEC_REL" "$PLAN_REL"
 
-new_fixture one-ignored "$FINDER_FILE"
-echo 'finder data' > "$TOPIC/$FINDER_FILE"
-run_check "$MAIN" "$TOPIC"
-assert_eq "one ignored file in an untracked topic folder: three '$UNTRACKED_MARK' lines and one '$IGNORED_MARK' line" \
-  "$OUT" "$(three_lines "$UNTRACKED_MARK")$NL$(status_lines "$IGNORED_MARK" "$TOPIC_REL" "$FINDER_FILE")"
-
-# A user can hide untracked files from `git status` with a setting. The check
-# must name them all the same.
-new_fixture setting
+new_fixture move-setting
 git -C "$MAIN" config status.showUntrackedFiles no
-run_check "$MAIN" "$TOPIC"
-assert_eq "with status.showUntrackedFiles=no the three '$UNTRACKED_MARK' lines are printed" \
-  "$OUT" "$(three_lines "$UNTRACKED_MARK")"
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "status.showUntrackedFiles=no" "$SPEC_REL" "$PLAN_REL"
 
-# Git prints a path with a space between two " characters.
-new_fixture space '' '2026-10-04-my demo'
-run_check "$MAIN" "$TOPIC"
-assert_eq "a topic folder path with a space gives three '$UNTRACKED_MARK' lines" \
-  "$OUT" "$UNTRACKED_MARK \"$TOPIC_REL/$PLAN_FILE\"$NL$UNTRACKED_MARK \"$TOPIC_REL/$SPEC_LOG_FILE\"$NL$UNTRACKED_MARK \"$TOPIC_REL/$SPEC_FILE\""
+new_fixture move-sub-folder
+do_steps "$MAIN/src" "$SPEC_REL" "$PLAN_REL"
+assert_moved "the commands of step 4 run in a sub-folder" "$SPEC_REL" "$PLAN_REL"
 
-mkdir -p "$TMP/no-repository/docs"
-run_in "$TMP/no-repository" "$TMP/no-repository/docs" "$EXISTS_RUN" "$STATUS_RUN"
-assert_ran_failed "a folder that is not a git repository gives an exit code that is not 0, and an error text"
-
-# ---------------------------------------------------------------------------
-bold "4. The commit commands, then the worktree command"
-# ---------------------------------------------------------------------------
-
-# assert_step_done <desc> <file>...: after the commit commands and the
-# worktree command of the skill, the check prints nothing and the worktree
-# holds the files.
-assert_step_done() {
-  local desc="$1"
-  shift
-  run_check "$MAIN" "$TOPIC"
-  assert_eq "$desc: after the commit the check gives no output" "$OUT" ''
-  run_worktree
-  assert_ran_ok "$desc: the worktree command succeeds"
-  if worktree_holds "$@"; then
-    ok "$desc: the worktree holds the spec, its review log and the plan"
-  else
-    bad "$desc: the worktree holds the spec, its review log and the plan"
-  fi
-}
-
-new_fixture commit-untracked
-echo 'other' > "$MAIN/$OTHER_UNTRACKED"
-echo 'second version' >> "$MAIN/$TRACKED_FILE"
-git -C "$MAIN" add -- "$TRACKED_FILE"
-run_commit "$MAIN" "$TOPIC"
-assert_ran_ok "the commit commands succeed on an untracked topic folder"
-assert_eq "the commit holds exactly the plan, the review log and the spec" \
-  "$(head_files)" "$TOPIC_REL/$PLAN_FILE$NL$TOPIC_REL/$SPEC_LOG_FILE$NL$TOPIC_REL/$SPEC_FILE"
-assert_eq "the commit is on the current branch ($BASE_BRANCH has 2 commits)" "$(commit_count "$BASE_BRANCH")" '2'
-assert_eq "the subject of the commit names the branch of the worktree" \
-  "$(git -C "$MAIN" log -1 --format=%s)" "docs: spec and plan of $FEATURE_BRANCH"
-assert_eq "an unrelated staged file stays staged, and an unrelated untracked file stays untracked" \
-  "$(main_status)" "M  $TRACKED_FILE$NL$UNTRACKED_MARK $OTHER_UNTRACKED"
-# shellcheck disable=SC2086
-assert_step_done "untracked spec and plan" $THREE_FILES
-assert_eq "the branch of the worktree starts at the commit of the spec and the plan" \
-  "$(git -C "$MAIN" rev-parse --verify --quiet "$FEATURE_BRANCH")" "$(git -C "$MAIN" rev-parse --verify --quiet "$BASE_BRANCH")"
-# The sentences after the list: the plan of the work is the copy inside the
-# worktree.
-# Without a worktree the three commands fail; the two checks after them then
-# fail, and the error texts of the commands are not needed.
+# A merge that has stopped on a conflict in the first folder. The commit of
+# step 4 runs in the worktree, so it must not end that merge.
+new_fixture move-during-merge
 {
-  tick "$WORKTREE/$TOPIC_REL/$PLAN_FILE"
-  git -C "$WORKTREE" add -- "$TOPIC_REL/$PLAN_FILE"
-  git -C "$WORKTREE" commit -q -m 'chore(plan): demo task 1 complete' -- "$TOPIC_REL/$PLAN_FILE"
+  git -C "$MAIN" checkout -q -b other
+  echo 'other version' > "$MAIN/$TRACKED_FILE"
+  git -C "$MAIN" commit -q -a -m 'other'
+  git -C "$MAIN" checkout -q "$BASE_BRANCH"
+  echo 'main version' > "$MAIN/$TRACKED_FILE"
+  git -C "$MAIN" commit -q -a -m 'main'
+  git -C "$MAIN" merge other
+} >/dev/null 2>&1
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "a merge in progress in the first folder" "$SPEC_REL" "$PLAN_REL"
+label="the merge in the first folder is still in progress, with its conflict"
+if [ "$ALL_MOVED" -eq 1 ] && git -C "$MAIN" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 \
+  && main_status | grep -qxF -- "UU $TRACKED_FILE"; then
+  ok "$label"
+else
+  bad "$label (status: $(one_line "$(main_status)"))"
+fi
+
+# A repository with no commit. Git 2.42 and later create the worktree on a
+# branch with no commit; an older git refuses. Both results are correct for
+# the steps: the files move only after a worktree command that succeeded.
+MAIN="$TMP/move-no-commit"
+WORKTREE="$MAIN/.worktrees/demo"
+TOPIC_REL="$LAYOUT_ROOT/$TOPIC_NAME"
+SPEC_REL="$TOPIC_REL/$SPEC_FILE"
+PLAN_REL="$TOPIC_REL/$PLAN_FILE"
+git init -q "$MAIN"
+git -C "$MAIN" symbolic-ref HEAD "refs/heads/$BASE_BRANCH"
+write_topic
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a repository with no commit: the check gives one '$UNTRACKED_MARK' line" "$OUT" "$UNTRACKED_MARK $PLAN_REL"
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+if [ "$ALL_MOVED" -eq 1 ]; then
+  assert_moved "a repository with no commit (this git creates the worktree)" "$SPEC_REL" "$PLAN_REL"
+else
+  label="a repository with no commit (this git creates no worktree): the worktree command fails, and the files stay in the first folder"
+  if [ "$RAN" -eq 1 ] && [ "$CODE" -ne 0 ] && [ -f "$MAIN/$SPEC_REL" ] && [ -f "$MAIN/$PLAN_REL" ]; then
+    ok "$label"
+  else
+    bad "$label (exit code $CODE, output: $(one_line "$OUT"))"
+  fi
+fi
+
+# The commands name the moved files only: a file that is staged in the
+# worktree for another reason stays staged, and an untracked file in the
+# folder of the plan inside the worktree stays untracked.
+EXTRA_FILE='extra.txt'
+SIBLING_FILE='plans/sibling.md'
+new_fixture commit-only-moved
+create_worktree
+{
+  mkdir -p "$WORKTREE/$TOPIC_REL/plans"
+  echo 'sibling' > "$WORKTREE/$TOPIC_REL/$SIBLING_FILE"
+  echo 'extra' > "$WORKTREE/$EXTRA_FILE"
+  git -C "$WORKTREE" add -- "$EXTRA_FILE"
 } 2>/dev/null
-assert_eq "a commit of the plan copy inside the worktree lands on $FEATURE_BRANCH (3 commits there)" \
-  "$(commit_count "$FEATURE_BRANCH")" '3'
-assert_eq "the same commit leaves $BASE_BRANCH as it was (2 commits)" "$(commit_count "$BASE_BRANCH")" '2'
-
-new_fixture commit-modified
-commit_topic
-tick "$TOPIC/$PLAN_FILE"
-run_commit "$MAIN" "$TOPIC"
-assert_ran_ok "the commit commands succeed on a modified tracked plan"
-assert_eq "the commit of a modified plan holds only the plan" "$(head_files)" "$TOPIC_REL/$PLAN_FILE"
-# shellcheck disable=SC2086
-assert_step_done "modified tracked plan" $THREE_FILES
-assert_eq "the plan copy inside the worktree holds the modification" \
-  "$(grep -cxF -- "$DONE_TASK" "$WORKTREE/$TOPIC_REL/$PLAN_FILE" 2>/dev/null)" '1'
-
-new_fixture commit-space '' '2026-10-04-my demo'
-run_commit "$MAIN" "$TOPIC"
-assert_ran_ok "the commit commands succeed on a topic folder path with a space"
-# shellcheck disable=SC2086
-assert_step_done "a path with a space" $THREE_FILES
-
-new_fixture commit-sub-folder
-run_commit "$MAIN/src" "$TOPIC"
-assert_ran_ok "the commit commands succeed in a sub-folder with the absolute path"
-# shellcheck disable=SC2086
-assert_step_done "a run in a sub-folder" $THREE_FILES
-
-new_fixture commit-setting
-git -C "$MAIN" config status.showUntrackedFiles no
-run_commit "$MAIN" "$TOPIC"
-assert_ran_ok "the commit commands succeed with status.showUntrackedFiles=no"
-# shellcheck disable=SC2086
-assert_step_done "status.showUntrackedFiles=no" $THREE_FILES
-
-new_fixture commit-plan-file
-run_commit "$MAIN" "$TOPIC/$PLAN_FILE"
-assert_ran_ok "the commit commands succeed with the path of the plan file in place of the topic folder"
-assert_eq "the commit of a plan file path holds only the plan" "$(head_files)" "$TOPIC_REL/$PLAN_FILE"
-assert_eq "the spec and its review log stay untracked after the commit of a plan file path" \
-  "$(main_status)" "$(status_lines "$UNTRACKED_MARK" "$TOPIC_REL" "$SPEC_LOG_FILE" "$SPEC_FILE")"
-
-new_fixture commit-one-ignored "$FINDER_FILE"
-echo 'finder data' > "$TOPIC/$FINDER_FILE"
-run_commit "$MAIN" "$TOPIC"
-assert_ran_ok "the commit commands succeed on a topic folder with one ignored file"
-run_check "$MAIN" "$TOPIC"
-assert_eq "after the commit, the check prints only the '$IGNORED_MARK' line of the ignored file" \
-  "$OUT" "$(status_lines "$IGNORED_MARK" "$TOPIC_REL" "$FINDER_FILE")"
-run_worktree
-label="the worktree holds the spec and the plan, and not the ignored file"
-# shellcheck disable=SC2086
-if worktree_holds $THREE_FILES && [ ! -e "$WORKTREE/$TOPIC_REL/$FINDER_FILE" ]; then ok "$label"; else bad "$label"; fi
-
-# Two marks that the step does not name: a deleted tracked file (` D`) and a
-# new file that is staged and not committed (`A `).
-NEW_FILE='plans/demo-notes.md'
-new_fixture commit-other-marks
-commit_topic
-rm "$TOPIC/$SPEC_LOG_FILE"
-echo '# Demo notes' > "$TOPIC/$NEW_FILE"
-git -C "$MAIN" add -- "$TOPIC_REL/$NEW_FILE"
-run_check "$MAIN" "$TOPIC"
-assert_eq "a staged new file and a deleted tracked file give one line each" \
-  "$OUT" "A  $TOPIC_REL/$NEW_FILE$NL D $TOPIC_REL/$SPEC_LOG_FILE"
-run_commit "$MAIN" "$TOPIC"
-assert_ran_ok "the commit commands succeed on a staged new file and a deleted tracked file"
-assert_eq "the commit holds the new file and the deletion" \
-  "$(head_files)" "$TOPIC_REL/$NEW_FILE$NL$TOPIC_REL/$SPEC_LOG_FILE"
-assert_step_done "a staged new file and a deleted tracked file" "$PLAN_FILE" "$SPEC_FILE" "$NEW_FILE"
-
-# The sentence "no commit can carry it into a worktree": git refuses to stage
-# a file that it ignores.
-new_fixture commit-ignored 'docs/'
-run_commit "$MAIN" "$TOPIC"
-assert_ran_failed "the commit commands fail on an ignored docs/ folder"
-assert_eq "no commit is made for an ignored docs/ folder ($BASE_BRANCH has 1 commit)" "$(commit_count "$BASE_BRANCH")" '1'
+move_file "$MAIN" "$PLAN_REL"
+commit_moved "$MAIN" "$PLAN_REL"
+assert_ran_ok "the commit command succeeds while another file is staged in the worktree"
+assert_eq "the commit holds only the moved plan" "$(head_files "$WORKTREE")" "$PLAN_REL"
+assert_eq_when "the other staged file stays staged, and the other file of the folder stays untracked" \
+  "$(git -C "$WORKTREE" status --porcelain --untracked-files=all 2>&1)" \
+  "$STAGED_NEW_MARK $EXTRA_FILE$NL$UNTRACKED_MARK $TOPIC_REL/$SIBLING_FILE" "$(ran_ok)"
 
 # ---------------------------------------------------------------------------
-bold "5. The branch in the same folder"
+bold "5. Step 4 when a command must not run, or fails"
+# ---------------------------------------------------------------------------
+
+# The same path is already present in the worktree.
+OTHER_CONTENT='another plan'
+new_fixture present
+create_worktree
+{
+  mkdir -p "$WORKTREE/$TOPIC_REL/plans"
+  echo "$OTHER_CONTENT" > "$WORKTREE/$PLAN_REL"
+} 2>/dev/null
+move_file "$MAIN" "$PLAN_REL"
+out_has_line "a file that the worktree already holds: the first command prints the line '$ALREADY_THERE'" \
+  "$ALREADY_THERE: $WORKTREE/$PLAN_REL"
+label="a file that the worktree already holds is not overwritten, and the file of the first folder stays"
+if [ "$RAN" -eq 1 ] && [ "$MOVED" -eq 0 ] && [ "$(cat "$WORKTREE/$PLAN_REL" 2>/dev/null)" = "$OTHER_CONTENT" ] \
+  && grep -qxF -- "$OPEN_TASK" "$MAIN/$PLAN_REL" 2>/dev/null; then
+  ok "$label"
+else
+  bad "$label"
+fi
+move_file "$MAIN" "$SPEC_REL"
+label="for a file that the worktree does not hold, the first command prints nothing, and the file moves"
+if [ "$MOVED" -eq 1 ] && [ -z "$OUT" ]; then ok "$label"; else bad "$label (output: $(one_line "$OUT"))"; fi
+
+# The `mv` command fails: the file to move does not exist.
+new_fixture move-fails
+create_worktree
+move_file "$MAIN" "$PLAN_REL-typo"
+assert_ran_failed "the move of a file that does not exist ends with an exit code that is not 0, and an error text"
+assert_eq_when "after a failed move nothing is staged in the worktree" \
+  "$(git -C "$WORKTREE" status --porcelain 2>&1)" '' "$RAN"
+
+# A commit hook that refuses every commit. The hooks folder of the repository
+# is used by the worktree too.
+new_fixture hook
+printf '#!/bin/sh\necho "hook: refused" >&2\nexit 1\n' > "$MAIN/.git/hooks/pre-commit"
+chmod +x "$MAIN/.git/hooks/pre-commit"
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_ran_failed "a commit hook that refuses: the commit command ends with an exit code that is not 0, and an error text"
+assert_eq_when "after the refused commit no commit is on $FEATURE_BRANCH (1 commit there)" \
+  "$(commit_count "$FEATURE_BRANCH")" '1' "$ALL_MOVED"
+assert_eq "after the refused commit the moved files are in the worktree, staged and not committed" \
+  "$(git -C "$WORKTREE" status --porcelain 2>&1)" "$STAGED_NEW_MARK $PLAN_REL$NL$STAGED_NEW_MARK $SPEC_REL"
+label="after the refused commit the first folder holds no copy of the moved files"
+if [ "$ALL_MOVED" -eq 1 ] && [ ! -e "$MAIN/$SPEC_REL" ] && [ ! -e "$MAIN/$PLAN_REL" ]; then ok "$label"; else bad "$label"; fi
+
+# The search in the state file, after the move. The file is a workspace file
+# at the top of the first folder; it is not moved.
+# search_state <folder> <path from the top>: the search command of step 4.
+search_state() {
+  TOP_PATH="$2"
+  run_lines "$1" "$SEARCH_RUN"
+}
+PLAN_LINE_START='Plan file: '
+new_fixture state-file
+printf '## Current Goal\nDemo\n\n## Plan\n%s%s\nNext task: 1\n' "$PLAN_LINE_START" "$PLAN_REL" > "$MAIN/$STATE_FILE"
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+search_state "$MAIN" "$PLAN_REL"
+assert_eq_when "after the move, the search prints the line of the state file that names the old path of the plan" \
+  "$OUT" "5:$PLAN_LINE_START$PLAN_REL" "$ALL_MOVED"
+search_state "$MAIN" "$SPEC_REL"
+label="the search for a file that the state file does not name prints nothing"
+if [ "$RAN" -eq 1 ] && [ -z "$OUT" ]; then ok "$label"; else bad "$label (exit code $CODE, output: $(one_line "$OUT"))"; fi
+# A line that already holds the path inside the worktree is printed too: the
+# new path ends with the path from the top of the repository.
+printf '## Plan\n%s%s\n' "$PLAN_LINE_START" "$WORKTREE/$PLAN_REL" > "$MAIN/$STATE_FILE"
+search_state "$MAIN" "$PLAN_REL"
+assert_eq "the search prints a line that already holds the path inside the worktree" \
+  "$OUT" "2:$PLAN_LINE_START$WORKTREE/$PLAN_REL"
+search_state "$MAIN/src" "$PLAN_REL"
+assert_ran_failed "the search in a sub-folder, which holds no state file, ends with an exit code that is not 0, and an error text"
+new_fixture state-file-space "$LAYOUT_ROOT/2026-10-04-my demo"
+printf '## Plan\n%s%s\n' "$PLAN_LINE_START" "$PLAN_REL" > "$MAIN/$STATE_FILE"
+search_state "$MAIN" "$PLAN_REL"
+assert_eq "the search finds a path with a space" "$OUT" "2:$PLAN_LINE_START$PLAN_REL"
+# The search reads the path as a fixed text: `[draft]` in a regular expression
+# would match one letter, and the line would not be found.
+MARKS_PATH='notes/v1 [draft]/plan.md'
+printf '## Plan\n%s%s\n' "$PLAN_LINE_START" "$MARKS_PATH" > "$MAIN/$STATE_FILE"
+search_state "$MAIN" "$MARKS_PATH"
+assert_eq "the search finds a path with the characters [ and ]" "$OUT" "2:$PLAN_LINE_START$MARKS_PATH"
+
+# ---------------------------------------------------------------------------
+bold "6. The branch in the same folder"
 # ---------------------------------------------------------------------------
 
 # assert_branch_keeps <desc>: the branch command of the skill ran, the main
-# checkout is on the feature branch, the three files are on disk, and the
-# repository has no second working folder.
+# checkout is on the feature branch, the spec and the plan are on disk, and
+# the repository has no second working folder.
 assert_branch_keeps() {
-  run_branch
+  create_branch
   if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ] \
     && [ "$(git -C "$MAIN" symbolic-ref --short HEAD 2>/dev/null)" = "$FEATURE_BRANCH" ] \
-    && [ -f "$TOPIC/$PLAN_FILE" ] && [ -f "$TOPIC/$SPEC_FILE" ] && [ -f "$TOPIC/$SPEC_LOG_FILE" ] \
+    && [ -f "$MAIN/$PLAN_REL" ] && [ -f "$MAIN/$SPEC_REL" ] \
     && [ "$(git -C "$MAIN" worktree list | wc -l | tr -d ' ')" = '1' ]; then
     ok "$1"
   else
     bad "$1 (exit code $CODE, output: $(one_line "$OUT"))"
   fi
 }
-new_fixture branch-ignored 'docs/'
-assert_branch_keeps "the branch command keeps an ignored spec and plan in the same folder"
+new_fixture branch-ignored '' 'docs/'
+assert_branch_keeps "the branch command keeps an ignored spec and plan in the same folder, and the repository has one working folder"
 new_fixture branch-untracked
-assert_branch_keeps "the branch command keeps an untracked spec and plan in the same folder, and the repository has one working folder"
+assert_branch_keeps "the branch command keeps an untracked spec and plan in the same folder"
+new_fixture branch-modified
+commit_in_main "$SPEC_REL" "$PLAN_REL"
+tick "$MAIN/$PLAN_REL"
+assert_branch_keeps "the branch command keeps a modified tracked plan in the same folder"
+assert_eq_when "after the branch command the plan still holds its change" \
+  "$(grep -cxF -- "$DONE_TASK" "$MAIN/$PLAN_REL" 2>/dev/null)" '1' "$(ran_ok)"
+new_fixture branch-detached
+git -C "$MAIN" checkout -q --detach
+assert_branch_keeps "the branch command works on a detached HEAD"
 
 # ---------------------------------------------------------------------------
-bold "6. The step: its sentences, and nothing that weakens it"
+bold "7. The two steps: their sentences, and nothing that weakens them"
 # ---------------------------------------------------------------------------
 
 # The checks of group 2 prove that each command is present. A sentence that
-# is added to the step, for example an exception, passes all of them. The
-# next checks compare the whole step, so an added sentence, an added list
-# item and an added command block fail, whatever their words are.
-label="the step holds exactly these sentences, in this order, and no other text"
-if [ "$STEP_FOLDED" = "$STEP_EXPECTED" ]; then
-  ok "$label"
-else
-  bad "$label ($(first_difference "$STEP_FOLDED" "$STEP_EXPECTED"))"
-fi
-assert_eq "the step has exactly $STEP_ITEM_COUNT list items" "$(item_count "$STEP")" "$STEP_ITEM_COUNT"
-assert_eq "the step has exactly one fenced block (two fence lines)" \
-  "$(printf '%s\n' "$STEP" | grep -c '^[[:space:]]*```')" '2'
+# is added to a step, for example an exception, passes all of them. The next
+# checks compare the whole step, so an added sentence, an added list item and
+# an added command block fail, whatever their words are.
+# assert_step <name> <text of the step> <expected text> <item count> <fence line count>
+assert_step() {
+  local label folded
+  folded=$(printf '%s\n' "$2" | fold_text)
+  label="$1 holds exactly its sentences, in their order, and no other text"
+  if [ "$folded" = "$3" ]; then ok "$label"; else bad "$label ($(first_difference "$folded" "$3"))"; fi
+  assert_eq "$1 has exactly $4 list items" "$(item_count "$2")" "$4"
+  assert_eq "$1 has exactly $5 lines that start or end a fenced block" "$(fence_line_count "$2")" "$5"
+}
+assert_step 'step 2' "$CHECK_STEP" "$CHECK_STEP_EXPECTED" "$CHECK_STEP_ITEM_COUNT" 2
+assert_step 'step 4' "$MOVE_STEP" "$MOVE_STEP_EXPECTED" "$MOVE_STEP_ITEM_COUNT" 4
+
+# Text outside the two steps can weaken them: a new section, or a sentence in
+# another section ("step 2 can wait"). The heading check of group 2 fails for
+# a new section. The next checks fail for a changed text in every other
+# section.
+while IFS='	' read -r heading expected_sum; do
+  assert_eq "the text of the section '$heading' is unchanged (checksum)" "$(section_sum "$heading")" "$expected_sum"
+done <<EOF
+$SECTION_SUMS_EXPECTED
+EOF
+
+SKILL_TEXT=$(cat "$SKILL" 2>/dev/null)
+# Words that make a step a matter of choice, and the option that switches the
+# commit hooks off. No letter case hides them.
+WEAKENING_WORDS='optional|--no-verify|fast path'
+assert_lacks "the skill holds none of the words: $WEAKENING_WORDS" "$SKILL_TEXT" "$WEAKENING_WORDS"
 # Words that start an exception to a rule.
 EXCEPTION_WORDS='unless|except'
-assert_lacks "the step holds no word that starts an exception ($EXCEPTION_WORDS)" "$STEP" "$EXCEPTION_WORDS"
+assert_lacks "the skill holds no word that starts an exception ($EXCEPTION_WORDS)" "$SKILL_TEXT" "$EXCEPTION_WORDS"
 # The force option: `--force`, and `-f` that is not a part of a longer option
-# or word.
+# or word. The setup commands of step 5 hold `[ -f <file> ]`, a file test:
+# those lines are left out. Letter case counts here: `grep -F` (search for a
+# fixed text) in step 4 is no force option.
 FORCE_OPTION='--force|(^|[^-[:alnum:]])-f([^-[:alnum:]]|$)'
-assert_lacks "the step holds no force option" "$STEP" "$FORCE_OPTION"
-# A command that stages or commits files outside the topic folder.
-WIDE_COMMIT='git add +(-A|--all|-u|\.)|git commit +(-a|--all)'
-SKILL_TEXT=$(cat "$SKILL" 2>/dev/null)
-assert_lacks "the skill holds no command that stages or commits every file" "$SKILL_TEXT" "$WIDE_COMMIT"
-# A sentence outside the step can weaken the step, for example "step 2 can
-# wait until the worktree exists". Such a sentence names the step, a commit,
-# a spec or a plan. Today three lines outside the step match: the commit of
-# the .gitignore change, and the two skill names `writing-plans` and
-# `executing-plans` in the section "Integration". The check compares the
-# matching lines as whole lines, so a new matching line fails, and a sentence
-# added to one of the three lines fails too.
-OUTSIDE_WORDS='commit|spec|plan|step 2'
-OUTSIDE_LINES_EXPECTED='2. **Commit the `.gitignore` change immediately** before proceeding — an uncommitted ignore entry is easy to lose and leaves the worktree contents exposed to accidental staging.
-- `writing-plans`
-- `executing-plans` — REQUIRED before executing any tasks'
-assert_eq "outside the step, exactly three lines of the skill name a commit, a spec, a plan or step 2" \
-  "$(awk -v h="$HEADING" '$0 == h { f = 1; next } f && /^#/ { f = 0 } !f' "$SKILL" 2>/dev/null | grep -iE -- "$OUTSIDE_WORDS")" \
-  "$OUTSIDE_LINES_EXPECTED"
-# The section that creates the worktree must not create it in a second place,
-# and must hold one command block only.
-assert_eq "step 3 has exactly one fenced block (two fence lines)" \
-  "$(section "$CREATE_HEADING" | grep -c '^[[:space:]]*```')" '2'
+assert_lacks "the skill holds no force option" "$(printf '%s\n' "$SKILL_TEXT" | grep -v '^if \[ -f ')" "$FORCE_OPTION" -E
+# A command that stages or commits more than the named files, a copy in place
+# of the move, and a stash.
+WIDE_COMMANDS='git add +(-A|--all|-u|\.)|commit +(-a|--all)|(^|[^[:alnum:]])cp +|git stash'
+assert_lacks "the skill holds no command that stages every file, copies a file or makes a stash" "$SKILL_TEXT" "$WIDE_COMMANDS"
 
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
