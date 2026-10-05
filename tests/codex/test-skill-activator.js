@@ -493,661 +493,6 @@ test('known-issues context appears between skill hint and memory context', () =>
   assert.ok(kiIdx !== -1 || memIdx !== -1, 'at least one recall section should appear');
 });
 
-// ── Context pressure gate ─────────────────────────────────────────────────────
-
-const {
-  isExecutionTrigger,
-  cwdToProjectDir,
-  getContextPressure,
-  readContextWindowCache,
-  buildContextPressureBlock,
-} = require('../../hooks/skill-activator');
-
-console.log('\nContext pressure gate — isExecutionTrigger');
-
-test('Recognises "execute the plan"', () => {
-  assert.strictEqual(isExecutionTrigger('execute the plan'), true);
-});
-test('Recognises "start building"', () => {
-  assert.strictEqual(isExecutionTrigger('start building the feature'), true);
-});
-test('Recognises "start implementing"', () => {
-  assert.strictEqual(isExecutionTrigger('let\'s start implementing'), true);
-});
-test('Recognises "follow the plan"', () => {
-  assert.strictEqual(isExecutionTrigger('follow the plan we wrote'), true);
-});
-test('Recognises "implement the plan"', () => {
-  assert.strictEqual(isExecutionTrigger('implement the plan now'), true);
-});
-test('Recognises "let\'s build"', () => {
-  assert.strictEqual(isExecutionTrigger('let\'s build this'), true);
-});
-test('Recognises "run the plan"', () => {
-  assert.strictEqual(isExecutionTrigger('run the plan'), true);
-});
-test('Recognises "begin implementing"', () => {
-  assert.strictEqual(isExecutionTrigger('begin implementing the auth module'), true);
-});
-test('Does NOT trigger on "what is the plan"', () => {
-  assert.strictEqual(isExecutionTrigger('what is the plan here?'), false);
-});
-test('Does NOT trigger on "fix this bug"', () => {
-  assert.strictEqual(isExecutionTrigger('fix this bug in auth.js'), false);
-});
-test('Does NOT trigger on "review the code"', () => {
-  assert.strictEqual(isExecutionTrigger('review the code before merging'), false);
-});
-test('Does NOT trigger on empty string', () => {
-  assert.strictEqual(isExecutionTrigger(''), false);
-});
-test('Does NOT trigger on null', () => {
-  assert.strictEqual(isExecutionTrigger(null), false);
-});
-
-console.log('\nContext pressure gate — prompts the skills tell the user to paste');
-
-const REPO_ROOT = path.join(__dirname, '..', '..');
-const SDD_SKILL = fs.readFileSync(
-  path.join(REPO_ROOT, 'skills', 'subagent-driven-development', 'SKILL.md'), 'utf8');
-const WRITING_PLANS_SKILL = fs.readFileSync(
-  path.join(REPO_ROOT, 'skills', 'writing-plans', 'SKILL.md'), 'utf8');
-// Whitespace is collapsed so that a prompt or a sentence wrapped over lines still matches.
-const SDD_TEXT = SDD_SKILL.replace(/\s+/g, ' ');
-const INLINE_APPROACH = 'Inline';
-const HANDOFF_APPROACHES = ['Subagent-Driven, batched', 'Subagent-Driven, interactive', INLINE_APPROACH];
-const RESUME_PROMPT_START = 'Resume the plan at';
-
-// Rows of the writing-plans handoff table: | Approach | `paste prompt` | Behavior |
-const handoffPrompts = [...WRITING_PLANS_SKILL.matchAll(/^\| ([^|]+?) \| `([^`]+)` \|/gm)]
-  .map(m => ({ approach: m[1], prompt: m[2] }));
-// Resume prompts of the batch handoff, written in double quotes.
-const resumePrompts = [...SDD_TEXT.matchAll(new RegExp(`"(${RESUME_PROMPT_START} [^"]+)"`, 'g'))]
-  .map(m => m[1]);
-const SHORT_REPLIES = ['subagent', 'inline', 'go', 'yes'];
-
-test('Every row of the writing-plans handoff table is extracted', () => {
-  assert.deepStrictEqual(handoffPrompts.map(p => p.approach), HANDOFF_APPROACHES);
-});
-test('Every resume prompt of the SDD skill is extracted', () => {
-  const mentions = SDD_TEXT.split(RESUME_PROMPT_START).length - 1;
-  assert.ok(resumePrompts.length > 0, 'no resume prompt extracted from SDD');
-  assert.strictEqual(resumePrompts.length, mentions,
-    `extracted ${resumePrompts.length} of ${mentions} resume prompts`);
-});
-test('The gate fires on the Inline paste prompt only', () => {
-  for (const { approach, prompt } of handoffPrompts) {
-    assert.strictEqual(isExecutionTrigger(prompt), approach === INLINE_APPROACH, prompt);
-  }
-});
-test('The gate does not fire on resume prompts or short replies', () => {
-  for (const prompt of [...resumePrompts, ...SHORT_REPLIES]) {
-    assert.strictEqual(isExecutionTrigger(prompt), false, prompt);
-  }
-});
-test('The gate fires on "execute the plan in batches"', () => {
-  assert.strictEqual(isExecutionTrigger('execute the plan in batches'), true);
-});
-test('SDD states what the gate covers, not that it catches mid-session starts', () => {
-  assert.ok(!SDD_TEXT.includes('catches mid-session starts'), 'false claim still present');
-  assert.ok(SDD_TEXT.includes('fires only on a prompt that matches its execution patterns'),
-    'corrected sentence missing');
-});
-
-console.log('\nContext pressure gate — cwdToProjectDir');
-
-test('Windows path with spaces encodes correctly', () => {
-  const result = cwdToProjectDir('C:\\Users\\Tjerk Pieksma\\Documents\\Github\\project');
-  assert.strictEqual(result, 'c--Users-Tjerk-Pieksma-Documents-Github-project');
-});
-test('Windows path without spaces encodes correctly', () => {
-  const result = cwdToProjectDir('C:\\Users\\user\\project');
-  assert.strictEqual(result, 'c--Users-user-project');
-});
-test('Lowercase drive letter for any uppercase drive', () => {
-  const result = cwdToProjectDir('D:\\work\\repo');
-  assert.ok(result.startsWith('d-'), `Expected d- prefix, got: ${result}`);
-});
-test('Unix path encodes correctly', () => {
-  const result = cwdToProjectDir('/home/user/projects/foo');
-  assert.strictEqual(result, '-home-user-projects-foo');
-});
-test('No trailing dashes', () => {
-  const result = cwdToProjectDir('C:\\project\\');
-  assert.ok(!result.endsWith('-'), `Should not end with dash, got: ${result}`);
-});
-test('Forward slashes treated same as backslashes', () => {
-  const win = cwdToProjectDir('C:\\Users\\user\\project');
-  const fwd = cwdToProjectDir('C:/Users/user/project');
-  assert.strictEqual(win, fwd, 'Forward and backslash paths should produce the same result');
-});
-test('Underscores encode to dashes (matches real Claude Code encoding)', () => {
-  const result = cwdToProjectDir('/Users/bruno/Programming/AI/AI_Coding/My_tools/Superpowers');
-  assert.strictEqual(result, '-Users-bruno-Programming-AI-AI-Coding-My-tools-Superpowers');
-});
-
-console.log('\nContext pressure gate — getContextPressure');
-
-function makeJsonlSession(sessionId, projectDir, homeDir, turns) {
-  const projectPath = path.join(homeDir, '.claude', 'projects', projectDir);
-  fs.mkdirSync(projectPath, { recursive: true });
-  const jsonlPath = path.join(projectPath, sessionId + '.jsonl');
-  const lines = turns.map(t => JSON.stringify({
-    type: 'assistant',
-    message: { usage: t },
-    sessionId,
-    timestamp: new Date().toISOString(),
-  }));
-  fs.writeFileSync(jsonlPath, lines.join('\n'));
-  return jsonlPath;
-}
-
-test('Returns null when sessionId is missing', () => {
-  assert.strictEqual(getContextPressure(process.cwd(), null), null);
-  assert.strictEqual(getContextPressure(process.cwd(), undefined), null);
-});
-
-test('Returns null when JSONL file does not exist', () => {
-  const result = getContextPressure('/nonexistent/path/xyz', 'fake-session-id');
-  assert.strictEqual(result, null);
-});
-
-test('Returns correct percent for known token counts (below threshold)', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-unit-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-below-' + Date.now();
-  // Last turn: 40K total input (20% of 200K)
-  makeJsonlSession(sessionId, projDir, tmpHome, [
-    { input_tokens: 5, cache_creation_input_tokens: 20000, cache_read_input_tokens: 0, output_tokens: 100 },
-    { input_tokens: 3, cache_creation_input_tokens: 500, cache_read_input_tokens: 39500, output_tokens: 200 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  const result = getContextPressure(cwd, sessionId);
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-
-  assert.ok(result !== null, 'Should return a result');
-  assert.strictEqual(result.overThreshold, false, 'Should be below threshold');
-  assert.ok(result.percent < 60, `Expected <60%, got ${result.percent}%`);
-});
-
-test('Returns overThreshold=true for ≥60% context (120K tokens)', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-unit-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-above-' + Date.now();
-  // Last turn: 125K total input (62.5% of 200K) → over threshold
-  makeJsonlSession(sessionId, projDir, tmpHome, [
-    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  const result = getContextPressure(cwd, sessionId);
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-
-  assert.ok(result !== null, 'Should return a result');
-  assert.strictEqual(result.overThreshold, true, 'Should be over threshold');
-  assert.ok(result.percent >= 60, `Expected ≥60%, got ${result.percent}%`);
-  assert.strictEqual(result.inputK, 125, `Expected 125K, got ${result.inputK}K`);
-});
-
-test('Uses LAST assistant turn, not first', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-unit-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-last-' + Date.now();
-  // First turn: tiny. Last turn: over threshold.
-  makeJsonlSession(sessionId, projDir, tmpHome, [
-    { input_tokens: 3, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 50 },
-    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  const result = getContextPressure(cwd, sessionId);
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-
-  assert.ok(result !== null, 'Should return a result');
-  assert.strictEqual(result.overThreshold, true, 'Last turn is over threshold');
-});
-
-test('Skips non-assistant lines without crashing', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-unit-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-mixed-' + Date.now();
-  const projectPath = path.join(tmpHome, '.claude', 'projects', projDir);
-  fs.mkdirSync(projectPath, { recursive: true });
-  const lines = [
-    JSON.stringify({ type: 'user', message: { content: 'hello' }, sessionId }),
-    'not valid json at all',
-    JSON.stringify({ type: 'assistant', message: { usage: { input_tokens: 3, cache_creation_input_tokens: 500, cache_read_input_tokens: 0, output_tokens: 50 } }, sessionId }),
-  ];
-  fs.writeFileSync(path.join(projectPath, sessionId + '.jsonl'), lines.join('\n'));
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  let threw = false;
-  try { getContextPressure(cwd, sessionId); } catch { threw = true; }
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-  assert.strictEqual(threw, false, 'Should not throw on mixed/invalid lines');
-});
-
-console.log('\nContext pressure gate — statusline cache bridge');
-
-function makeContextCache(homeDir, entry, mtimeMs) {
-  const dir = path.join(homeDir, '.claude', 'hooks-logs');
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'context-window.cache.json');
-  fs.writeFileSync(file, typeof entry === 'string' ? entry : JSON.stringify(entry));
-  if (mtimeMs) fs.utimesSync(file, mtimeMs / 1000, mtimeMs / 1000);
-  return file;
-}
-
-function withTmpHome(fn) {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-cache-'));
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  try {
-    return fn(tmpHome);
-  } finally {
-    process.env.USERPROFILE = orig.up;
-    process.env.HOME = orig.home;
-    fs.rmSync(tmpHome, { recursive: true });
-  }
-}
-
-test('Cache with matching session wins over transcript and carries true window size', () => {
-  const result = withTmpHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const sessionId = 'cache-match-' + Date.now();
-    // Transcript alone would read 125K/200K = 62% (over threshold).
-    makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
-      { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-    ]);
-    // Cache knows the real window is 1M → 13%, under threshold.
-    makeContextCache(tmpHome, {
-      session_id: sessionId, context_window_size: 1000000,
-      input_tokens_total: 130000, used_percentage: 13,
-    });
-    return getContextPressure(cwd, sessionId);
-  });
-  assert.ok(result !== null, 'Should return a result');
-  assert.strictEqual(result.overThreshold, false, '13% of 1M must be under threshold');
-  assert.strictEqual(result.percent, 13, `Expected 13%, got ${result.percent}%`);
-  assert.strictEqual(result.windowK, 1000, `Expected windowK 1000, got ${result.windowK}`);
-});
-
-test('Cache with a DIFFERENT session id is ignored — transcript fallback applies', () => {
-  const result = withTmpHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const sessionId = 'cache-mismatch-' + Date.now();
-    makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
-      { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-    ]);
-    makeContextCache(tmpHome, {
-      session_id: 'some-other-session', context_window_size: 1000000,
-      input_tokens_total: 130000, used_percentage: 13,
-    });
-    return getContextPressure(cwd, sessionId);
-  });
-  assert.ok(result !== null, 'Should return a result');
-  assert.strictEqual(result.overThreshold, true, 'Transcript fallback: 62% of 200K');
-  assert.strictEqual(result.windowK, 200, 'Fallback carries the 200K default window');
-});
-
-test('Stale cache (>30 min) is ignored — transcript fallback applies', () => {
-  const result = withTmpHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const sessionId = 'cache-stale-' + Date.now();
-    makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
-      { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-    ]);
-    makeContextCache(tmpHome, {
-      session_id: sessionId, context_window_size: 1000000,
-      input_tokens_total: 130000, used_percentage: 13,
-    }, Date.now() - 31 * 60 * 1000);
-    return getContextPressure(cwd, sessionId);
-  });
-  assert.ok(result !== null, 'Should return a result');
-  assert.strictEqual(result.overThreshold, true, 'Stale cache must not be trusted');
-});
-
-test('Malformed cache falls back to transcript without throwing', () => {
-  const result = withTmpHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const sessionId = 'cache-bad-' + Date.now();
-    makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
-      { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-    ]);
-    makeContextCache(tmpHome, '{not valid json');
-    return getContextPressure(cwd, sessionId);
-  });
-  assert.ok(result !== null, 'Should fall back to transcript');
-  assert.strictEqual(result.overThreshold, true, 'Transcript fallback result expected');
-});
-
-test('readContextWindowCache returns null for zero/missing window or totals', () => {
-  const results = withTmpHome((tmpHome) => {
-    const sessionId = 'cache-zero-' + Date.now();
-    const out = [];
-    makeContextCache(tmpHome, { session_id: sessionId, context_window_size: 0, input_tokens_total: 130000 });
-    out.push(readContextWindowCache(sessionId));
-    makeContextCache(tmpHome, { session_id: sessionId, context_window_size: 1000000 });
-    out.push(readContextWindowCache(sessionId));
-    return out;
-  });
-  assert.strictEqual(results[0], null, 'Zero window size must be rejected');
-  assert.strictEqual(results[1], null, 'Missing token total must be rejected');
-});
-
-console.log('\nContext pressure gate — SUPERPOWERS_PRESSURE_THRESHOLD override');
-
-function withThresholdEnv(value, fn) {
-  const orig = process.env.SUPERPOWERS_PRESSURE_THRESHOLD;
-  if (value === undefined) delete process.env.SUPERPOWERS_PRESSURE_THRESHOLD;
-  else process.env.SUPERPOWERS_PRESSURE_THRESHOLD = value;
-  try {
-    return fn();
-  } finally {
-    if (orig === undefined) delete process.env.SUPERPOWERS_PRESSURE_THRESHOLD;
-    else process.env.SUPERPOWERS_PRESSURE_THRESHOLD = orig;
-  }
-}
-
-function transcriptPressureAt55Percent() {
-  // 110K/200K = 55% via the transcript fallback path.
-  return withTmpHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const sessionId = 'thr-' + Math.random().toString(36).slice(2);
-    makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
-      { input_tokens: 5, cache_creation_input_tokens: 90000, cache_read_input_tokens: 19995, output_tokens: 100 },
-    ]);
-    return getContextPressure(cwd, sessionId);
-  });
-}
-
-test('55% is under the default 60% threshold', () => {
-  const result = withThresholdEnv(undefined, transcriptPressureAt55Percent);
-  assert.strictEqual(result.overThreshold, false);
-  assert.strictEqual(result.thresholdPercent, 60);
-});
-
-test('SUPERPOWERS_PRESSURE_THRESHOLD=50 puts 55% over threshold', () => {
-  const result = withThresholdEnv('50', transcriptPressureAt55Percent);
-  assert.strictEqual(result.overThreshold, true, '55% must exceed a 50% threshold');
-  assert.strictEqual(result.thresholdPercent, 50);
-});
-
-test('Override applies to the statusline-cache path too', () => {
-  const result = withThresholdEnv('50', () => withTmpHome((tmpHome) => {
-    const sessionId = 'thr-cache-' + Date.now();
-    makeContextCache(tmpHome, {
-      session_id: sessionId, context_window_size: 1000000,
-      input_tokens_total: 550000, used_percentage: 55,
-    });
-    return readContextWindowCache(sessionId);
-  }));
-  assert.strictEqual(result.overThreshold, true, '55% of 1M must exceed a 50% threshold');
-  assert.strictEqual(result.thresholdPercent, 50);
-});
-
-test('Invalid or out-of-range values fall back to 60%', () => {
-  for (const bad of ['abc', '', '5', '95', '-20', '0']) {
-    const result = withThresholdEnv(bad, transcriptPressureAt55Percent);
-    assert.strictEqual(result.overThreshold, false, `"${bad}" must fall back to 60% (55% under)`);
-    assert.strictEqual(result.thresholdPercent, 60, `"${bad}" must report the default threshold`);
-  }
-});
-
-test('Block message reports the active threshold', () => {
-  const block = buildContextPressureBlock({ inputK: 110, percent: 55, windowK: 200, thresholdPercent: 50 });
-  assert.ok(block.includes('≥50%'), `Expected ≥50% in block, got: ${block.slice(0, 300)}`);
-});
-
-console.log('\nContext pressure gate — buildContextPressureBlock');
-
-test('Contains opening and closing context-pressure-gate tags', () => {
-  const block = buildContextPressureBlock({ inputK: 125, percent: 62 });
-  assert.ok(block.includes('<context-pressure-gate>'), 'Missing opening tag');
-  assert.ok(block.includes('</context-pressure-gate>'), 'Missing closing tag');
-});
-test('Interpolates inputK correctly', () => {
-  const block = buildContextPressureBlock({ inputK: 142, percent: 71 });
-  assert.ok(block.includes('142K'), `Expected 142K in block, got: ${block.slice(0, 200)}`);
-});
-test('Interpolates percent correctly', () => {
-  const block = buildContextPressureBlock({ inputK: 142, percent: 71 });
-  assert.ok(block.includes('71%'), `Expected 71% in block, got: ${block.slice(0, 200)}`);
-});
-test('Contains all 4 required action steps', () => {
-  const block = buildContextPressureBlock({ inputK: 100, percent: 60 });
-  assert.ok(block.includes('1.'), 'Missing step 1');
-  assert.ok(block.includes('2.'), 'Missing step 2');
-  assert.ok(block.includes('3.'), 'Missing step 3');
-  assert.ok(block.includes('4.'), 'Missing step 4');
-});
-test('References /compact in step 3', () => {
-  const block = buildContextPressureBlock({ inputK: 100, percent: 60 });
-  assert.ok(block.includes('/compact'), 'Step 3 should reference /compact');
-});
-test('References state.md in step 1', () => {
-  const block = buildContextPressureBlock({ inputK: 100, percent: 60 });
-  assert.ok(block.includes('state.md'), 'Step 1 should reference state.md');
-});
-test('Interpolates the true window size when windowK is present', () => {
-  const block = buildContextPressureBlock({ inputK: 620, percent: 62, windowK: 1000 });
-  assert.ok(block.includes('1000K limit'), `Expected 1000K limit, got: ${block.slice(0, 200)}`);
-});
-test('Falls back to 200K limit when windowK is absent', () => {
-  const block = buildContextPressureBlock({ inputK: 125, percent: 62 });
-  assert.ok(block.includes('200K limit'), `Expected 200K limit, got: ${block.slice(0, 200)}`);
-});
-
-console.log('\nContext pressure gate — evaluatePayload integration');
-
-test('Execution trigger + high pressure → returns pressure block, not skill hints', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-int-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-int-' + Date.now();
-  makeJsonlSession(sessionId, projDir, tmpHome, [
-    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  const result = evaluatePayload({ prompt: 'execute the plan', session_id: sessionId, cwd });
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-
-  const ctx = result.hookSpecificOutput?.additionalContext || '';
-  assert.ok(ctx.includes('context-pressure-gate'), 'Should return pressure block');
-  assert.ok(!ctx.includes('user-prompt-submit-hook'), 'Should NOT include skill hints when gate fires');
-});
-
-test('Execution trigger + low pressure → returns skill hints, not pressure block', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-int2-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-int2-' + Date.now();
-  makeJsonlSession(sessionId, projDir, tmpHome, [
-    { input_tokens: 3, cache_creation_input_tokens: 500, cache_read_input_tokens: 5000, output_tokens: 100 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  const result = evaluatePayload({ prompt: 'execute the plan and start building the feature', session_id: sessionId, cwd });
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-
-  const ctx = result.hookSpecificOutput?.additionalContext || '';
-  assert.ok(!ctx.includes('context-pressure-gate'), 'Should NOT return pressure block at low pressure');
-});
-
-test('Non-execution prompt + high pressure → no pressure block', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-int3-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const projDir = cwdToProjectDir(cwd);
-  const sessionId = 'test-int3-' + Date.now();
-  makeJsonlSession(sessionId, projDir, tmpHome, [
-    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  const result = evaluatePayload({ prompt: 'fix this bug in the auth middleware', session_id: sessionId, cwd });
-  process.env.USERPROFILE = orig.up;
-  process.env.HOME = orig.home;
-  fs.rmSync(tmpHome, { recursive: true });
-
-  const ctx = result.hookSpecificOutput?.additionalContext || '';
-  assert.ok(!ctx.includes('context-pressure-gate'), 'Non-execution prompt should never get pressure block');
-});
-
-// ── Context pressure — session autodiscovery ─────────────────────────────────
-
-const {
-  findLatestSessionJsonl,
-  getContextPressureAuto,
-} = require('../../hooks/skill-activator');
-
-console.log('\nContext pressure — findLatestSessionJsonl / getContextPressureAuto');
-
-function withTempHome(fn) {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-auto-'));
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  try {
-    return fn(tmpHome);
-  } finally {
-    process.env.USERPROFILE = orig.up;
-    process.env.HOME = orig.home;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-}
-
-test('findLatestSessionJsonl returns null when project dir does not exist', () => {
-  withTempHome((tmpHome) => {
-    const result = findLatestSessionJsonl(path.join(tmpHome, 'no-such-project'));
-    assert.strictEqual(result, null);
-  });
-});
-
-test('findLatestSessionJsonl picks the most recently modified jsonl', () => {
-  withTempHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const projDir = cwdToProjectDir(cwd);
-    const turns = [{ input_tokens: 5, cache_creation_input_tokens: 1000, cache_read_input_tokens: 0, output_tokens: 10 }];
-    const oldPath = makeJsonlSession('session-old', projDir, tmpHome, turns);
-    const newPath = makeJsonlSession('session-new', projDir, tmpHome, turns);
-    // Force distinct mtimes — same-millisecond writes are common
-    const now = Date.now() / 1000;
-    fs.utimesSync(oldPath, now - 100, now - 100);
-    fs.utimesSync(newPath, now, now);
-    assert.strictEqual(findLatestSessionJsonl(cwd), newPath);
-  });
-});
-
-test('findLatestSessionJsonl ignores non-jsonl files', () => {
-  withTempHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const projDir = cwdToProjectDir(cwd);
-    const projectPath = path.join(tmpHome, '.claude', 'projects', projDir);
-    fs.mkdirSync(projectPath, { recursive: true });
-    fs.writeFileSync(path.join(projectPath, 'notes.txt'), 'not a session');
-    assert.strictEqual(findLatestSessionJsonl(cwd), null);
-  });
-});
-
-test('getContextPressureAuto returns pressure from the latest session', () => {
-  withTempHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const projDir = cwdToProjectDir(cwd);
-    // Old session at 80%, new session at 20% — auto must report the NEW one
-    const oldPath = makeJsonlSession('session-old', projDir, tmpHome, [
-      { input_tokens: 0, cache_creation_input_tokens: 160000, cache_read_input_tokens: 0, output_tokens: 10 },
-    ]);
-    const newPath = makeJsonlSession('session-new', projDir, tmpHome, [
-      { input_tokens: 0, cache_creation_input_tokens: 40000, cache_read_input_tokens: 0, output_tokens: 10 },
-    ]);
-    const now = Date.now() / 1000;
-    fs.utimesSync(oldPath, now - 100, now - 100);
-    fs.utimesSync(newPath, now, now);
-    const result = getContextPressureAuto(cwd);
-    assert.ok(result !== null, 'Should return a result');
-    assert.strictEqual(result.percent, 20);
-    assert.strictEqual(result.overThreshold, false);
-  });
-});
-
-test('getContextPressureAuto returns null when no sessions exist', () => {
-  withTempHome((tmpHome) => {
-    assert.strictEqual(getContextPressureAuto(path.join(tmpHome, 'empty-project')), null);
-  });
-});
-
-// ── --pressure CLI ────────────────────────────────────────────────────────────
-
-const { execFileSync } = require('child_process');
-const ACTIVATOR_PATH = path.join(__dirname, '..', '..', 'hooks', 'skill-activator.js');
-
-function runPressureCli(cwd, tmpHome) {
-  const out = execFileSync('node', [ACTIVATOR_PATH, '--pressure', cwd], {
-    env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
-  }).toString();
-  return JSON.parse(out);
-}
-
-console.log('\n--pressure CLI');
-
-test('CLI reports pressure below threshold', () => {
-  withTempHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const projDir = cwdToProjectDir(cwd);
-    makeJsonlSession('session-a', projDir, tmpHome, [
-      { input_tokens: 0, cache_creation_input_tokens: 40000, cache_read_input_tokens: 0, output_tokens: 10 },
-    ]);
-    const result = runPressureCli(cwd, tmpHome);
-    assert.strictEqual(result.percent, 20);
-    assert.strictEqual(result.overThreshold, false);
-  });
-});
-
-test('CLI reports overThreshold at >= 60%', () => {
-  withTempHome((tmpHome) => {
-    const cwd = path.join(tmpHome, 'myproject');
-    const projDir = cwdToProjectDir(cwd);
-    makeJsonlSession('session-a', projDir, tmpHome, [
-      { input_tokens: 0, cache_creation_input_tokens: 130000, cache_read_input_tokens: 0, output_tokens: 10 },
-    ]);
-    const result = runPressureCli(cwd, tmpHome);
-    assert.strictEqual(result.overThreshold, true);
-  });
-});
-
-test('CLI prints {"error":"unmeasurable"} when no session data exists', () => {
-  withTempHome((tmpHome) => {
-    const result = runPressureCli(path.join(tmpHome, 'empty-project'), tmpHome);
-    assert.deepStrictEqual(result, { error: 'unmeasurable' });
-  });
-});
-
 // ── Batched autonomous mode triggers ─────────────────────────────────────────
 
 const { matchSkills } = require('../../hooks/skill-activator');
@@ -1561,9 +906,10 @@ function uniqueSessionId() {
 }
 
 // A hook that crashes or prints nothing fails the test: the exit status is
-// checked, and an empty output is not valid JSON.
-function runHook(payload) {
-  const result = spawnSync(process.execPath, [HOOK_SCRIPT], { input: JSON.stringify(payload), encoding: 'utf8' });
+// checked, and an empty output is not valid JSON. `options` are more options
+// for the child process (cwd, env); `args` are arguments after the script.
+function runHook(payload, options = {}, args = []) {
+  const result = spawnSync(process.execPath, [HOOK_SCRIPT, ...args], { input: JSON.stringify(payload), encoding: 'utf8', ...options });
   assert.strictEqual(result.status, 0, `The hook exited with status ${result.status}: ${result.stderr}`);
   return JSON.parse(result.stdout);
 }
@@ -1606,9 +952,11 @@ for (const [label, message] of Object.entries(AGENT_MESSAGES)) {
   }));
 }
 
-function assertHintAndRecall(output) {
+// `where` names the case in the failure message.
+function assertHintAndRecall(output, where = '') {
   const context = contextOf(output);
-  assert.ok(context.includes(KNOWN_ISSUE_HEADING) && context.includes('<user-prompt-submit-hook>'), `Expected the skill hint and the recall, got: ${context}`);
+  const missing = ['<user-prompt-submit-hook>', KNOWN_ISSUE_HEADING, '<session-memory-recall>', SAVED_HEADING].filter(text => !context.includes(text));
+  assert.deepStrictEqual(missing, [], `Expected the skill hint, the known issue and the session-log entry ${where}, got: ${context}`);
 }
 
 // A typed prompt that opens with only a part of an opening, or with an
@@ -1713,44 +1061,9 @@ test('a recall record that cannot be read or written does not break the hook', (
   }
 }));
 
-test('an agent message that names an execution trigger skips the context-pressure gate', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-agent-'));
-  const cwd = path.join(tmpHome, 'myproject');
-  const sessionId = uniqueSessionId();
-  makeJsonlSession(sessionId, cwdToProjectDir(cwd), tmpHome, [
-    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  try {
-    const prompt = '<task-notification>\n<summary>execute the plan</summary>\n</task-notification>';
-    assert.deepStrictEqual(runActivator({ prompt, session_id: sessionId, cwd }), {});
-  } finally {
-    process.env.USERPROFILE = orig.up;
-    process.env.HOME = orig.home;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
-
-test('an empty cwd falls back to the working folder, so the context-pressure gate still fires', () => {
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-emptycwd-'));
-  const sessionId = uniqueSessionId();
-  makeJsonlSession(sessionId, cwdToProjectDir(process.cwd()), tmpHome, [
-    { input_tokens: 5, cache_creation_input_tokens: 100000, cache_read_input_tokens: 25000, output_tokens: 2000 },
-  ]);
-  const orig = { up: process.env.USERPROFILE, home: process.env.HOME };
-  process.env.USERPROFILE = tmpHome;
-  process.env.HOME = tmpHome;
-  try {
-    const ctx = contextOf(runActivator({ prompt: 'execute the plan', session_id: sessionId, cwd: '' }));
-    assert.ok(ctx.includes('context-pressure-gate'), `Expected the pressure block, got: ${ctx.slice(0, 200)}`);
-  } finally {
-    process.env.USERPROFILE = orig.up;
-    process.env.HOME = orig.home;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
+test('an empty cwd falls back to the working folder: the recall comes from that folder', () => withRecallProject((dir) => {
+  assertHintAndRecall(runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd: '' }, { cwd: dir }));
+}));
 
 test('the Codex adapter skips agent messages too', () => withRecallProject((dir) => {
   const output = runActivator({ prompt: AGENT_MESSAGES['a task notification'], session_id: uniqueSessionId(), cwd: dir });
@@ -1764,6 +1077,244 @@ test('the Codex adapter shows a recalled entry once per session', () => withReca
   assert.ok(first.includes(KNOWN_ISSUE_HEADING), `First prompt lacks the recall: ${first}`);
   assert.ok(!second.includes('<known-issues-recall>'), `Second prompt repeats the recall: ${second}`);
 }));
+
+// ── No context gate ───────────────────────────────────────────────────────────
+//
+// Through v7.60.0 the hook answered a prompt that names plan execution (for
+// example "execute the plan") with a STOP block when a status line cache file
+// or the session transcript reported a full context window. That gate was
+// removed. Such a prompt now gets the hint and the recall of any other prompt,
+// whatever these files hold. The removed gate read its files under the home
+// folder, so each test below gives the hook a home folder of its own.
+
+console.log('\nNo context gate: a prompt that names plan execution is a prompt like any other');
+
+const EXECUTION_PROMPT = 'execute the plan';
+// Prompts for the nine patterns of the removed gate (hooks/skill-activator.js
+// at commit 04e8e25): one prompt for each alternative that a pattern allowed.
+const OLD_PATTERN_PROMPTS = [
+  EXECUTION_PROMPT, 'execute plan',
+  'start build', 'start building',
+  'start implement', 'start implementing', 'start implementation',
+  'follow the plan', 'follow plan',
+  'implement the plan', 'implement plan',
+  "let's build it", 'lets implement it', "let's execute it",
+  'run the plan', 'run plan',
+  'begin implement', 'begin implementing', 'begin implementation',
+  'begin the plan', 'begin plan',
+];
+// Prompts that the removed gate did not match, longer forms of prompts that
+// it matched, and one prompt that has nothing to do with a plan.
+const OTHER_PROMPTS = [
+  'resume the plan', 'resume the implementation', 'please execute the plan now',
+  'Execute the plan at docs/plans/feature.md', 'execute the plan in batches',
+  'implement the next 3 tasks from docs/plans/feature.md', 'continue with the next task of the plan',
+  'there is a bug in my code, it crashes when I call the function',
+];
+const ALL_PROMPTS = [...OLD_PATTERN_PROMPTS, ...OTHER_PROMPTS];
+const SMALL_WINDOW = 200000;
+const WINDOW_SIZES = [SMALL_WINDOW, 1000000];
+// Fill levels in percent of the window. At 150 the files report more tokens
+// than the window holds.
+const FILL_PERCENTS = [30, 59, 60, 61, 70, 90, 95, 96, 99, 100, 150];
+const THRESHOLD_VARIABLE = 'SUPERPOWERS_PRESSURE_THRESHOLD';
+// Values of the removed threshold variable; undefined means "not set".
+const THRESHOLD_VALUES = [undefined, '10', '50', '90', '96', '100'];
+const withEmptyProject = fn => withProjectFiles({}, fn);
+const homeVariables = home => ({ HOME: home, USERPROFILE: home });
+
+function withHome(fn) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'no-gate-home-'));
+  try {
+    return fn(home);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Runs fn with the given environment variables set in this process (the
+// value undefined removes a variable), and restores the old values afterwards.
+function withEnv(variables, fn) {
+  const setAll = values => Object.entries(values).forEach(([name, value]) => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  });
+  const old = Object.fromEntries(Object.keys(variables).map(name => [name, process.env[name]]));
+  setAll(variables);
+  try {
+    return fn();
+  } finally {
+    setAll(old);
+  }
+}
+
+// The hook input of a session whose home folder is `home`. transcript_path is
+// a field of the real hook input; the removed gate did not read it.
+function payloadAt(home, cwd, prompt) {
+  return { prompt, session_id: uniqueSessionId(), cwd, transcript_path: path.join(home, 'named', 'transcript.jsonl') };
+}
+
+function writeFixture(file, content) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content);
+}
+
+// One assistant record that reports `tokens` tokens in the context window.
+function transcriptRecord(tokens) {
+  const usage = { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: tokens - 5, output_tokens: 10 };
+  return `${JSON.stringify({ type: 'assistant', message: { usage } })}\n`;
+}
+
+const CACHE_FILE_NAME = 'context-window.cache.json';
+const cachePath = home => path.join(home, '.claude', 'hooks-logs', CACHE_FILE_NAME);
+
+// Each entry writes one file that reports `tokens` tokens in a window of
+// `windowSize` tokens. The first two are the files that the removed gate
+// read; the third is the transcript that the hook input names.
+const FILL_SOURCES = {
+  'the cache file of the removed status line bridge': (home, payload, windowSize, tokens) => writeFixture(cachePath(home), JSON.stringify({
+    session_id: payload.session_id, context_window_size: windowSize, input_tokens_total: tokens, used_percentage: Math.round(tokens / windowSize * 100),
+  })),
+  'the transcript in the project folder of Claude Code': (home, payload, windowSize, tokens) => writeFixture(
+    path.join(home, '.claude', 'projects', payload.cwd.replace(/[^A-Za-z0-9]/g, '-'), `${payload.session_id}.jsonl`), transcriptRecord(tokens)),
+  'the transcript that transcript_path names': (home, payload, windowSize, tokens) => writeFixture(payload.transcript_path, transcriptRecord(tokens)),
+};
+const writeEveryFillSource = (...args) => Object.values(FILL_SOURCES).forEach(write => write(...args));
+
+// Calls fn(home, windowSize, tokens, label) with a new home folder for each
+// window size and each fill level.
+function forEachFill(fn) {
+  for (const windowSize of WINDOW_SIZES) {
+    for (const percent of FILL_PERCENTS) {
+      withHome(home => fn(home, windowSize, windowSize * percent / 100, `${percent}% of ${windowSize}`));
+    }
+  }
+}
+
+// The output of the hook function for `payload`, with `home` as the home
+// folder and `threshold` as the value of the removed threshold variable.
+function evaluateAtHome(home, payload, threshold) {
+  return withEnv({ ...homeVariables(home), [THRESHOLD_VARIABLE]: threshold }, () => runActivator(payload));
+}
+
+// The output for a prompt when no file reports a fill and the threshold
+// variable is not set. The projects of these tests hold no recall file, so
+// the output depends on the prompt only.
+const outputWithNoFiles = new Map();
+function expectedOutput(cwd, prompt) {
+  if (!outputWithNoFiles.has(prompt)) {
+    outputWithNoFiles.set(prompt, JSON.stringify(withHome(home => evaluateAtHome(home, payloadAt(home, cwd, prompt), undefined))));
+  }
+  return outputWithNoFiles.get(prompt);
+}
+
+for (const [label, writeSource] of [...Object.entries(FILL_SOURCES), ['every one of these files', writeEveryFillSource]]) {
+  test(`${label} changes the output for no prompt, at any fill and any value of ${THRESHOLD_VARIABLE}`, () => withEmptyProject((dir) => {
+    const differences = [];
+    forEachFill((home, windowSize, tokens, fill) => {
+      const payload = payloadAt(home, dir, '');
+      writeSource(home, payload, windowSize, tokens);
+      for (const prompt of ALL_PROMPTS) {
+        for (const threshold of THRESHOLD_VALUES) {
+          const actual = JSON.stringify(evaluateAtHome(home, { ...payload, prompt }, threshold));
+          if (actual !== expectedOutput(dir, prompt)) differences.push(`"${prompt}" at ${fill}, threshold ${threshold}`);
+        }
+      }
+    });
+    assert.deepStrictEqual(differences.slice(0, 5), [], `${differences.length} outputs differ from the output with no file`);
+  }));
+}
+
+test('a prompt that names plan execution gets the skill hint and both recalls, at any fill and any threshold value', () => withRecallProject((dir) => {
+  forEachFill((home, windowSize, tokens, fill) => {
+    for (const threshold of THRESHOLD_VALUES) {
+      // A new session for each run: a recalled entry is shown once per session.
+      const payload = payloadAt(home, dir, `${EXECUTION_PROMPT}: ${RECALL_PROMPT}`);
+      writeEveryFillSource(home, payload, windowSize, tokens);
+      assertHintAndRecall(evaluateAtHome(home, payload, threshold), `at ${fill}, threshold ${threshold}`);
+    }
+  });
+}));
+
+// The tests above call the hook function. The tests below run the hook
+// script, which is what Claude Code runs.
+
+// Runs the real hook with a new home folder. `fill(home, payload)` first
+// writes the files of the test into that folder. `payloadFor(home)` returns
+// the hook input.
+function runHookAtHome(payloadFor, fill = () => {}, { args = [], env = {} } = {}) {
+  return withHome((home) => {
+    const payload = payloadFor(home);
+    fill(home, payload);
+    return runHook(payload, { env: { ...process.env, ...homeVariables(home), ...env } }, args);
+  });
+}
+
+// Asserts that the hook script gives the same output with the files of
+// `fill` as with an empty home folder. Returns the text of that output.
+function assertScriptOutputUnchanged(dir, fill, options) {
+  const payloadFor = home => payloadAt(home, dir, EXECUTION_PROMPT);
+  const expected = runHookAtHome(payloadFor);
+  const actual = runHookAtHome(payloadFor, fill, options);
+  assert.deepStrictEqual(actual, expected);
+  return contextOf(actual);
+}
+
+const everyFileFull = (home, payload) => writeEveryFillSource(home, payload, SMALL_WINDOW, SMALL_WINDOW);
+
+test(`the hook script gives "${EXECUTION_PROMPT}" the skill hint when every file reports a full window`, () => withEmptyProject((dir) => {
+  const context = assertScriptOutputUnchanged(dir, everyFileFull);
+  assert.ok(context.includes('<user-prompt-submit-hook>') && context.includes('executing-plans'), `Expected the skill hint, got: ${context.slice(0, 200)}`);
+}));
+
+test('the hook script gives the skill hint and both recalls when every file reports a full window', () => withRecallProject((dir) => {
+  assertHintAndRecall(runHookAtHome(home => payloadAt(home, dir, `${EXECUTION_PROMPT}: ${RECALL_PROMPT}`), everyFileFull));
+}));
+
+test('a cache file that is not valid JSON changes nothing', () => withEmptyProject((dir) => {
+  assertScriptOutputUnchanged(dir, home => writeFixture(cachePath(home), '{not valid json'));
+}));
+
+test(`the hook script does not read the variable ${THRESHOLD_VARIABLE}`, () => withEmptyProject((dir) => {
+  assertScriptOutputUnchanged(dir, everyFileFull, { env: { [THRESHOLD_VARIABLE]: '10' } });
+}));
+
+for (const [label, argsFor] of [['with a folder after it', dir => ['--pressure', dir]], ['with nothing after it', () => ['--pressure']]]) {
+  test(`the argument --pressure ${label} is ignored: the hook script reads the prompt from standard input as always`, () => withEmptyProject((dir) => {
+    assertScriptOutputUnchanged(dir, everyFileFull, { args: argsFor(dir) });
+  }));
+}
+
+test('the SDD skill names no hook check at the start of a batch', () => {
+  const sddText = fs.readFileSync(path.join(__dirname, '../../skills/subagent-driven-development/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.ok(!/context gate|context-pressure|hook check that blocks/i.test(sddText), 'the skill still describes the removed gate');
+  assert.ok(sddText.includes('No hook checks how full the context window is'), 'the corrected sentence is missing');
+});
+
+// A skill, a hook or a guide that names a removed part tells the model or the
+// user to use something that no longer exists. The test files name the parts
+// to prove that the hook ignores them. The release notes and the old design
+// documents are history.
+test('no tracked file outside the tests and the history names a removed part of the gate', () => {
+  const removedNames = ['--pressure', THRESHOLD_VARIABLE, CACHE_FILE_NAME, 'statusline-context-cache'];
+  const allowed = [/^tests\//, /^RELEASE-NOTES\.md$/, /^docs\/superpowers-orchestrator\//];
+  const repoRoot = path.join(__dirname, '..', '..');
+  const listing = spawnSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' });
+  assert.strictEqual(listing.status, 0, `git ls-files failed: ${listing.stderr}`);
+  const files = listing.stdout.split('\0').filter(file => file && !allowed.some(pattern => pattern.test(file)));
+  assert.ok(files.includes('hooks/skill-activator.js'), 'the list of tracked files does not hold the hook itself');
+  const found = [];
+  for (const file of files) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+    } catch {
+      continue; // a tracked file that the work tree no longer holds, or a folder
+    }
+    removedNames.filter(name => text.includes(name)).forEach(name => found.push(`${file}: ${name}`));
+  }
+  assert.deepStrictEqual(found, []);
+});
 
 // The recall record of each session id used in this file stays in the
 // temporary folder; remove it at exit, also when a test throws, so the test

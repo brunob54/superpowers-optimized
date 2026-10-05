@@ -23,7 +23,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { createHash } = require('crypto');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 let passed = 0;
 let failed = 0;
@@ -435,6 +435,56 @@ test('an existing plain snapshot file is replaced by the new snapshot', () => {
   fs.writeFileSync(path.join(repo, SNAPSHOT_FILE), 'old text');
   assert.strictEqual(runHook(repo).git_hash, git(repo, 'rev-parse', 'HEAD').trim());
 });
+
+console.log('\nStandard error');
+
+// A git command of the hook fails in each of these folders (no repository, no
+// commit, no commit before HEAD). The hook reads such a failure as "no
+// result"; the error message of git must not reach the hook's standard error.
+
+/** A new folder under WORK_ROOT; `prepare` receives its path. */
+function makeFolder(prepare) {
+  repoCount++;
+  const folder = path.join(WORK_ROOT, `folder-${repoCount}`);
+  fs.mkdirSync(folder);
+  prepare(folder);
+  return folder;
+}
+
+/** The value of git_hash in the snapshot that the hook wrote, or NO_SNAPSHOT. */
+const NO_SNAPSHOT = 'no snapshot file';
+function writtenHash(folder) {
+  const file = path.join(folder, SNAPSHOT_FILE);
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).git_hash : NO_SNAPSHOT;
+}
+
+// Each entry: how the folder is prepared, and the git_hash that the hook must
+// write there. With no commit the hook still writes a snapshot; its hash is
+// empty, so hooks/session-start never injects it.
+const QUIET_FOLDERS = {
+  'a folder that is not a repository': [() => {}, () => NO_SNAPSHOT],
+  'a repository with no commit': [folder => git(folder, 'init', '-q'), () => ''],
+  'a repository with one commit': [
+    folder => { git(folder, 'init', '-q'); commitFiles(folder, { [CHANGED_FILE]: CHANGED_TEXT }); },
+    folder => git(folder, 'rev-parse', 'HEAD').trim(),
+  ],
+};
+
+for (const [label, [prepare, expectedHash]] of Object.entries(QUIET_FOLDERS)) {
+  test(`${label}: nothing on standard error, and the expected snapshot`, () => {
+    const folder = makeFolder(prepare);
+    const result = spawnSync(process.execPath, [SOURCE_PATH], {
+      cwd: folder,
+      env: ENV,
+      input: JSON.stringify({ cwd: folder }),
+      encoding: 'utf8',
+    });
+    assert.strictEqual(result.status, 0);
+    assert.strictEqual(result.stdout, EMPTY_HOOK_OUTPUT);
+    assert.strictEqual(result.stderr, '');
+    assert.strictEqual(writtenHash(folder), expectedHash(folder));
+  });
+}
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 

@@ -30,9 +30,11 @@ User sends a prompt
 │  protect-secrets.js → one path table (.env, keys, etc)    │
 └───────────────────────────────────────────────────────────┘
         │
-        ▼  (after every Edit/Write)
+        ▼  (after Edit, Write, Bash and Skill calls)
 ┌─ Tracking Hooks (PostToolUse) ────────────────────────────┐
 │  track-edits.js → logs file changes for TDD reminders     │
+│    after Bash: no log line, only the git exclude entry    │
+│    of a session-log.md written by a redirect              │
 │  track-session-stats.js → logs skill invocations          │
 └───────────────────────────────────────────────────────────┘
         │

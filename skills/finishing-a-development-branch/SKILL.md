@@ -55,7 +55,7 @@ Detect merge base (`main`/`master` or repo default) and confirm if unclear.
 - Report exact path and branch name
 
 ### Option 4
-- Show destructive impact summary
+- Show destructive impact summary. The summary names every spec and plan that only this branch holds: the paths that `git diff --name-only --diff-filter=A <base-branch>...<feature-branch> -- ":(top)docs/superpowers-orchestrator/"` prints.
 - Require exact confirmation: `discard`
 - Remove worktree (follow "Removing a worktree" below), then delete branch
 

@@ -639,6 +639,74 @@ check_option 4 3 "$REMOVE_ITEM, then delete branch"
 assert_before "Option 1 removes the worktree before it deletes the merged branch" \
   "$(section '### Option 1')" "$REMOVE_ITEM" '- Delete merged branch'
 
+# ---------------------------------------------------------------------------
+bold "7. Option 4 names a spec and a plan that only the branch holds"
+# ---------------------------------------------------------------------------
+
+# The worktree skill moves an uncommitted spec and plan into the worktree and
+# commits them on the feature branch. The first folder then holds no copy, so
+# Option 4 (Discard) deletes the only copy. The summary of Option 4 must name
+# those files before the user confirms.
+BASE_PLACEHOLDER='<base-branch>'
+BRANCH_PLACEHOLDER='<feature-branch>'
+DOCS_FOLDER='docs/superpowers-orchestrator'
+DIFF_CMD_EXPECTED="git diff --name-only --diff-filter=A $BASE_PLACEHOLDER...$BRANCH_PLACEHOLDER -- \":(top)$DOCS_FOLDER/\""
+SUMMARY_ITEM="- Show destructive impact summary. The summary names every spec and plan that only this branch holds: the paths that \`$DIFF_CMD_EXPECTED\` prints."
+CONFIRM_ITEM='- Require exact confirmation: `discard`'
+OPTION_4=$(section '### Option 4')
+# The lines of the option without the empty lines.
+assert_eq "Option 4 holds exactly these three lines, in this order" \
+  "$(printf '%s\n' "$OPTION_4" | sed '/^$/d')" \
+  "$SUMMARY_ITEM$NL$CONFIRM_ITEM$NL$REMOVE_ITEM, then delete branch"
+# The command: the first text between two ` characters of the summary line
+# that starts with `git diff`.
+DIFF_CMD=$(printf '%s\n' "$OPTION_4" | grep -F -- 'destructive impact summary' | awk -F'`' '{ for (i = 2; i <= NF; i += 2) if (index($i, "git diff") == 1) { print $i; exit } }')
+assert_eq "the summary line of Option 4 holds the command that lists the files" "$DIFF_CMD" "$DIFF_CMD_EXPECTED"
+# The command with the two placeholders replaced by the names of shell
+# variables, when it is one line that starts with `git diff `; empty in every
+# other case, and then no command is run.
+DIFF_RUN=''
+if [ "$(line_count "$DIFF_CMD")" -eq 1 ] && [ "${DIFF_CMD#git diff }" != "$DIFF_CMD" ]; then
+  DIFF_RUN=$(printf '%s\n' "$DIFF_CMD" | sed "s/$BASE_PLACEHOLDER/\$BASE/g; s/$BRANCH_PLACEHOLDER/\$BRANCH/g")
+fi
+# run_diff <folder>: the command of the summary line, in <folder>.
+run_diff() {
+  if [ -z "$DIFF_RUN" ]; then OUT="$NO_COMMAND"; CODE=1; RAN=0; return 0; fi
+  CODE=0
+  RAN=1
+  OUT=$( { cd "$1" && BASE='main' && BRANCH="$FEATURE_BRANCH" && eval "$DIFF_RUN"; } 2>&1 ) || CODE=$?
+}
+BRANCH_SPEC="$DOCS_FOLDER/2026-10-04-demo/specs/demo-design.md"
+BRANCH_PLAN="$DOCS_FOLDER/2026-10-04-demo/plans/demo.md"
+OLD_DOC="$DOCS_FOLDER/2026-01-01-old/plans/old.md"
+new_fixture discard
+# A plan that the base branch already holds; the feature branch changes it.
+mkdir -p "$MAIN/$(dirname "$OLD_DOC")"
+echo 'old plan' > "$MAIN/$OLD_DOC"
+git -C "$MAIN" add -- "$OLD_DOC"
+git -C "$MAIN" commit -q -m 'old plan'
+git -C "$WT" merge -q main
+mkdir -p "$WT/$(dirname "$BRANCH_SPEC")" "$WT/$(dirname "$BRANCH_PLAN")"
+echo 'design' > "$WT/$BRANCH_SPEC"
+echo 'plan' > "$WT/$BRANCH_PLAN"
+echo 'changed' >> "$WT/$OLD_DOC"
+echo 'feature' > "$WT/src/b.js"
+git -C "$WT" add -A
+git -C "$WT" commit -q -m 'feature with its spec and plan'
+# The base branch moves on after the branch was made.
+echo 'second version' >> "$MAIN/src/a.js"
+git -C "$MAIN" commit -q -a -m 'base moves on'
+ONLY_ON_BRANCH="$BRANCH_PLAN$NL$BRANCH_SPEC"
+run_diff "$MAIN"
+assert_eq "in the main checkout, the command prints the spec and the plan that only the branch holds, and no other path" \
+  "$OUT" "$ONLY_ON_BRANCH"
+run_diff "$WT/src"
+assert_eq "in a sub-folder of the worktree, the command prints the same two paths" "$OUT" "$ONLY_ON_BRANCH"
+git -C "$MAIN" merge -q --no-edit "$FEATURE_BRANCH"
+run_diff "$MAIN"
+label="after the merge of the branch into the base branch, the command prints nothing"
+if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ] && [ -z "$OUT" ]; then ok "$label"; else bad "$label (exit code $CODE, output: $(one_line "$OUT"))"; fi
+
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

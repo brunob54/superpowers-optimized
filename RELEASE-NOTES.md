@@ -8,6 +8,402 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.62.0 — the context gate and the statusline bridge are removed, and four more review findings are corrected
+
+**Problem.** The context gate (a check that a hook made on each user prompt)
+used a window of 200,000 tokens unless a matching cache file existed, and
+fired 0 times in 174 main-session transcripts (session records). A new
+worktree (a second working folder) held no spec (design document) and no plan.
+
+**Change.** This release removes the gate and the statusline bridge, the
+script that filled that cache file (finding 12). It also corrects findings 9,
+13, 14 and 15.
+
+**Effect.** A user who installed the bridge can remove it by hand, and must
+change a command that names it under `~/.claude/plugins/` before the update
+(section 1). Others update the plugin and restart the command-line interface
+(CLI).
+
+The review is the whole-project code review of 2026-10-03 (15 findings).
+Findings 1 to 4 were corrected in v7.59.0, findings 6, 10 and 11 in v7.60.0,
+and findings 7 and 8 in v7.61.0. Finding 5 no longer exists, because v7.59.0
+deleted the file it named. This release holds the last five: 9, 12, 13, 14 and
+15. The report of the review also lists findings that were confirmed and that
+are outside the list of 15 (section "Confirmed, but cut by the cap of 15"):
+10 rated Important and 21 places rated Minor. No commit of this release is a
+correction of one of them.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the CLI.
+
+### 1. The context gate and the statusline bridge are removed (finding 12)
+
+A hook is a script that Claude Code runs at a fixed event. The hook
+`hooks/skill-activator.js` runs at the event UserPromptSubmit (the user sends
+a prompt) and adds hints about skills to the prompt. It also held a context
+gate. The context window is the amount of text that the model can hold at one
+time. For a prompt that starts the execution of a plan, the gate estimated
+how full the context window was. At 60 percent or more (the variable
+`SUPERPOWERS_PRESSURE_THRESHOLD` changed this value) the hook replaced its
+hints by a block that told the model to stop, to save `state.md` and to ask
+for `/compact`.
+
+What was wrong:
+
+- The input of UserPromptSubmit carries no token usage and no window size.
+  The hooks reference of Claude Code lists the input fields; none of them
+  holds either value.
+- The hook therefore read the last usage figure of the transcript (the file
+  in which Claude Code records the session) and divided it by a fixed window
+  of 200,000 tokens. The hook used the cache file of the statusline bridge
+  (next point) instead, but only when that file held figures of the same
+  session that were at most 30 minutes old. With the fixed window, a session
+  with a window of 1,000,000 tokens would have been blocked once it held
+  120,000 tokens, which is 12 percent of its window. This figure is computed;
+  the count below found no blocked session.
+- The status line is the line of text at the bottom of the Claude Code
+  screen; a command in the settings prints it. The statusline bridge was a
+  script that the user set as that command, and the bridge then started the
+  original command. The bridge stored the usage figures that Claude Code
+  gives to the command in a cache file, and the gate read that file. The
+  agent that made the change measured a cache file whose figures were 26.6
+  minutes old and 52,000 tokens lower than the real figures of the session.
+  After `/compact` (the command that shortens the context), the gate read the
+  figure from before the compaction and blocked the prompt again. The gate
+  also blocked a prompt of a subagent (an agent that the session started)
+  with the figure of its parent.
+- The real use, counted again for this entry: 0 firings in 174 main-session
+  transcripts since 2026-08-30. The other 1,734 transcripts belong to
+  subagents, and only 1 of them holds a UserPromptSubmit record.
+
+What changed (a decision of the user):
+
+- This release removes the gate from `hooks/skill-activator.js`, together
+  with the variable `SUPERPOWERS_PRESSURE_THRESHOLD` and the option
+  `--pressure` of the script.
+- This release deletes `hooks/statusline-context-cache.js` (the bridge) and
+  `tools/install-statusline-bridge.sh` (its installer), with their tests and
+  their text in the README and in `docs/guide/`.
+- `skills/subagent-driven-development/SKILL.md` now says that no hook checks
+  how full the context window is when a batch starts.
+- The rule "Current context window ≥ 60% full" in
+  `skills/writing-plans/SKILL.md` stays. It is an estimate that the model
+  makes itself; it never used the gate.
+
+**Migration, only for a user who installed the bridge.** The installer copied
+the bridge to `~/.claude/statusline/statusline-context-cache.js`, outside the
+plugin, and printed the lines for `~/.claude/settings.json`. In the settings
+file the path is written in full (`/Users/<name>/.claude/...` on macOS), not
+with `~`.
+
+1. In `~/.claude/settings.json`, key `statusLine.command`: remove the prefix
+   `node <home>/.claude/statusline/statusline-context-cache.js -- ` and keep
+   the text after ` -- `. That text is the status line command that was there
+   before the bridge. When the bridge is the whole command (no ` -- `), remove
+   the key `statusLine`.
+2. In the same file, remove `SUPERPOWERS_PRESSURE_THRESHOLD` from `env`, when
+   it is there.
+3. Then delete the two files `~/.claude/statusline/statusline-context-cache.js`
+   and `~/.claude/hooks-logs/context-window.cache.json`. Do step 1 first: a
+   settings file that still names a deleted bridge has a status line command
+   that fails.
+4. A special case: `statusLine.command` names the bridge at a path under
+   `~/.claude/plugins/`. Two places hold a bridge file there: a version
+   folder of the plugin (`~/.claude/plugins/cache/superpowers-orchestrator/...`)
+   and the clone of the marketplace
+   (`~/.claude/plugins/marketplaces/superpowers-orchestrator/hooks/`). Change
+   this command before the update, as in step 1. The new version has no
+   bridge file. The update changes the clone of the marketplace at once, so a
+   command that names the clone fails right after the update. A command that
+   names a version folder fails as soon as the old version folder is removed.
+
+Doing nothing in the cases of steps 1 to 3 breaks nothing. The installed copy
+lies outside the plugin and needs no file of the plugin. It keeps writing a
+cache file that no hook reads any more.
+
+Limits:
+
+- An old version folder of the plugin keeps its bridge file; the update does
+  not delete it. On the machine of this draft, 14 old version folders hold
+  one.
+- The documents of earlier work under `docs/superpowers-orchestrator/` still
+  name the removed option and the removed variable. They are history and are
+  not changed.
+
+### 2. Session start injected the snapshot of the previous session start (finding 15)
+
+The snapshot is the file `context-snapshot.json`. The script
+`hooks/context-engine.js` (below: the engine) writes it at every session
+start: the hash of the commit that is HEAD (field `git_hash`), the time
+(field `generated_at`), the
+changed files, the newest commits, and the blast radius (the files that
+depend on a changed file). The hook `hooks/session-start` reads the file and
+injects a summary of it into the context of the model.
+
+What was wrong: the hooks reference of Claude Code
+(https://code.claude.com/docs/en/hooks.md) says "All matching hooks run in
+parallel." `hooks/hooks.json` also starts the engine with `"async": true`,
+which means in the background. So `session-start` read the file before the
+engine wrote the new one. The injected block was always the snapshot of the
+previous session start, and the hook presented it as the present state. The
+agent that made the change measured an old commit list in 10 of 10 runs.
+
+What changed:
+
+- `session-start` injects the block only when `git_hash` of the file equals
+  the output of `git rev-parse HEAD`. An older commit, no file, a file with no
+  valid time, a file that is being written, a repository with no commit and a
+  folder that is not a repository give no block and no error text.
+- The first line of the block states the time of the snapshot: "Snapshot
+  taken <time> UTC at the commit that is HEAD now."
+- The labels say what each list holds: "Files changed by the newest commit",
+  or "Commits made between the snapshot before this one and this one: N.
+  Files they changed", and "Blast radius at the time of the snapshot". One
+  list that the engine writes into two fields is printed once.
+- `skills/systematic-debugging/SKILL.md` compares `git_hash` with
+  `git rev-parse HEAD` before it uses the file, and runs two git commands
+  when the hashes differ.
+- `hooks/context-engine.js` no longer passes the error text of git to its own
+  error output, for example in a repository with no commit.
+- The token-efficiency skill, the README and
+  `docs/architecture/project-memory.md` state the hash rule.
+
+Effect: the block is rare now. The agent that made the change measured an
+equal hash in 3 of the 12 newest session starts of this repository. In the
+other session starts nothing is injected, and the model runs git commands when
+it needs the list.
+
+Limits:
+
+- An equal hash does not prove every line of the block. The engine reads the
+  blast radius from the working files, and the file list can cover several
+  commits. The heading line with the time is there for this reason.
+- `hooks/codex/session-start-adapter.js` still injects the block with no
+  comparison of the hash. Codex is no longer supported.
+
+### 3. A session log written through Bash stayed visible to git (finding 13)
+
+The exclude file is `.git/info/exclude`: a local file of one repository that
+lists paths which git ignores. It is never committed. The hook
+`hooks/track-edits.js` writes an entry there for the workspace files of the
+plugin (`session-log.md`, `state.md`, `known-issues.md`, `project-map.md`),
+so that they do not appear in `git status`.
+
+Two shell terms: a redirect (`>`, `>>` or `>|`) sends the output of a command
+into a file. A here-document (`<<`) gives the lines that follow it to a
+command as its input.
+
+What was wrong: the save command of the context-management skill appends to
+`session-log.md` with `cat >> session-log.md` and a here-document, through the
+Bash tool. The hook ran only after the Edit and the Write tool. The file got
+no entry, stayed visible in `git status`, and `git add -A` staged it.
+
+The first version of this correction was wrong. It exists only inside this
+release and was never released. It wrote an entry for every workspace file
+name that a Bash command mentioned. A reviewer found the result: a user's own
+new, untracked `state.md` at the top of a project was hidden from git after a
+command that only named it, and `git add -A` then left the file out with no
+message. A replay on a scratch repository for this entry confirmed it: after
+`grep -n notes state.md`, the first version wrote the entry `/state.md`; the
+final version wrote nothing.
+
+What changed:
+
+- `hooks/hooks.json` runs `track-edits.js` after Edit, Write and Bash.
+- After a Bash call the hook acts only on a redirect whose target has the
+  exact name `session-log.md`. A command that only names a file writes
+  nothing. `state.md`, `known-issues.md` and `project-map.md` get no entry
+  through Bash.
+- A relative target is resolved against the folder of the shell (field `cwd`
+  of the hook input). The file must exist. The folder rule of v7.59.0 decides
+  as after a Write: the file lies directly in the project folder or in the top
+  folder of a git work tree. A file that git tracks gets no entry. A Bash
+  call writes no line into the edit log.
+- Both routes (Edit or Write, and Bash): no entry when git tracks a file of
+  the same name in another letter case, for example `STATE.md`, on a file
+  system that ignores letter case (the default on macOS and Windows).
+
+Cost: one more Node process after each successful Bash call. Measured for
+this entry on one Mac with Node 24.13.1, 20 runs each: a median of 18.4 ms
+for a command with no redirect, and 56.6 ms for the save command, because
+the hook then also starts git.
+
+The compression hook replaces the output of a Bash command by a shorter text
+at the same event (PostToolUse). Three headless probes (runs of the `claude`
+program with no user interface) on Claude Code 2.1.289, made in the main
+session of this work, showed: a second PostToolUse hook that prints `{}` does
+not remove that replacement, whichever of the two hooks ends first.
+
+Limits. In each case below, the hook writes no entry, and the file stays
+visible in `git status` until a later save with the exact save command of the
+context-management skill (`cat >> session-log.md` and a here-document):
+
+- a target that holds a variable, a backtick, a backslash or `~` at its start;
+- a command that writes the file in another way, for example `tee`;
+- a redirect on a line after the first `<<` of the command;
+- a real redirect inside a command substitution that stands in double
+  quotes, for example `echo "$(printf x > session-log.md)"`;
+- a `cd` inside a subshell, which `cwd` of the hook input does not show.
+
+A second limit works in the other direction. The hook reads a `>` as a
+redirect also in two places where the shell does not: between `[[` and `]]`,
+where `>` compares two texts; and inside double-quoted text that holds a
+command substitution `$( )` (a command whose output the shell puts in its
+place) with a `"` inside it, because the reader of the hook ends the quoted
+text at that `"`. The comment of `redirectTargets` in `hooks/track-edits.js`
+states both cases. A `session-log.md` that git does not track can then get the
+exclude entry, as after a Write of that file. Checked for this entry: the
+reader returns `session-log.md` for `[[ a > session-log.md ]]` and for
+`echo "$(echo '"') > session-log.md"`.
+
+### 4. A new worktree held no spec and no plan (finding 9)
+
+A worktree is a second working folder of the same repository. A spec is the
+design document that the brainstorming skill writes; a plan is the task list
+that the writing-plans skill writes. A new worktree holds only committed
+files. The skills that write a spec and a plan have no step that commits the
+new file, so both were absent in the worktree. A plan that the model then
+reads from the first folder can cause a second fault: a commit of the plan in
+that folder lands on the branch of that folder, not on the feature branch
+(the new branch of the worktree).
+
+The first version of this correction (inside this release, never released)
+committed the two files on the current branch, with `git add` on the whole
+topic folder (`docs/superpowers-orchestrator/<date>-<slug>/`, the folder that
+holds the spec, the plan and the logs of one piece of work). A reviewer showed
+two results: the commit landed on the base branch (the branch that the first
+folder had checked out, from which the feature branch starts), and it also
+took other files of the folder. The user then decided the design below: the
+skill commits neither the spec nor the plan on the base branch.
+
+What changed in `skills/using-git-worktrees/SKILL.md`:
+
+- Step 2 checks the spec and the plan, each by its own absolute path, with an
+  existence test and
+  `git status --porcelain --ignored --untracked-files=all -- "<file-path>"`.
+- Step 3 creates the worktree and the branch.
+- Step 4 moves a file that step 2 found untracked (a `??` line) into the
+  worktree with `mv`, stages it, and commits it there on the feature branch.
+  The path inside the worktree is written as an absolute path. Each file is
+  named by its own path; no other file of its folder is moved or committed.
+- A command of step 4 that fails ends the step. The skill shows the error and
+  says in which folder the file is now. The skill does not run a failing
+  commit a second time, and it does not switch off a commit hook.
+- A file that already exists in the worktree is never overwritten; the user
+  is asked.
+- A tracked file with a change that is not committed is not moved. The user
+  chooses: the user commits the file, or the branch is created in the same
+  folder with no worktree.
+- A file that git ignores (a `!!` line) means no worktree: the skill creates
+  the branch in the same folder with `git checkout -b`, which keeps the file.
+- When a rule of the user or the project forbids a commit without approval,
+  the skill asks once, before step 3.
+- After the move the skill tells the user the new absolute path of each file
+  and corrects the path in `state.md`.
+
+What changed in `skills/finishing-a-development-branch/SKILL.md`: the summary
+of Option 4 (Discard) names the files that the feature branch added under
+`docs/superpowers-orchestrator/`, from
+`git diff --name-only --diff-filter=A <base-branch>...<feature-branch>` on
+that folder. These are the moved spec and plan, and any other file that the
+branch added there; a spec or a plan in another folder is not named. After
+the move, the first folder has no copy of the spec and the plan, so a discard
+deletes them.
+
+Limits:
+
+- The skill moves only the spec and the plan. The review logs and every other
+  file of the topic folder stay in the first folder.
+- The suite pins the rules by their exact text and runs the commands of the
+  skill on test repositories. No run with the `claude` CLI measured what a
+  model does with the new steps.
+
+### 5. The coverage figure used today's file size and counted failed reads (finding 14)
+
+`tools/measure-context.js` reads a transcript and reports where the context of
+the session went. For a large file that reached the model in pieces, it prints
+the coverage: the lines that the session received, divided by the lines of the
+file.
+
+A PARTIAL notice is the notice that the Read tool adds when it cuts a large
+file ("PARTIAL view — <path>: showing lines A-B of T total"). The script
+counts a notice as "paged short" when the agent read further pages of the
+file but never reached its last line.
+
+What was wrong: the script divided by the line count of the file on disk
+today. A file that grew after the session therefore got a wrong coverage, and
+its notice was counted as "paged short" (in one case that the agent that made
+the change found: 33.7 percent printed, 100 percent true). The script also
+never read the field `is_error` of a tool result. The script listed a failed
+Read as fully received, and also a file that the Read tool refused for its
+size.
+
+What changed:
+
+- The total comes from the transcript first: the Read record or the PARTIAL
+  notice states the lines of the file at the time of the read. With no such
+  record, the script counts the lines of a saved copy of a Bash output: when
+  the output of a command is longer than 30,000 characters, Claude Code saves
+  it in a file and shows only a 2 KB preview. The script uses that copy only
+  when one `cat` of the file was the only printing step of the command, so
+  that the copy is the exact text of the file. Only then does the script
+  count the file on disk, and that figure has the label "counted on disk
+  today".
+- The script skips a failed Read. A Read that the tool refused for the size
+  of the file gives a row with zero lines received, so the later page reads
+  decide its coverage. The script also skips a failed Bash command with one
+  printing step. A step is a part of the command between `;`, `&&`, `||` or a
+  line end, and a printing step is any step that is not a `cd`. The error
+  status of such a command is the status of its one printing step, so that
+  step printed no file.
+- A total that differs from the total stated before it starts a new version
+  of the file. Lines of two versions are never added together. The row shows
+  the newest version and names each earlier version with its own total and
+  coverage.
+- "100 percent" and "last line reached: yes" need a proof: a page showed the
+  last line, or a range ran to the end of the file. Without a proof the row
+  prints "unknown", and a notice on that file is counted as "end not proven".
+
+This release changes no token figure. Measured for this entry on the 1,905
+transcripts of this computer, with the script before this release (commit
+`04e8e25`) and the script of this release: no token figure changed. Of the 482
+coverage rows of the new script, 275 are new or differ (the old script
+printed 413 rows). The PARTIAL notices counted as "paged short" fell from 118
+to 6. Between the first commit of this correction (`a663745`) and the final
+script, 41 of the 482 rows differ.
+
+Limits:
+
+- A row can print "unknown" for a file that is probably complete: the script
+  does not assume a last line that no page showed.
+- A change of a file that no Read record states (a file read only through
+  Bash) is not seen.
+- Some malformed records still stop the script with an error, as before this
+  release. Measured for this entry with 16 malformed record shapes: 5 stopped
+  the script before and after this release with a `TypeError` (a record that
+  is `null`; a Bash command that is not text; a Read path that is not text;
+  an assistant record and a user record whose `content` list holds `null`).
+  The script skips a line that is not JSON.
+
+### Tests
+
+- New suite `bash tests/using-git-worktrees/run-tests.sh`: 146 checks at the
+  time of this draft (129 at commit `8280e38`; the count follows the last
+  correction of the skill). It takes the commands out of the skill text and
+  runs them on test repositories. The list of fast suites in `CLAUDE.md` does
+  not name it yet.
+- `bash tests/finishing-branch/run-tests.sh`: 69 checks (64 in v7.60.0).
+- `bash tests/measure-context/run-tests.sh`: 404 checks (143 before this
+  release).
+- `tests/codex/test-git-exclude-hooks.js`: 181 tests.
+- `tests/codex/test-skill-activator.js`: 142 tests.
+- New file `tests/codex/test-session-start-snapshot.sh`: 110 checks.
+- `bash tests/codex/run-unit-tests.sh`: 20 suites, as in v7.61.0 (this
+  release removed one with the bridge and added one for the snapshot).
+
+Not run: an interactive session with the changed hooks; Windows; the
+behavioural suites (the suites that start the `claude` CLI); Copilot CLI.
+
 ## v7.61.0 — the two safety hooks read the words of a command, and one table of secret file paths applies to five tools
 
 **Problem.** The two safety hooks (programs that can refuse a tool call)

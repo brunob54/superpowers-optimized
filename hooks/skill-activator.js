@@ -409,246 +409,6 @@ function buildKnownIssuesContext(entries) {
   ].join('\n');
 }
 
-// ── Context pressure gate ─────────────────────────────────────────────────────
-
-/**
- * Patterns that indicate the user is about to start plan execution
- * or heavy implementation work.
- */
-const EXECUTION_TRIGGER_PATTERNS = [
-  /\bexecute\s+(the\s+)?plan\b/i,
-  /\bstart\s+build(ing)?\b/i,
-  /\bstart\s+implement(ing|ation)?\b/i,
-  /\bfollow\s+(the\s+)?plan\b/i,
-  /\bimplement\s+(the\s+)?plan\b/i,
-  /\blet'?s\s+(build|implement|execute)\b/i,
-  /\brun\s+(the\s+)?plan\b/i,
-  /\bbegin\s+implement(ing|ation)?\b/i,
-  /\bbegin\s+(the\s+)?plan\b/i,
-];
-
-const CONTEXT_WINDOW_SIZE = 200000; // Fallback window when the statusline cache is absent
-const CONTEXT_PRESSURE_THRESHOLD = 0.60; // Default hard-block ratio (60%)
-const PRESSURE_THRESHOLD_MIN = 10; // Percent bounds for the env override
-const PRESSURE_THRESHOLD_MAX = 90;
-
-/**
- * Active gate threshold as a ratio. Overridable per user via the
- * SUPERPOWERS_PRESSURE_THRESHOLD env var (a percentage, e.g. "50"),
- * typically set in settings.json's `env` block so it survives plugin
- * updates. Values outside 10–90 or unparseable fall back to the default.
- * Read at call time so a changed environment takes effect immediately.
- */
-function pressureThreshold() {
-  const n = parseFloat(process.env.SUPERPOWERS_PRESSURE_THRESHOLD);
-  if (Number.isFinite(n) && n >= PRESSURE_THRESHOLD_MIN && n <= PRESSURE_THRESHOLD_MAX) {
-    return n / 100;
-  }
-  return CONTEXT_PRESSURE_THRESHOLD;
-}
-const CONTEXT_CACHE_MAX_AGE_MS = 30 * 60 * 1000; // Statusline cache staleness cutoff
-const CONTEXT_CACHE_FILE = 'context-window.cache.json';
-
-/**
- * Returns true if the prompt is triggering plan execution or heavy implementation.
- */
-function isExecutionTrigger(prompt) {
-  if (!prompt || typeof prompt !== 'string') return false;
-  return EXECUTION_TRIGGER_PATTERNS.some(p => p.test(prompt));
-}
-
-/**
- * Convert a filesystem cwd path to the Claude Code project directory name.
- * Examples:
- *   Windows: "C:\Users\Tjerk Pieksma\..."       → "c--Users-Tjerk-Pieksma-..."
- *   Unix:    "/home/user/AI_Coding/My_tools"    → "-home-user-AI-Coding-My-tools"
- */
-function cwdToProjectDir(cwd) {
-  return cwd
-    .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + '-') // C: → c-
-    .replace(/[^A-Za-z0-9]/g, '-') // every other non-alphanumeric → -
-    .replace(/-+$/, '');           // trim trailing dashes
-}
-
-/**
- * Absolute path of the Claude Code project directory for a cwd.
- */
-function claudeProjectPath(cwd) {
-  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
-  return path.join(homeDir, '.claude', 'projects', cwdToProjectDir(cwd));
-}
-
-/**
- * Read the statusline bridge cache (written by statusline-context-cache.js).
- * The cache carries the harness's authoritative context_window data — including
- * the TRUE window size (200K, 1M, …) — but only for the main session that the
- * statusline renders. It is used only when its session id matches the asking
- * session and it is fresh; anything else returns null and the caller falls
- * back to transcript parsing.
- */
-function readContextWindowCache(sessionId) {
-  if (!sessionId) return null;
-  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
-  const file = path.join(homeDir, '.claude', 'hooks-logs', CONTEXT_CACHE_FILE);
-
-  let stat;
-  try {
-    stat = fs.statSync(file);
-  } catch {
-    return null;
-  }
-  if (Date.now() - stat.mtimeMs > CONTEXT_CACHE_MAX_AGE_MS) return null;
-
-  let cache;
-  try {
-    cache = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return null;
-  }
-  if (!cache || cache.session_id !== sessionId) return null;
-  const windowSize = cache.context_window_size;
-  const total = cache.input_tokens_total;
-  if (!(windowSize > 0) || !(total > 0)) return null;
-
-  const threshold = pressureThreshold();
-  const ratio = total / windowSize;
-  return {
-    inputK: Math.round(total / 1000),
-    percent: Math.round(ratio * 100),
-    overThreshold: ratio >= threshold,
-    windowK: Math.round(windowSize / 1000),
-    thresholdPercent: Math.round(threshold * 100),
-  };
-}
-
-/**
- * Read the current session JSONL and return context pressure info.
- * Prefers the statusline bridge cache (true window size) when it matches this
- * session; otherwise uses the last assistant turn's total input tokens from
- * the transcript against the 200K fallback window.
- * Returns null if neither source has usable data.
- */
-function getContextPressure(cwd, sessionId) {
-  if (!sessionId) return null;
-
-  const cached = readContextWindowCache(sessionId);
-  if (cached) return cached;
-
-  const jsonlPath = path.join(claudeProjectPath(cwd), sessionId + '.jsonl');
-
-  let content;
-  try {
-    content = fs.readFileSync(jsonlPath, 'utf8');
-  } catch {
-    return null; // File absent or unreadable — silent no-op
-  }
-
-  // Use the last assistant turn's input total as context size.
-  // input + cache_creation + cache_read = total tokens in context window for that turn.
-  // Later turns always have more context, so the last value is the current state.
-  let lastInputTotal = 0;
-
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const obj = JSON.parse(line);
-      if (obj.type === 'assistant' && obj.message && obj.message.usage) {
-        const u = obj.message.usage;
-        const turnInput = (u.input_tokens || 0)
-          + (u.cache_creation_input_tokens || 0)
-          + (u.cache_read_input_tokens || 0);
-        if (turnInput > 0) lastInputTotal = turnInput;
-      }
-    } catch {
-      // Skip malformed lines
-    }
-  }
-
-  if (lastInputTotal === 0) return null;
-
-  const threshold = pressureThreshold();
-  const ratio = lastInputTotal / CONTEXT_WINDOW_SIZE;
-  return {
-    inputK: Math.round(lastInputTotal / 1000),
-    percent: Math.round(ratio * 100),
-    overThreshold: ratio >= threshold,
-    windowK: Math.round(CONTEXT_WINDOW_SIZE / 1000),
-    thresholdPercent: Math.round(threshold * 100),
-  };
-}
-
-/**
- * Find the most recently modified session JSONL for this project.
- * Used when the caller does not know its own session id (e.g. --pressure CLI).
- * Returns the full path, or null if the project dir is absent or has no sessions.
- */
-function findLatestSessionJsonl(cwd) {
-  const projectPath = claudeProjectPath(cwd);
-
-  let files;
-  try {
-    files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
-  } catch {
-    return null;
-  }
-
-  let latest = null;
-  let latestMtime = -1;
-  for (const f of files) {
-    const full = path.join(projectPath, f);
-    let st;
-    try {
-      st = fs.statSync(full);
-    } catch {
-      continue;
-    }
-    if (st.mtimeMs > latestMtime) {
-      latestMtime = st.mtimeMs;
-      latest = full;
-    }
-  }
-  return latest;
-}
-
-/**
- * Context pressure from the most recently modified session JSONL.
- * Same return shape as getContextPressure; null when unmeasurable.
- */
-function getContextPressureAuto(cwd) {
-  const jsonlPath = findLatestSessionJsonl(cwd);
-  if (!jsonlPath) return null;
-  return getContextPressure(cwd, path.basename(jsonlPath, '.jsonl'));
-}
-
-/**
- * Build the hard block message injected when context pressure ≥60%.
- * Returned as additionalContext — Claude sees this instead of skill hints.
- */
-function buildContextPressureBlock(pressure) {
-  return [
-    '<context-pressure-gate>',
-    `STOP — Do not start implementation yet.`,
-    ``,
-    `Context window: ~${pressure.inputK}K tokens consumed (${pressure.percent}% of ${pressure.windowK || 200}K limit).`,
-    `Starting implementation at ≥${pressure.thresholdPercent || 60}% risks Auto Compact firing mid-task, destroying`,
-    `variable names, file paths, and discovered facts at the worst possible moment.`,
-    ``,
-    `Required actions before proceeding:`,
-    `1. Invoke the context-management skill to write state.md. Include:`,
-    `   - Path to the plan file`,
-    `   - Starting task number (e.g. "Task 1 — fresh start")`,
-    `   - Any research-phase facts (exact file paths, variable names, non-obvious`,
-    `     constraints) that the plan references but does not spell out explicitly.`,
-    `2. Tell the user: "Context is at ${pressure.percent}%. Saving state and compacting`,
-    `   before implementation — this prevents Auto Compact firing mid-task."`,
-    `3. Run /compact.`,
-    `4. After compaction, read state.md and resume with executing-plans.`,
-    ``,
-    `Do NOT begin implementation without completing steps 1–3.`,
-    `</context-pressure-gate>`,
-  ].join('\n');
-}
-
 // ── Agent messages and recall already shown ───────────────────────────────────
 
 /**
@@ -715,21 +475,6 @@ function evaluatePrompt(data) {
   const cwd = typeof data.cwd === 'string' && data.cwd ? data.cwd : process.cwd();
   const sessionId = typeof data.session_id === 'string' ? data.session_id : null;
 
-  // Context pressure gate: if the user is about to start implementation and
-  // the context window is ≥60% full, block and require compact-first.
-  // Returns early — pressure block replaces all other hints when it fires.
-  if (isExecutionTrigger(prompt)) {
-    const pressure = getContextPressure(cwd, sessionId);
-    if (pressure && pressure.overThreshold) {
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'UserPromptSubmit',
-          additionalContext: buildContextPressureBlock(pressure),
-        },
-      };
-    }
-  }
-
   // Run all pipelines independently. The two recall searches keep their own
   // ranking; an entry already injected in this session is then dropped and
   // not replaced by a weaker match.
@@ -778,14 +523,7 @@ async function main() {
 }
 
 if (require.main === module) {
-  if (process.argv[2] === '--pressure') {
-    // CLI mode: report context pressure for the given (or current) cwd.
-    // Used by subagent-driven-development's batched autonomous mode between tasks.
-    const pressure = getContextPressureAuto(process.argv[3] || process.cwd());
-    process.stdout.write(JSON.stringify(pressure || { error: 'unmeasurable' }));
-  } else {
-    main();
-  }
+  main();
 } else {
   module.exports = {
     matchSkills,
@@ -796,13 +534,6 @@ if (require.main === module) {
     buildMemoryContext,
     searchKnownIssues,
     buildKnownIssuesContext,
-    isExecutionTrigger,
-    cwdToProjectDir,
-    readContextWindowCache,
-    getContextPressure,
-    findLatestSessionJsonl,
-    getContextPressureAuto,
-    buildContextPressureBlock,
     isAgentMessage,
     evaluatePrompt,
     recallStatePath,
@@ -810,8 +541,5 @@ if (require.main === module) {
     CONFIDENCE_THRESHOLD,
     STOP_WORDS,
     MAX_MEMORY_ENTRIES,
-    CONTEXT_WINDOW_SIZE,
-    CONTEXT_PRESSURE_THRESHOLD,
-    pressureThreshold,
   };
 }

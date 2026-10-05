@@ -30,8 +30,10 @@ This is non-negotiable. Every fix must trace back to a proven root cause. A fix 
 - Read the **full** error output — not just the last line.
 - Reproduce the bug reliably. If you cannot reproduce, you cannot fix. For tests that fail only in certain orderings (test pollution), run `find-polluter.sh` from this skill's directory to identify which test is corrupting shared state.
 - Check recent changes — what changed since it last worked?
-  - If `context-snapshot.json` exists at the project root: read it. The `changed_files` and `recent_commits` fields answer this immediately without additional git commands.
-  - Otherwise: run `git log --oneline -10` and `git diff HEAD~1..HEAD --name-only`.
+  - If `context-snapshot.json` exists at the project root: run `git rev-parse HEAD` and compare to `git_hash` in the file.
+    - **Hashes match (fresh):** the `changed_files` and `recent_commits` fields answer this for the committed changes.
+    - **Hashes differ (stale):** the snapshot is from a previous commit; do not use it. Run the two commands of the next line.
+  - If absent: run `git log --oneline -10` and `git diff HEAD~1..HEAD --name-only`.
 - Add instrumentation (logging, breakpoints) at component boundaries.
 - **Multi-component systems:** When the system has multiple components (CI → build → signing, API → service → database), add diagnostic logging at EACH component boundary before proposing fixes:
   ```

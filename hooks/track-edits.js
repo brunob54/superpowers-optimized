@@ -16,6 +16,10 @@
  * and a logged one made the stop hook ask for tests of a scratch script.
  * Without the field (a headless session has no scratchpad) every edit is
  * logged, as before.
+ *
+ * The hook also runs after every Bash tool use. A Bash call is never logged;
+ * the hook only writes the git exclude entry of a session-log.md that the
+ * command redirects output into (see excludeSessionLogWrittenBy).
  */
 
 const fs = require('fs');
@@ -24,7 +28,8 @@ const { excludeFromGit, git } = require('./git-exclude');
 const { LOG_DIR, editLogFile, markerFile, writeTimeFile } = require('./save-marker');
 
 // AI-generated workspace artifacts that should never be committed
-const AI_ARTIFACTS = ['project-map.md', 'session-log.md', 'state.md', 'known-issues.md'];
+const SESSION_LOG = 'session-log.md';
+const AI_ARTIFACTS = ['project-map.md', SESSION_LOG, 'state.md', 'known-issues.md'];
 
 // Claude Code sets this environment variable for every hook: the folder where
 // the session started. It keeps its value when the assistant runs `cd`; the
@@ -33,7 +38,8 @@ const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
 
 /**
  * Keep an AI artifact file out of `git status` without editing a tracked file.
- * Called after every Edit or Write; it acts only when the file name is in
+ * Called after every Edit or Write, and after a Bash command that redirects
+ * output into session-log.md; it acts only when the file name is in
  * AI_ARTIFACTS and the file lies directly in one of the two folders where the
  * skills write these files: the project folder of the session, or the top
  * folder of the file's git work tree (the folder that holds the checked-out
@@ -43,10 +49,136 @@ const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
  * of the commit with no message.
  */
 function excludeArtifact(filePath) {
-  if (!AI_ARTIFACTS.includes(path.basename(filePath))) return;
+  const name = path.basename(filePath);
+  if (!AI_ARTIFACTS.includes(name)) return;
   const folder = realPath(path.dirname(filePath));
   if (!isProjectFolder(folder) && !isTopFolderOfWorkTree(folder)) return;
+  if (isTrackedWhereLetterCaseIsIgnored(folder, name)) return;
   excludeFromGit(filePath);
+}
+
+/**
+ * True when the file system ignores letter case and git tracks a file in
+ * `folder` whose name is `name` in any letter case. On such a file system
+ * (the default on macOS and on Windows) `state.md` and `STATE.md` are one
+ * file. excludeFromGit asks git for the exact name only, so without this
+ * check a tracked `STATE.md` got the entry `/state.md`.
+ * Both answers come from git: `:(icase)` makes `ls-files` compare the name
+ * without letter case, and git sets `core.ignorecase` to true when it creates
+ * a repository on a file system that ignores letter case.
+ */
+function isTrackedWhereLetterCaseIsIgnored(folder, name) {
+  try {
+    // The command fails when git tracks no file with this name.
+    git(['ls-files', '--error-unmatch', '--', `:(icase)${name}`], folder);
+    return git(['config', '--type=bool', '--get', 'core.ignorecase'], folder).trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+const BASH_TOOL = 'Bash';
+
+// Text of a shell command in which no character has a special meaning: a text
+// in single quotes, a text in double quotes, or a character after a backslash.
+const QUOTED_TEXT = [String.raw`'[^']*'`, String.raw`"(?:[^"\\]|\\[\s\S])*"`, String.raw`\\[\s\S]`].join('|');
+
+// One word of a shell command: quoted text and characters that end no word.
+const SHELL_WORD = String.raw`(?:${QUOTED_TEXT}|[^\s;&|<>()'"\\])+`;
+
+// One step of the reader of a shell command. At each position the first
+// alternative that matches is taken, so a `>` inside quotes, after a
+// backslash or in a comment is never read as a redirect.
+const SHELL_STEP = new RegExp(
+  [
+    QUOTED_TEXT,
+    String.raw`(?<![^\s;&|()])#[^\n]*`, // a comment: `#` at the start of a word, to the end of the line
+    String.raw`>>?\|?[ \t]*(?<target>${SHELL_WORD})`, // `>`, `>>` or `>|` and the file it writes
+    String.raw`[\s\S]`, // any other character
+  ].join('|'),
+  'g'
+);
+
+// The first `<<` of a command, with the rest of its line. `<<<` (a
+// here-string, which has no body) does not count.
+const HERE_DOCUMENT_LINE = /(?<!<)<<(?!<)[^\n]*/;
+
+// A redirect target that holds one of these is not a plain path: the shell
+// replaces a variable, a command in backticks or a `~` at the start, and the
+// hook cannot know the result. A target with a backslash is left out too: the
+// reader does not remove a backslash as the shell does.
+const NOT_A_PLAIN_PATH = /[$`\\]|^~/;
+
+/**
+ * The files that a shell command redirects output into (`>`, `>>`, `>|`), as
+ * the command writes them, without quotes. A target that is not a plain path
+ * is left out.
+ *
+ * The command is read only up to the end of the first line that holds `<<`:
+ * the lines after the opener of a here-document are its body, which is text
+ * and not a command. The cut is made before the quotes are read, so the body
+ * of a here-document inside double quotes (the usual form of a commit
+ * message) is never read, whatever quotes it holds.
+ *
+ * Limits. Not seen: a redirect on a line after the first `<<`, also when
+ * that `<<` opens no here-document. Read as a redirect by mistake: a `>`
+ * between `[[` and `]]`, where it compares two texts; and a `>` in a text
+ * that the shell reads as quoted because of a command substitution `$( )`
+ * inside double quotes (the reader ends the quoted text at the next `"`).
+ */
+function redirectTargets(command) {
+  const hereDocument = HERE_DOCUMENT_LINE.exec(command);
+  const text = hereDocument ? command.slice(0, hereDocument.index + hereDocument[0].length) : command;
+  return [...text.matchAll(SHELL_STEP)]
+    .map(step => step.groups.target)
+    .filter(target => target && !NOT_A_PLAIN_PATH.test(target))
+    .map(target => target.replace(/['"]/g, ''));
+}
+
+/**
+ * Keep a session-log.md that a Bash command wrote out of `git status`. The
+ * save command of the context-management skill creates the file with
+ * `cat >> session-log.md`, and the Edit and Write tools do not see that.
+ *
+ * The function acts only on a redirect into a file with this exact name. A
+ * command that only names the file (grep, cat, a commit message) gets no
+ * entry, and no other AI artifact gets one after a Bash call: such a file can
+ * be a document of the user's project, and a mention must not hide it.
+ *
+ * A relative path is resolved against the `cwd` of the hook input: this is
+ * the folder of the shell after the command, and it follows a `cd` of the
+ * assistant. The folder is therefore not read as the project folder:
+ * excludeArtifact applies its folder rule to the file, as it does after a
+ * Write of the same file. Without a `cwd` the function does nothing.
+ *
+ * A file that does not exist gets no entry, and a tracked file gets none. A
+ * folder with this name gets none: the entry would hide every file in it.
+ * A file inside the session scratchpad gets none either, as after a Write: a
+ * repository there is a test fixture, and its `git status` must stay as the
+ * commands left it.
+ *
+ * Limits (the file then stays visible until the next save in the form of the
+ * skill): a path that holds a variable; a redirect on a line after the first
+ * `<<`; a command that writes the file in another way (`tee`); a `cd` inside
+ * a subshell, which the `cwd` of the hook input does not show.
+ */
+function excludeSessionLogWrittenBy(command, cwd, scratchpadDir) {
+  if (typeof command !== 'string' || typeof cwd !== 'string' || cwd === '') return;
+  const filePaths = redirectTargets(command)
+    .filter(target => path.basename(target) === SESSION_LOG)
+    .map(target => path.resolve(cwd, target));
+  for (const filePath of new Set(filePaths)) {
+    if (isFile(filePath) && !isInsideScratchpad(filePath, scratchpadDir)) excludeArtifact(filePath);
+  }
+}
+
+/** True when the path is a file, or a symbolic link to a file. */
+function isFile(filePath) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 const SAVED_TAG = '[saved]';
@@ -176,6 +308,12 @@ async function main() {
   try {
     const data = JSON.parse(input);
     const { tool_name, tool_input, cwd, session_id, scratchpad_dir } = data;
+
+    // A Bash call is not logged as an edit, and it does not move the save
+    // marker: only the exclude entry of a session log that the command wrote.
+    if (tool_name === BASH_TOOL) {
+      excludeSessionLogWrittenBy(tool_input?.command, cwd, scratchpad_dir);
+    }
 
     // Only track Edit and Write operations
     if (tool_name !== 'Edit' && tool_name !== 'Write') {

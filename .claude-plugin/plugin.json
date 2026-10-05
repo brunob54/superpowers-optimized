@@ -1,7 +1,7 @@
 {
   "name": "superpowers-orchestrator",
   "description": "Agentic development framework for Claude Code — disciplined workflow routing, TDD enforcement, safety hooks, systematic debugging, and code review",
-  "version": "7.61.0",
+  "version": "7.62.0",
   "author": {
     "name": "Jesse Vincent, forked by brunob54"
   },

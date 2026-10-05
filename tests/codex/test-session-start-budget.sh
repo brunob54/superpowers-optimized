@@ -140,6 +140,14 @@ write_map() {
   printf '# Project Map\n*Generated 2026-01-01 | Git: %s*\n\n## Directory Structure\n%s\n## Critical Constraints\n- none\n\n## Hot Files\n- none\n' "$STALE_MAP_HASH" "$1"
 }
 
+# write_snapshot: a small context-snapshot.json in the current directory. Its
+# git_hash is the commit that is HEAD there: the hook injects the snapshot
+# only when the two are equal (tests/codex/test-session-start-snapshot.sh).
+write_snapshot() {
+  printf '{"generated_at":"2026-01-01T10:00:00.000Z","git_hash":"%s","changed_files":["snapshot-sentinel.js"],"recent_commits":["abc1234 init"]}\n' \
+    "$(git rev-parse HEAD)" > context-snapshot.json
+}
+
 clear_workspace() {
   rm -f "$TMP_REPO/state.md" "$TMP_REPO/session-log.md" "$TMP_REPO/known-issues.md" \
         "$TMP_REPO/project-map.md" "$TMP_REPO/context-snapshot.json"
@@ -196,7 +204,7 @@ free_room=$(( LIMIT - $(run_hook_in "$TMP_REPO" | js_length) ))
   printf '## 2026-01-01 10:00 [saved]\nGoal: SESSION-LOG-SENTINEL\n' > session-log.md
   printf '## KNOWN-ISSUES-SENTINEL issue\nfix: none\n' > known-issues.md
   write_map 'PROJECT-MAP-SENTINEL' > project-map.md
-  printf '{"changed_files":["snapshot-sentinel.js"],"recent_commits":["abc1234 init"]}\n' > context-snapshot.json
+  write_snapshot
 )
 ctx_small=$(run_hook_in "$TMP_REPO")
 clear_workspace
@@ -256,7 +264,7 @@ write_oversized_workspace() {
       printf '## KNOWN-ISSUES-SENTINEL issue %d\n' "$i"; text_of "$(( LIMIT / 4 ))" issue
     done > known-issues.md
     write_map "PROJECT-MAP-SENTINEL${NL}$(text_of "$LIMIT" map)" > project-map.md
-    printf '{"changed_files":["snapshot-sentinel.js"],"recent_commits":["abc1234 init"]}\n' > context-snapshot.json
+    write_snapshot
   )
 }
 write_oversized_workspace

@@ -47,12 +47,12 @@ run_test "stop-reminders (Claude Stop shape)" "${SCRIPT_DIR}/test-stop-reminders
 run_test "session-start-adapter" "${SCRIPT_DIR}/test-session-start-adapter.js"
 run_test "session-start (superpowers-defaults block)" "${SCRIPT_DIR}/test-session-start-defaults-block.sh" bash
 run_test "session-start (10,000-character budget)" "${SCRIPT_DIR}/test-session-start-budget.sh" bash
+run_test "session-start (context-snapshot block only for the present HEAD)" "${SCRIPT_DIR}/test-session-start-snapshot.sh" bash
 run_test "session-start (active work log notice)" "${SCRIPT_DIR}/test-session-start-worklog-notice.sh" bash
 run_test "session-start (update check only in a clone of the plugin)" "${SCRIPT_DIR}/test-session-start-update-check.sh" bash
 run_test "check-no-superpowers-defaults-setting" "${SCRIPT_DIR}/test-check-no-superpowers-defaults-setting.sh" bash
 run_test "claude-code work folder" "${SCRIPT_DIR}/test-claude-code-workdir.sh" bash
 run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activator.js"
-run_test "statusline-context-cache" "${SCRIPT_DIR}/test-statusline-cache.js"
 run_test "subagent-guard (SubagentStop)" "${SCRIPT_DIR}/test-subagent-guard.js"
 run_test "block-dangerous-commands (PreToolUse Bash)" "${SCRIPT_DIR}/test-block-dangerous-commands.js"
 run_test "protect-secrets (PreToolUse Read, Edit, Write, Grep, Bash)" "${SCRIPT_DIR}/test-protect-secrets.js"
