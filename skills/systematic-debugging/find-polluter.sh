@@ -18,8 +18,25 @@ echo "🔍 Searching for test that creates: $POLLUTION_CHECK"
 echo "Test pattern: $TEST_PATTERN"
 echo ""
 
-# Get list of test files
-TEST_FILES=$(find . -path "$TEST_PATTERN" | sort)
+# Get list of test files.
+# `find .` prints every path with "./" in front, so the pattern gets "./" in
+# front too. A "./" that the caller already wrote is removed first.
+PATH_PREFIX="./"
+FIND_PATTERN="$PATH_PREFIX${TEST_PATTERN#"$PATH_PREFIX"}"
+# In a `find -path` pattern, "*" also matches "/". So "**/" matches one or
+# more folder levels, never zero: 'src/**/*.test.ts' alone misses
+# src/a.test.ts. The second pattern, with every "**/" removed, matches the
+# files that have no folder level in that place.
+ANY_FOLDERS="**/"
+NO_FOLDER_PATTERN="${FIND_PATTERN//"$ANY_FOLDERS"/}"
+TEST_FILES=$(find . \( -path "$FIND_PATTERN" -o -path "$NO_FOLDER_PATTERN" \) | sort)
+
+# An empty list must not be reported as "all tests clean".
+if [ -z "$TEST_FILES" ]; then
+  echo "No test file matches the pattern: $TEST_PATTERN"
+  echo "The pattern is relative to the current folder: $(pwd)"
+  exit 1
+fi
 TOTAL=$(echo "$TEST_FILES" | wc -l | tr -d ' ')
 
 echo "Found $TOTAL test files"
