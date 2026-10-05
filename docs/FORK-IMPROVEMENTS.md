@@ -16,7 +16,7 @@ Contents:
 
 ## 1. SDD Batched Autonomous Mode (v6.7.0)
 
-*Through v6.14.0 the primary batch boundary was a measured 60% context-pressure check (`--pressure` CLI). v6.15.0 replaced it with a fixed task cap: batches are expected to start in fresh sessions (the writing-plans handoff and resume flow both route through `/clear`), which made the in-batch measurement redundant — and its hardcoded 200K window overstated pressure five-fold on 1M-context models, ending batches at ~13% real occupancy. The 60% start gate on prompt submission (below) is unchanged — and v6.15.0 makes it model-window-aware via an opt-in statusline bridge: configure `"statusLine": {"type": "command", "command": "node <plugin-cache-root>/hooks/statusline-context-cache.js"}` in settings.json, and the gate reads the harness's authoritative `context_window` (true 200K/1M/larger size) from a cache the statusline script maintains, falling back to transcript parsing against 200K when the cache is absent, stale, or belongs to another session. v6.15.1 adds `tools/install-statusline-bridge.sh` (installs the bridge at a version-independent path and prints the wiring snippet, delegate-aware for existing HUDs) and the `SUPERPOWERS_PRESSURE_THRESHOLD` env var (a percentage, 10–90) to change the gate's 60% default.*
+*Through v6.14.0 the primary batch boundary was a measured 60% check of the context fill. v6.15.0 replaced it with a fixed task cap: batches are expected to start in fresh sessions (the writing-plans handoff and resume flow both route through `/clear`), which made the in-batch measurement redundant — and its hardcoded 200K window overstated the fill five-fold on 1M-context models, ending batches at ~13% real occupancy. The baseline also carried a check at prompt submission: at 60% fill it answered a prompt such as "execute the plan" with a STOP block in place of the skill hints. v6.15.0 gave that check an opt-in status line script as its source of the window size. The check, the status line script, the script's installer and the threshold variable were removed later. Three measured facts decided it: the hook input states neither the context usage nor the window size; the check divided by 200K whenever the script's file was missing, older than 30 minutes or written by another session; and no session in five weeks of kept transcripts (1,885 files) had triggered it.*
 
 ### Summary
 
@@ -28,8 +28,6 @@ Contents:
 ### Motivation
 
 Long implementation plans cannot finish inside one context window. Without a batch boundary, sessions drift into auto-compaction mid-task — losing decisions, re-dispatching completed work, and guessing at plan ambiguities with nobody watching. Batched Autonomous Mode makes the boundary explicit and crash-safe: the batch size is bounded up front, position lives in durable artifacts (checkboxes, commits, ledger), and blockers become journaled questions instead of silent best-guesses.
-
-**Relation to the baseline 60% gate.** The REPOZY v6.6.1 baseline measures context pressure as a *start gate*: when a prompt is about to trigger implementation and the window is ≥60% full, the `UserPromptSubmit` hook injects a STOP block that replaces all skill hints and mandates save-state (`state.md` via context-management) → inform the user → `/compact` → resume, *before* any implementation begins. It does not compact anything itself — a hook cannot — and it fires only at the moment execution is requested. The two mechanisms divide the work: the gate protects the *entry* into implementation (for a prompt that matches its execution patterns, such as "execute the plan", whatever the existing occupancy; the batched and resume prompts do not match), while the fixed task cap bounds the *middle* of it — each batch ends with a `state.md` handoff, preferring a clean `/clear` + "resume the plan" (rebuilt from checkboxes and git) over mid-work compaction.
 
 ### How it works
 
@@ -45,11 +43,9 @@ Say any of (with a plan file present):
 - `execute the plan in batches`
 - after `/clear`: `resume the plan`
 
-To inspect the start gate's pressure measurement yourself: `node hooks/skill-activator.js --pressure "$(pwd)"`.
-
 ### Where it lives
 
-`skills/subagent-driven-development/SKILL.md` (Batched Autonomous Mode section), `hooks/skill-activator.js` (60% start gate + `--pressure` inspection CLI), `hooks/skill-rules.json` (batch/resume triggers), `tests/claude-code/test-batched-autonomous-mode.sh`.
+`skills/subagent-driven-development/SKILL.md` (Batched Autonomous Mode section), `hooks/skill-rules.json` (batch/resume triggers), `tests/claude-code/test-batched-autonomous-mode.sh`.
 
 ### References
 

@@ -312,14 +312,9 @@ the user. Announce: `I'm using subagent-driven-development (batched autonomous m
      visible rather than propagating silently forever unstated. X is a
      cap, not a target — the boundaries below can end the batch earlier.
      (Batches are expected to start in a fresh session — the writing-plans
-     handoff and the Resume Instructions both route through /clear. The
-     context gate on prompt submission (a hook check that blocks the prompt
-     when the context window is fuller than a threshold, 60% by default)
-     does not guard every mid-session start: it fires only on a prompt that
-     matches its execution patterns, such as "execute the plan in batches"
-     or the Inline paste prompt of writing-plans, `Execute the plan at …`.
-     It does not fire on the resume prompts of the handoff below or on
-     short replies such as "go".)
+     handoff and the Resume Instructions both route through /clear. No
+     hook checks how full the context window is when a batch starts
+     in a session that is already in use.)
    - **The plan is complete.**
    - **A blocker occurred** (see Autonomy Policy below).
 

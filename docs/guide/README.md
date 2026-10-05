@@ -22,7 +22,7 @@ this guide documents the stable user surface and links there.
 4. ["I want an autonomous run" — orchestrating development](#4-i-want-an-autonomous-run--orchestrating-development)
 5. ["My run was interrupted" — resuming and recovering](#5-my-run-was-interrupted--resuming-and-recovering)
 6. ["How does it remember?" — the memory system](#6-how-does-it-remember--the-memory-system)
-7. [Context pressure — the "memory almost full" safety gate](#7-context-pressure--the-memory-almost-full-safety-gate)
+7. [Session defaults — review rounds, reviewers and batch size](#7-session-defaults--review-rounds-reviewers-and-batch-size)
 8. [Phrase cheat-sheet](#8-phrase-cheat-sheet)
 9. [Troubleshooting](#9-troubleshooting)
 
@@ -46,10 +46,6 @@ contributors.
 version catalog), then update the *plugin* — or enable auto-update for the
 marketplace and forget about it. After any update, verify with a new session:
 the version is in the plugin's install path and its `VERSION` file.
-
-**After each update, re-run the statusline bridge installer** if you use it
-(§7): `tools/install-statusline-bridge.sh` refreshes the version-independent
-copy under `~/.claude/statusline/` that your `settings.json` points at.
 
 Platform capabilities differ — §4's orchestration runs on Claude Code only.
 Codex and Cursor lack the nested subagent dispatch it requires, and Copilot
@@ -86,8 +82,8 @@ difference helps you read the rest of this guide:
   before a shell command executes, when Claude finishes responding. A skill
   depends on Claude choosing to follow it; a hook runs no matter what. That
   is why the safety checks (blocking dangerous commands, protecting secret
-  files), the automatic memory recall (§6), and the context-pressure gate
-  (§7) are hooks — they must work even when Claude is busy or wrong. You
+  files) and the automatic memory recall (§6) are hooks — they must work
+  even when Claude is busy or wrong. You
   never invoke a hook yourself; you only see their effects.
 
 Three things worth knowing on day one:
@@ -501,10 +497,9 @@ Resume the plan at docs/superpowers-orchestrator/2026-08-04-my-feature/plans/my-
 `X=<x>`, `N=<n>` and `M=<m>` appear only when you stated that value when
 the batch run started — omit whichever you did not state.
 
-Fresh session, cached-context costs gone, next batch begins. The
-context-pressure gate of §7 checks only prompts that match its execution
-patterns, such as "execute the plan"; it does not check the batched-mode
-prompts shown above, so start each batch in a fresh session. Recovery semantics —
+Fresh session, cached-context costs gone, next batch begins. No hook checks
+how full the context window is when a batch starts, so start each batch in
+a fresh session. Recovery semantics —
 including crashes mid-batch — are §5's batched-execution case.
 
 ### `/clear` between the gates — and why it costs you nothing
@@ -1392,43 +1387,15 @@ What you should know:
   folder. A second computer creates new pages unless you reconnect them with
   `refresh --url`.
 
-## 7. Context pressure — the "memory almost full" safety gate
+## 7. Session defaults — review rounds, reviewers and batch size
 
-**The problem, in one sentence.** Claude's working memory for a session —
-called the *context window* — has a fixed size, and everything you and
-Claude say fills it up; when it is nearly full, answer quality drops, and a
-long autonomous run can fail halfway through.
-
-**"Context pressure"** is simply the plugin's name for *how full that memory
-is*, as a percentage. An empty session is at 0%; at 100% nothing more fits.
-You will see the term in the plugin's messages, which is why it has a name
-at all.
-
-**What the plugin does about it.** When you submit a prompt that starts
-plan execution — one that contains a phrase such as "execute the plan",
-"implement the plan", "run the plan", "follow the plan" or "start
-implementing" — the plugin checks the pressure. If the session is already
-past the threshold (default **60%** full), the hook tells Claude not to
-start yet: Claude must first save `state.md`, tell you that it is
-compacting, and run `/compact`. Starting a long batch with little free
-memory means the batch dies in the middle, which is worse than restarting
-cleanly. The check runs only when a prompt is submitted;
-how a batch *ends* is decided by the task cap (§3), not by pressure.
-
-Known limit: the batched-mode prompts of §3 ("implement the next N tasks
-of …", "Use subagents in batched autonomous mode on …", "Resume the plan
-at …") contain none of these phrases, so the check does not run for them.
-Start each batch in a fresh session, as the dialogs recommend.
-
-You can change the threshold in your `settings.json` (a percentage, 10–90):
-
-```json
-{ "env": { "SUPERPOWERS_PRESSURE_THRESHOLD": "50" } }
-```
+Three numbers of the plugin have a default that you can change. You set
+each one as an environment variable in the `env` block of your
+`settings.json`.
 
 The number of reviewers per lens — M, the identical reviewer subagents each
-`multi-doc-review` / `multi-code-review` round dispatches in parallel — is set
-the same way (an integer 1–5, default 1; restart the CLI after changing it;
+`multi-doc-review` / `multi-code-review` round dispatches in parallel — is
+the first (an integer 1–5, default 1; restart the CLI after changing it;
 an invalid value silently falls back to 1). Honored on Claude Code;
 not verified on GitHub Copilot CLI or Cursor; no block is emitted on Codex
 or OpenCode:
@@ -1473,52 +1440,6 @@ run, even after `/clear` or a compaction. On Codex and OpenCode no block
 exists (read from the code; not run on those platforms): a value you state in the command still wins, and otherwise the
 built-in default applies (1 reviewer per lens, 3 rounds, a cap of 3),
 whatever these variables say.
-
-**One complication: the plugin has to guess how big the memory is.**
-Different Claude models have different context-window sizes (some 200
-thousand tokens, some 1 million). Hooks are not told which one is active, so
-without help the plugin assumes the common 200K size. On a 1-million model
-that guess makes every reading about 5× too high — a session that is really
-13% full is reported as "67% full" and gets blocked for no reason.
-
-**The fix is the statusline bridge — Claude Code only.** The *statusline*
-is the small information bar at the bottom of the Claude Code window.
-Claude Code feeds whatever command draws that bar a message containing,
-among other things, the session's *true* memory size and usage — it is the
-only official source of those numbers, and it exists only in Claude Code.
-The bridge is a tiny program that sits in that spot, writes the true
-numbers to a file the safety gate can read, and passes everything on
-unchanged. Install it once — the easiest way is to ask Claude in any
-session:
-
-```
-Run the plugin's statusline bridge installer (tools/install-statusline-bridge.sh)
-```
-
-You do not need a clone of this repository: the installed plugin is a full
-copy, so the script is already on your machine (under
-`~/.claude/plugins/cache/superpowers-orchestrator/…/tools/`), and Claude knows
-where its own plugin lives. If you *do* have a checkout, running
-`bash tools/install-statusline-bridge.sh` from the repo root does the same
-thing.
-
-The installer copies the bridge to a stable location
-(`~/.claude/statusline/`) and prints the exact lines to add to your
-`settings.json` — it never edits the file itself. If you already have a
-statusline you like (a HUD, a git prompt), the printed snippet uses
-**delegate mode**: the bridge records the numbers, then hands the display
-job to your existing command, so what you see does not change. Re-run the
-installer after each plugin update (§1).
-
-**On other platforms there is no fix yet.** Codex, OpenCode, and Cursor
-have no statusline mechanism, so the true memory numbers cannot be read
-there — do not try to install the bridge on those platforms. Without those
-numbers the gate has nothing to measure, so it does not block anything
-there (on Cursor the prompt hook that runs the gate is not wired at all).
-Batches still end at the task cap (§3), as on Claude Code. This is derived
-from the code; it has not been observed, because none of these platforms
-has been run. If a future platform version exposes the numbers, bridge
-support can follow.
 
 ## 8. Phrase cheat-sheet
 
@@ -1618,13 +1539,6 @@ or the marketplace pointer reverted to a stale repository. Verify what's
 actually installed: the plugin's install path and its `VERSION` file must
 both show the expected version; if not, re-run both update steps and check
 the marketplace entry points at the right repo.
-
-**"Context pressure" blocks me from starting plan execution.** The §7
-gate. It checks only prompts that name plan execution, such as "execute the
-plan", never the batched-mode prompts. When it fires, Claude saves
-`state.md` and runs `/compact` before it starts. If you're on a large-window
-model and the number looks absurd, the gate is likely falling back to a 200K
-assumption — install the statusline bridge (§7).
 
 **A review report says `Harness probes owed:` with one or more items.** A
 reviewer made a claim about the agent runtime that nobody could test in that
