@@ -72,7 +72,7 @@ For each file, apply the first list item that matches the result.
 - An error text, or an exit status that is not 0: create no worktree. Show the error to the user.
 - A line that starts with `!!`: git ignores the file, so no commit can carry it into a worktree. Create no worktree. Create the branch in this folder with `git checkout -b <BRANCH_NAME>`, which keeps the untracked and the ignored files. Then go on with step 5 in this folder.
 - A line that starts with `??`: the file is untracked, and step 4 moves it. When a rule of the user or of the project (for example in `CLAUDE.md` or `AGENTS.md`) forbids a commit without approval, ask the user once, before step 3, whether step 4 may commit the file on `<BRANCH_NAME>`. On "no": create no worktree and create the branch in this folder, as the list item before this one says.
-- A line that starts with another mark (` M` is a modified file): git tracks the file, and the file holds a change that is not committed. The worktree gets the committed state of the file, without that change. Ask the user to choose one of two ways: the user commits the file, or the branch is created in this folder. After a commit by the user, run the check for this file one more time. For the other way: create no worktree and create the branch in this folder, as the list item about `!!` says.
+- A line that starts with another mark (` M` is a modified file): git tracks the file, and the file holds a change that is not committed. The worktree gets the file as it is committed, without that change; a file that was never committed is absent there. Ask the user to choose one of two ways: the user commits the file, or the branch is created in this folder. After a commit by the user, run the check for this file one more time. For the other way: create no worktree and create the branch in this folder, as the list item about `!!` says.
 - No output: the file is committed. The worktree will hold it, and step 4 does not move it.
 
 ### 3. Create worktree and branch
@@ -87,7 +87,7 @@ git worktree add <path> -b <BRANCH_NAME>
 
 Run this step only when the command of step 3 has ended with exit status 0, and only for a file whose check in step 2 printed a `??` line. Each file is named by its own path: no other file of its folder is moved or committed.
 
-`<worktree-file-path>` is the place of the file inside the worktree: the path of the worktree, then the path of the file from the top of the repository. For the file `docs/a/plan.md` of the repository it is `<path>/docs/a/plan.md`.
+`<worktree-path>` is the absolute path of the worktree. `git -C "<path>" rev-parse --show-toplevel`, run in the folder where step 3 ran, prints it, also when step 3 wrote `<path>` as a relative path. `<worktree-file-path>` is the place of the file inside the worktree, as an absolute path: `<worktree-path>`, then the path of the file from the top of the repository. A relative path fails here: git reads a relative path after `--` from the folder that `-C` names. For the file `docs/a/plan.md` of the repository it is `<worktree-path>/docs/a/plan.md`.
 
 Run these four commands for one file, one command at a time, in this order. Then run them for the next file.
 
@@ -95,7 +95,7 @@ Run these four commands for one file, one command at a time, in this order. Then
 [ ! -e "<worktree-file-path>" ] || echo "already in the worktree: <worktree-file-path>"
 mkdir -p "$(dirname "<worktree-file-path>")"
 mv "<file-path>" "<worktree-file-path>"
-git -C "<path>" add -- "<worktree-file-path>"
+git -C "<worktree-path>" add -- "<worktree-file-path>"
 ```
 
 - The first command prints a line `already in the worktree`: never overwrite that file. Run no later command of this step. Tell the user that both files exist, and ask what to do.
@@ -104,7 +104,7 @@ git -C "<path>" add -- "<worktree-file-path>"
 After the last file, commit the moved files with this command. Name every moved file in it, each path between its own quotes, and no other path.
 
 ```bash
-git -C "<path>" commit -m "docs: spec and plan of <BRANCH_NAME>" -- "<worktree-file-path>"
+git -C "<worktree-path>" commit -m "docs: spec and plan of <BRANCH_NAME>" -- "<worktree-file-path>"
 ```
 
 - The commit ends with an exit status that is not 0 (for example, a commit hook refuses it): run it no second time, and do not switch the hook off. Show the error to the user. Say that the moved files are in the worktree, staged and not committed, and that the folder of step 2 holds no copy of them.

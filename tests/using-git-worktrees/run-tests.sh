@@ -119,8 +119,11 @@ $CREATE_HEADING	3280141730
 ## Success Output	2932263891
 ## Integration	1012482212"
 
-# The places of the five values in a command of the skill text.
+# The places of the six values in a command of the skill text. `<path>` is
+# the worktree path as step 3 writes it, which can be a relative path;
+# `<worktree-path>` is the absolute path of the worktree.
 FILE_PLACEHOLDER='<file-path>'
+ABSOLUTE_PLACEHOLDER='<worktree-path>'
 TOP_PATH_PLACEHOLDER='<path-from-the-top>'
 WT_FILE_PLACEHOLDER='<worktree-file-path>'
 BRANCH_PLACEHOLDER='<BRANCH_NAME>'
@@ -147,10 +150,13 @@ WORKTREE_CMD_EXPECTED="git worktree add $WORKTREE_PLACEHOLDER -b $BRANCH_PLACEHO
 PRESENT_CMD_EXPECTED="$PRESENT_PREFIX$ALREADY_THERE: $WT_FILE_PLACEHOLDER\""
 MKDIR_CMD_EXPECTED="mkdir -p \"\$(dirname \"$WT_FILE_PLACEHOLDER\")\""
 MV_CMD_EXPECTED="mv \"$FILE_PLACEHOLDER\" \"$WT_FILE_PLACEHOLDER\""
-ADD_CMD_EXPECTED="git -C \"$WORKTREE_PLACEHOLDER\" add -- \"$WT_FILE_PLACEHOLDER\""
+ADD_CMD_EXPECTED="git -C \"$ABSOLUTE_PLACEHOLDER\" add -- \"$WT_FILE_PLACEHOLDER\""
 MOVE_CMDS_EXPECTED="$PRESENT_CMD_EXPECTED$NL$MKDIR_CMD_EXPECTED$NL$MV_CMD_EXPECTED$NL$ADD_CMD_EXPECTED"
 COMMIT_SUBJECT="docs: spec and plan of $BRANCH_PLACEHOLDER"
-COMMIT_CMD_EXPECTED="git -C \"$WORKTREE_PLACEHOLDER\" commit -m \"$COMMIT_SUBJECT\" -- \"$WT_FILE_PLACEHOLDER\""
+COMMIT_CMD_EXPECTED="git -C \"$ABSOLUTE_PLACEHOLDER\" commit -m \"$COMMIT_SUBJECT\" -- \"$WT_FILE_PLACEHOLDER\""
+# The command that prints the absolute path of the worktree.
+TOP_PREFIX="git -C \"$WORKTREE_PLACEHOLDER\" rev-parse"
+TOP_CMD_EXPECTED="$TOP_PREFIX --show-toplevel"
 # The workspace file that names the plan of the work for a later session, and
 # the search that finds the lines of it that name a moved file.
 STATE_FILE='state.md'
@@ -181,7 +187,7 @@ C_UNTRACKED="A line that starts with \`$UNTRACKED_MARK\`: the file is untracked,
 C_APPROVAL="When a rule of the user or of the project (for example in \`CLAUDE.md\` or \`AGENTS.md\`) forbids a commit without approval, ask the user once, before step 3, whether step 4 may commit the file on \`$BRANCH_PLACEHOLDER\`."
 C_APPROVAL_NO='On "no": create no worktree and create the branch in this folder, as the list item before this one says.'
 C_OTHER="A line that starts with another mark (\`$MODIFIED_MARK\` is a modified file): git tracks the file, and the file holds a change that is not committed."
-C_OTHER_WHY='The worktree gets the committed state of the file, without that change.'
+C_OTHER_WHY='The worktree gets the file as it is committed, without that change; a file that was never committed is absent there.'
 C_OTHER_ASK='Ask the user to choose one of two ways: the user commits the file, or the branch is created in this folder.'
 C_OTHER_AGAIN='After a commit by the user, run the check for this file one more time.'
 C_OTHER_BRANCH="For the other way: create no worktree and create the branch in this folder, as the list item about \`$IGNORED_MARK\` says."
@@ -191,8 +197,11 @@ CHECK_STEP_ITEM_COUNT=6
 
 M_WHEN="Run this step only when the command of step 3 has ended with exit status 0, and only for a file whose check in step 2 printed a \`$UNTRACKED_MARK\` line."
 M_ONLY='Each file is named by its own path: no other file of its folder is moved or committed.'
-M_DEST="\`$WT_FILE_PLACEHOLDER\` is the place of the file inside the worktree: the path of the worktree, then the path of the file from the top of the repository."
-M_EXAMPLE="For the file \`docs/a/plan.md\` of the repository it is \`$WORKTREE_PLACEHOLDER/docs/a/plan.md\`."
+M_TOP="\`$ABSOLUTE_PLACEHOLDER\` is the absolute path of the worktree."
+M_TOP_FIND="\`$TOP_CMD_EXPECTED\`, run in the folder where step 3 ran, prints it, also when step 3 wrote \`$WORKTREE_PLACEHOLDER\` as a relative path."
+M_DEST="\`$WT_FILE_PLACEHOLDER\` is the place of the file inside the worktree, as an absolute path: \`$ABSOLUTE_PLACEHOLDER\`, then the path of the file from the top of the repository."
+M_DEST_WHY='A relative path fails here: git reads a relative path after `--` from the folder that `-C` names.'
+M_EXAMPLE="For the file \`docs/a/plan.md\` of the repository it is \`$ABSOLUTE_PLACEHOLDER/docs/a/plan.md\`."
 M_RUN='Run these four commands for one file, one command at a time, in this order.'
 M_NEXT_FILE='Then run them for the next file.'
 M_PRESENT="The first command prints a line \`$ALREADY_THERE\`: never overwrite that file."
@@ -230,7 +239,7 @@ CHECK_STEP_EXPECTED=$(join_texts "$C_WHY" "$C_PLAN" "$C_BEFORE" "$C_SKIP" "$C_PA
   "- $C_UNTRACKED" "$C_APPROVAL" "$C_APPROVAL_NO" \
   "- $C_OTHER" "$C_OTHER_WHY" "$C_OTHER_ASK" "$C_OTHER_AGAIN" "$C_OTHER_BRANCH" \
   "- $C_CLEAN" "$C_CLEAN_HELD")
-MOVE_STEP_EXPECTED=$(join_texts "$M_WHEN" "$M_ONLY" "$M_DEST" "$M_EXAMPLE" "$M_RUN" "$M_NEXT_FILE" \
+MOVE_STEP_EXPECTED=$(join_texts "$M_WHEN" "$M_ONLY" "$M_TOP" "$M_TOP_FIND" "$M_DEST" "$M_DEST_WHY" "$M_EXAMPLE" "$M_RUN" "$M_NEXT_FILE" \
   "$FENCE_START" "$PRESENT_CMD_EXPECTED" "$MKDIR_CMD_EXPECTED" "$MV_CMD_EXPECTED" "$ADD_CMD_EXPECTED" "$FENCE_END" \
   "- $M_PRESENT" "$M_STOP" "$M_PRESENT_ASK" \
   "- $M_FAILED" "$M_SHOW_ERROR" "$M_WHERE" \
@@ -295,9 +304,11 @@ block() {
 line_number() { printf '%s\n' "$1" | sed -n "${2}p"; }
 # code_span <text> <first words>: the first text between two ` characters of
 # <text> that starts with <first words>. Both reach awk through the
-# environment, so no character of them is read as a pattern.
+# environment, so no character of them is read as a pattern. The text is
+# joined to one line first: the awk of macOS also splits at a line break when
+# the separator is one character, and the awk of Linux does not.
 code_span() {
-  text="$1" prefix="$2" awk 'BEGIN {
+  text="$(printf '%s\n' "$1" | fold_text)" prefix="$2" awk 'BEGIN {
     n = split(ENVIRON["text"], part, "`")
     for (i = 2; i <= n; i += 2) if (index(part[i], ENVIRON["prefix"]) == 1) { print part[i]; exit }
   }'
@@ -330,12 +341,13 @@ WORKTREE_CMD=$(block "$(section "$CREATE_HEADING")" 1)
 MOVE_CMDS=$(block "$MOVE_STEP" 1)
 COMMIT_CMD=$(block "$MOVE_STEP" 2)
 SEARCH_CMD=$(code_span "$MOVE_STEP" "$SEARCH_PREFIX")
+TOP_CMD=$(code_span "$MOVE_STEP" "$TOP_PREFIX")
 
 # with_values <text>: the text with each placeholder replaced by the name of a
 # shell variable. The quotes around a path come from the skill text, so a
 # command that the skill writes without quotes fails on a path with a space.
 with_values() {
-  printf '%s\n' "$1" | sed "s/$FILE_PLACEHOLDER/\$FILE_PATH/g; s/$WT_FILE_PLACEHOLDER/\$WT_FILE/g; s/$BRANCH_PLACEHOLDER/\$BRANCH/g; s/$WORKTREE_PLACEHOLDER/\$WT/g; s/$TOP_PATH_PLACEHOLDER/\$TOP_PATH/g"
+  printf '%s\n' "$1" | sed "s/$FILE_PLACEHOLDER/\$FILE_PATH/g; s/$WT_FILE_PLACEHOLDER/\$WT_FILE/g; s/$BRANCH_PLACEHOLDER/\$BRANCH/g; s/$WORKTREE_PLACEHOLDER/\$WT/g; s/$ABSOLUTE_PLACEHOLDER/\$WT_TOP/g; s/$TOP_PATH_PLACEHOLDER/\$TOP_PATH/g"
 }
 # runnable <command>: the command with the placeholders replaced, when the
 # command is one line that starts with `git `, with the first words of one of
@@ -359,6 +371,7 @@ MV_RUN=$(runnable "$(line_number "$MOVE_CMDS" 3)")
 ADD_RUN=$(runnable "$(line_number "$MOVE_CMDS" 4)")
 COMMIT_RUN=$(runnable "$COMMIT_CMD")
 SEARCH_RUN=$(runnable "$SEARCH_CMD")
+TOP_RUN=$(runnable "$TOP_CMD")
 # commit_run_for <count>: the commit command with one quoted path for each
 # moved file, as the sentence after the command tells ("Name every moved file
 # in it, each path between its own quotes"). The paths are $WT_FILE_1,
@@ -378,11 +391,13 @@ WT_FILE=''
 WT_FILE_1=''
 WT_FILE_2=''
 TOP_PATH=''
+WT_TOP=''
 NO_COMMAND='(the skill text holds no command that this suite can run)'
 # run_lines <folder> <command>...: run the commands, one after the other, in
 # <folder>; a command that fails ends the run. $FILE_PATH, $WT_FILE,
-# $WT_FILE_1, $WT_FILE_2 and $TOP_PATH hold the values that the caller has set, $BRANCH
-# the branch name of the fixture and $WT the worktree path of the fixture.
+# $WT_FILE_1, $WT_FILE_2, $TOP_PATH and $WT_TOP hold the values that the
+# caller has set, $BRANCH the branch name of the fixture, and $WT the worktree
+# path as step 3 of the fixture writes it ($STEP3_PATH).
 # Leaves the output (both streams) in OUT and the exit code in CODE. An empty
 # command runs nothing: OUT then holds a message, so that no check passes on
 # an empty output, and RAN is 0.
@@ -394,7 +409,7 @@ run_lines() {
   done
   CODE=0
   RAN=1
-  OUT=$( { cd "$folder" && BRANCH="$FEATURE_BRANCH" && WT="$WORKTREE" && for command in "$@"; do
+  OUT=$( { cd "$folder" && BRANCH="$FEATURE_BRANCH" && WT="$STEP3_PATH" && for command in "$@"; do
     eval "$command" || exit $?
   done; } 2>&1 ) || CODE=$?
 }
@@ -405,16 +420,26 @@ check_file() {
 }
 # create_worktree: the worktree command of step 3, in the main checkout.
 create_worktree() { run_lines "$MAIN" "$WORKTREE_RUN"; }
+# find_worktree_top: the command of step 4 that prints the absolute path of
+# the worktree, in the folder where step 3 ran. Leaves the path in WT_TOP;
+# empty when the command did not run or failed.
+find_worktree_top() {
+  WT_TOP=''
+  run_lines "$MAIN" "$TOP_RUN"
+  if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ]; then WT_TOP="$OUT"; fi
+}
 # create_branch: the branch command of step 2, in the main checkout.
 create_branch() { run_lines "$MAIN" "$BRANCH_RUN"; }
 # move_file <folder> <path from the top of the repository>: the four commands
 # of step 4 for one file, as the step tells: the first command alone, and the
-# three other commands only when the first one printed nothing. MOVED is 1
-# when all four ran and none failed.
+# three other commands only when the first one printed nothing. The place
+# inside the worktree is built from $WT_TOP, as the step tells; without that
+# path nothing runs. MOVED is 1 when all four ran and none failed.
 move_file() {
   FILE_PATH="$MAIN/$2"
-  WT_FILE="$WORKTREE/$2"
+  WT_FILE="$WT_TOP/$2"
   MOVED=0
+  if [ -z "$WT_TOP" ]; then OUT="$NO_COMMAND"; CODE=1; RAN=0; return 0; fi
   run_lines "$1" "$PRESENT_RUN"
   if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ] && [ -z "$OUT" ]; then
     run_lines "$1" "$MKDIR_RUN" "$MV_RUN" "$ADD_RUN"
@@ -426,8 +451,9 @@ move_file() {
 commit_moved() {
   local folder="$1"
   shift
-  WT_FILE_1="$WORKTREE/$1"
-  WT_FILE_2="$WORKTREE/${2:-}"
+  if [ -z "$WT_TOP" ]; then OUT="$NO_COMMAND"; CODE=1; RAN=0; return 0; fi
+  WT_FILE_1="$WT_TOP/$1"
+  WT_FILE_2="$WT_TOP/${2:-}"
   run_lines "$folder" "$(commit_run_for "$#")"
 }
 # do_steps <folder> <path from the top>...: step 3, then step 4 for the files.
@@ -438,6 +464,8 @@ do_steps() {
   ALL_MOVED=0
   create_worktree
   if [ "$RAN" -ne 1 ] || [ "$CODE" -ne 0 ]; then return 0; fi
+  find_worktree_top
+  if [ -z "$WT_TOP" ]; then return 0; fi
   for file in "$@"; do
     move_file "$folder" "$file"
     if [ "$MOVED" -ne 1 ]; then return 0; fi
@@ -474,6 +502,9 @@ assert_out_lacks() {
 
 FEATURE_BRANCH='feature/demo'
 BASE_BRANCH='main'
+# The worktree path from the top of the repository: the relative form of
+# `<path>` in step 3.
+RELATIVE_WORKTREE='.worktrees/demo'
 LAYOUT_ROOT='docs/superpowers-orchestrator'
 TOPIC_NAME='2026-10-04-demo'
 SPEC_FILE='specs/demo-design.md'
@@ -493,7 +524,8 @@ EXPECTED_SUBJECT="docs: spec and plan of $FEATURE_BRANCH"
 # paths from the top of the repository in TOPIC_REL, SPEC_REL and PLAN_REL.
 new_fixture() {
   MAIN="$TMP/$1"
-  WORKTREE="$MAIN/.worktrees/demo"
+  WORKTREE="$MAIN/$RELATIVE_WORKTREE"
+  STEP3_PATH="$WORKTREE"
   TOPIC_REL="${2:-$LAYOUT_ROOT/$TOPIC_NAME}"
   SPEC_REL="$TOPIC_REL/$SPEC_FILE"
   PLAN_REL="$TOPIC_REL/$PLAN_FILE"
@@ -593,6 +625,23 @@ OUT=$(git -C "$MAIN" merge --no-edit "$FEATURE_BRANCH" 2>&1) || CODE=$?
 label="after a copy in place of a move, git refuses the merge in the first folder"
 if [ "$CODE" -ne 0 ]; then ok "$label"; else bad "$label (output: $(one_line "$OUT"))"; fi
 
+# Why step 4 demands absolute paths: git reads a relative path after `--`
+# from the folder that `-C` names.
+new_fixture relative-defect
+{
+  git -C "$MAIN" worktree add -q "$RELATIVE_WORKTREE" -b "$FEATURE_BRANCH"
+  mkdir -p "$WORKTREE/$TOPIC_REL/plans"
+  mv "$MAIN/$PLAN_REL" "$WORKTREE/$PLAN_REL"
+} 2>/dev/null
+CODE=0
+OUT=$( { cd "$MAIN" && git -C "$RELATIVE_WORKTREE" add -- "$RELATIVE_WORKTREE/$PLAN_REL"; } 2>&1 ) || CODE=$?
+label="with a relative worktree path after -C and after --, git stages nothing and ends with an exit code that is not 0"
+if [ "$CODE" -ne 0 ] && [ -z "$(git -C "$WORKTREE" status --porcelain --untracked-files=no 2>&1)" ]; then
+  ok "$label"
+else
+  bad "$label (exit code $CODE, output: $(one_line "$OUT"))"
+fi
+
 # ---------------------------------------------------------------------------
 bold "2. The skill text holds the steps and their commands"
 # ---------------------------------------------------------------------------
@@ -609,6 +658,7 @@ assert_eq "the first fenced block of step 4 holds the four move commands" \
 assert_eq "the second fenced block of step 4 holds the commit command" \
   "$COMMIT_CMD" "$COMMIT_CMD_EXPECTED"
 assert_eq "step 4 holds the search in the state file" "$SEARCH_CMD" "$SEARCH_CMD_EXPECTED"
+assert_eq "step 4 holds the command that prints the absolute path of the worktree" "$TOP_CMD" "$TOP_CMD_EXPECTED"
 # The words of the worktree command in every spelling: any letter case, any
 # run of blanks or line breaks between the two words.
 assert_eq "the skill names 'worktree add' exactly one time, in every spelling" \
@@ -659,17 +709,46 @@ assert_eq "a committed plan gives exit code 0" "$CODE" '0'
 tick "$MAIN/$PLAN_REL"
 check_file "$MAIN" "$MAIN/$PLAN_REL"
 assert_eq "a modified tracked plan gives one '$MODIFIED_MARK' line" "$OUT" "$MODIFIED_MARK $PLAN_REL"
-# The sentence "The worktree gets the committed state of the file, without
-# that change", and the reason why step 4 is not run for such a file.
+# The sentence "The worktree gets the file as it is committed, without that
+# change; a file that was never committed is absent there", and the reason
+# why step 4 is not run for such a file.
 create_worktree
-assert_eq "the worktree gets the committed state of a modified plan, without the change" \
+assert_eq "the worktree gets a modified plan as it is committed, without the change" \
   "$(grep -cxF -- "$OPEN_TASK" "$WORKTREE/$PLAN_REL" 2>/dev/null)" '1'
 
+# assert_absent_in_worktree <desc>: step 3 ran, and the new worktree holds no
+# plan.
+assert_absent_in_worktree() {
+  create_worktree
+  if [ "$RAN" -eq 1 ] && [ "$CODE" -eq 0 ] && [ -d "$WORKTREE" ] && [ ! -e "$WORKTREE/$PLAN_REL" ]; then
+    ok "$1"
+  else
+    bad "$1 (exit code $CODE, output: $(one_line "$OUT"))"
+  fi
+}
 new_fixture check-staged
 git -C "$MAIN" add -- "$PLAN_REL"
 check_file "$MAIN" "$MAIN/$PLAN_REL"
 assert_eq "a new plan that is staged and not committed gives one '$STAGED_NEW_MARK' line" \
   "$OUT" "$STAGED_NEW_MARK $PLAN_REL"
+assert_absent_in_worktree "a staged plan that was never committed is absent in the worktree"
+
+new_fixture check-staged-then-changed
+git -C "$MAIN" add -- "$PLAN_REL"
+tick "$MAIN/$PLAN_REL"
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a new staged plan with a later change gives one 'AM' line" "$OUT" "AM $PLAN_REL"
+assert_absent_in_worktree "a staged plan with a later change, never committed, is absent in the worktree"
+
+new_fixture check-staged-change
+commit_in_main "$SPEC_REL" "$PLAN_REL"
+tick "$MAIN/$PLAN_REL"
+git -C "$MAIN" add -- "$PLAN_REL"
+check_file "$MAIN" "$MAIN/$PLAN_REL"
+assert_eq "a committed plan with a staged change gives one 'M ' line" "$OUT" "M  $PLAN_REL"
+create_worktree
+assert_eq "the worktree gets a plan with a staged change as it is committed, without the change" \
+  "$(grep -cxF -- "$OPEN_TASK" "$WORKTREE/$PLAN_REL" 2>/dev/null)" '1'
 
 new_fixture check-ignored '' 'docs/'
 check_file "$MAIN" "$MAIN/$PLAN_REL"
@@ -772,6 +851,23 @@ new_fixture move-sub-folder
 do_steps "$MAIN/src" "$SPEC_REL" "$PLAN_REL"
 assert_moved "the commands of step 4 run in a sub-folder" "$SPEC_REL" "$PLAN_REL"
 
+# Step 3 with a relative worktree path. Step 4 must build its paths from the
+# absolute path that its own command prints.
+new_fixture move-relative
+STEP3_PATH="$RELATIVE_WORKTREE"
+do_steps "$MAIN" "$SPEC_REL" "$PLAN_REL"
+assert_moved "a relative worktree path in step 3" "$SPEC_REL" "$PLAN_REL"
+assert_eq "the command of step 4 prints the absolute path of a worktree that step 3 named by a relative path" \
+  "$WT_TOP" "$WORKTREE"
+run_lines "$MAIN/src" "$TOP_RUN"
+assert_ran_failed "the same command with the relative path fails in a folder where step 3 did not run"
+# The commands of step 4 run in a sub-folder: `git -C` with the relative path
+# of step 3 would fail there.
+new_fixture move-relative-sub-folder
+STEP3_PATH="$RELATIVE_WORKTREE"
+do_steps "$MAIN/src" "$SPEC_REL" "$PLAN_REL"
+assert_moved "a relative worktree path in step 3, and step 4 in a sub-folder" "$SPEC_REL" "$PLAN_REL"
+
 # A merge that has stopped on a conflict in the first folder. The commit of
 # step 4 runs in the worktree, so it must not end that merge.
 new_fixture move-during-merge
@@ -798,7 +894,8 @@ fi
 # branch with no commit; an older git refuses. Both results are correct for
 # the steps: the files move only after a worktree command that succeeded.
 MAIN="$TMP/move-no-commit"
-WORKTREE="$MAIN/.worktrees/demo"
+WORKTREE="$MAIN/$RELATIVE_WORKTREE"
+STEP3_PATH="$WORKTREE"
 TOPIC_REL="$LAYOUT_ROOT/$TOPIC_NAME"
 SPEC_REL="$TOPIC_REL/$SPEC_FILE"
 PLAN_REL="$TOPIC_REL/$PLAN_FILE"
@@ -826,6 +923,7 @@ EXTRA_FILE='extra.txt'
 SIBLING_FILE='plans/sibling.md'
 new_fixture commit-only-moved
 create_worktree
+find_worktree_top
 {
   mkdir -p "$WORKTREE/$TOPIC_REL/plans"
   echo 'sibling' > "$WORKTREE/$TOPIC_REL/$SIBLING_FILE"
@@ -848,6 +946,7 @@ bold "5. Step 4 when a command must not run, or fails"
 OTHER_CONTENT='another plan'
 new_fixture present
 create_worktree
+find_worktree_top
 {
   mkdir -p "$WORKTREE/$TOPIC_REL/plans"
   echo "$OTHER_CONTENT" > "$WORKTREE/$PLAN_REL"
@@ -869,6 +968,7 @@ if [ "$MOVED" -eq 1 ] && [ -z "$OUT" ]; then ok "$label"; else bad "$label (outp
 # The `mv` command fails: the file to move does not exist.
 new_fixture move-fails
 create_worktree
+find_worktree_top
 move_file "$MAIN" "$PLAN_REL-typo"
 assert_ran_failed "the move of a file that does not exist ends with an exit code that is not 0, and an error text"
 assert_eq_when "after a failed move nothing is staged in the worktree" \
