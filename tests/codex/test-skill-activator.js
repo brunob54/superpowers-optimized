@@ -952,9 +952,11 @@ for (const [label, message] of Object.entries(AGENT_MESSAGES)) {
   }));
 }
 
-function assertHintAndRecall(output) {
+// `where` names the case in the failure message.
+function assertHintAndRecall(output, where = '') {
   const context = contextOf(output);
-  assert.ok(context.includes(KNOWN_ISSUE_HEADING) && context.includes('<user-prompt-submit-hook>'), `Expected the skill hint and the recall, got: ${context}`);
+  const missing = ['<user-prompt-submit-hook>', KNOWN_ISSUE_HEADING, '<session-memory-recall>', SAVED_HEADING].filter(text => !context.includes(text));
+  assert.deepStrictEqual(missing, [], `Expected the skill hint, the known issue and the session-log entry ${where}, got: ${context}`);
 }
 
 // A typed prompt that opens with only a part of an opening, or with an
@@ -1082,124 +1084,236 @@ test('the Codex adapter shows a recalled entry once per session', () => withReca
 // example "execute the plan") with a STOP block when a status line cache file
 // or the session transcript reported a full context window. That gate was
 // removed. Such a prompt now gets the hint and the recall of any other prompt,
-// whatever these two files hold. The removed gate read both files under the
-// home folder, so each test below runs the real hook with a home folder of
-// its own.
+// whatever these files hold. The removed gate read its files under the home
+// folder, so each test below gives the hook a home folder of its own.
 
 console.log('\nNo context gate: a prompt that names plan execution is a prompt like any other');
 
-const GATE_TAG = 'context-pressure-gate';
 const EXECUTION_PROMPT = 'execute the plan';
-// One prompt for each of the nine patterns of the removed gate.
-const EXECUTION_PROMPTS = [
-  EXECUTION_PROMPT, 'start building', 'start implementing', 'follow the plan', 'implement the plan',
-  "let's build it", 'run the plan', 'begin implementing', 'begin the plan',
+// Prompts for the nine patterns of the removed gate (hooks/skill-activator.js
+// at commit 04e8e25): one prompt for each alternative that a pattern allowed.
+const OLD_PATTERN_PROMPTS = [
+  EXECUTION_PROMPT, 'execute plan',
+  'start build', 'start building',
+  'start implement', 'start implementing', 'start implementation',
+  'follow the plan', 'follow plan',
+  'implement the plan', 'implement plan',
+  "let's build it", 'lets implement it', "let's execute it",
+  'run the plan', 'run plan',
+  'begin implement', 'begin implementing', 'begin implementation',
+  'begin the plan', 'begin plan',
 ];
+// Prompts that the removed gate did not match, longer forms of prompts that
+// it matched, and one prompt that has nothing to do with a plan.
+const OTHER_PROMPTS = [
+  'resume the plan', 'resume the implementation', 'please execute the plan now',
+  'Execute the plan at docs/plans/feature.md', 'execute the plan in batches',
+  'implement the next 3 tasks from docs/plans/feature.md', 'continue with the next task of the plan',
+  'there is a bug in my code, it crashes when I call the function',
+];
+const ALL_PROMPTS = [...OLD_PATTERN_PROMPTS, ...OTHER_PROMPTS];
 const SMALL_WINDOW = 200000;
-const LARGE_WINDOW = 1000000;
+const WINDOW_SIZES = [SMALL_WINDOW, 1000000];
+// Fill levels in percent of the window. At 150 the files report more tokens
+// than the window holds.
+const FILL_PERCENTS = [30, 59, 60, 61, 70, 90, 95, 96, 99, 100, 150];
+const THRESHOLD_VARIABLE = 'SUPERPOWERS_PRESSURE_THRESHOLD';
+// Values of the removed threshold variable; undefined means "not set".
+const THRESHOLD_VALUES = [undefined, '10', '50', '90', '96', '100'];
 const withEmptyProject = fn => withProjectFiles({}, fn);
+const homeVariables = home => ({ HOME: home, USERPROFILE: home });
 
-function executionPayload(dir, prompt = EXECUTION_PROMPT) {
-  return { prompt, session_id: uniqueSessionId(), cwd: dir };
-}
-
-// Runs the real hook with a new home folder. `fill(home)` first writes the
-// files of the test into that folder.
-function runHookAtHome(payload, fill = () => {}, { args = [], env = {} } = {}) {
+function withHome(fn) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'no-gate-home-'));
   try {
-    fill(home);
-    return runHook(payload, { env: { ...process.env, HOME: home, USERPROFILE: home, ...env } }, args);
+    return fn(home);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
 }
 
-// The file that the removed status line bridge wrote.
-function writeWindowCache(home, content) {
-  const dir = path.join(home, '.claude', 'hooks-logs');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'context-window.cache.json'), content);
+// Runs fn with the given environment variables set in this process (the
+// value undefined removes a variable), and restores the old values afterwards.
+function withEnv(variables, fn) {
+  const setAll = values => Object.entries(values).forEach(([name, value]) => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  });
+  const old = Object.fromEntries(Object.keys(variables).map(name => [name, process.env[name]]));
+  setAll(variables);
+  try {
+    return fn();
+  } finally {
+    setAll(old);
+  }
 }
 
-// One assistant record that reports `tokens` tokens in the context window, at
-// the path where Claude Code keeps the transcript of the session.
-function writeTranscript(home, payload, tokens) {
-  const dir = path.join(home, '.claude', 'projects', payload.cwd.replace(/[^A-Za-z0-9]/g, '-'));
-  fs.mkdirSync(dir, { recursive: true });
+// The hook input of a session whose home folder is `home`. transcript_path is
+// a field of the real hook input; the removed gate did not read it.
+function payloadAt(home, cwd, prompt) {
+  return { prompt, session_id: uniqueSessionId(), cwd, transcript_path: path.join(home, 'named', 'transcript.jsonl') };
+}
+
+function writeFixture(file, content) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content);
+}
+
+// One assistant record that reports `tokens` tokens in the context window.
+function transcriptRecord(tokens) {
   const usage = { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: tokens - 5, output_tokens: 10 };
-  fs.writeFileSync(path.join(dir, `${payload.session_id}.jsonl`), `${JSON.stringify({ type: 'assistant', message: { usage } })}\n`);
+  return `${JSON.stringify({ type: 'assistant', message: { usage } })}\n`;
 }
 
-// Returns the fill function for a session whose context window of
-// `windowSize` tokens is `percent` percent full: the cache and the transcript
-// both report it.
-function fullWindow(payload, windowSize, percent) {
-  const tokens = windowSize * percent / 100;
-  return (home) => {
-    writeWindowCache(home, JSON.stringify({
-      session_id: payload.session_id, context_window_size: windowSize, input_tokens_total: tokens, used_percentage: percent,
-    }));
-    writeTranscript(home, payload, tokens);
-  };
+const CACHE_FILE_NAME = 'context-window.cache.json';
+const cachePath = home => path.join(home, '.claude', 'hooks-logs', CACHE_FILE_NAME);
+
+// Each entry writes one file that reports `tokens` tokens in a window of
+// `windowSize` tokens. The first two are the files that the removed gate
+// read; the third is the transcript that the hook input names.
+const FILL_SOURCES = {
+  'the cache file of the removed status line bridge': (home, payload, windowSize, tokens) => writeFixture(cachePath(home), JSON.stringify({
+    session_id: payload.session_id, context_window_size: windowSize, input_tokens_total: tokens, used_percentage: Math.round(tokens / windowSize * 100),
+  })),
+  'the transcript in the project folder of Claude Code': (home, payload, windowSize, tokens) => writeFixture(
+    path.join(home, '.claude', 'projects', payload.cwd.replace(/[^A-Za-z0-9]/g, '-'), `${payload.session_id}.jsonl`), transcriptRecord(tokens)),
+  'the transcript that transcript_path names': (home, payload, windowSize, tokens) => writeFixture(payload.transcript_path, transcriptRecord(tokens)),
+};
+const writeEveryFillSource = (...args) => Object.values(FILL_SOURCES).forEach(write => write(...args));
+
+// Calls fn(home, windowSize, tokens, label) with a new home folder for each
+// window size and each fill level.
+function forEachFill(fn) {
+  for (const windowSize of WINDOW_SIZES) {
+    for (const percent of FILL_PERCENTS) {
+      withHome(home => fn(home, windowSize, windowSize * percent / 100, `${percent}% of ${windowSize}`));
+    }
+  }
 }
 
-// Asserts that the hook gives the same output with the files of `fill` as
-// with an empty home folder, and no STOP block. Returns the text of that output.
-function assertFilesChangeNothing(payload, fill, options) {
-  const expected = runHookAtHome(payload);
-  const actual = runHookAtHome(payload, fill, options);
-  const context = contextOf(actual);
-  assert.ok(!context.includes(GATE_TAG), `Expected no STOP block, got: ${context.slice(0, 200)}`);
+// The output of the hook function for `payload`, with `home` as the home
+// folder and `threshold` as the value of the removed threshold variable.
+function evaluateAtHome(home, payload, threshold) {
+  return withEnv({ ...homeVariables(home), [THRESHOLD_VARIABLE]: threshold }, () => runActivator(payload));
+}
+
+// The output for a prompt when no file reports a fill and the threshold
+// variable is not set. The projects of these tests hold no recall file, so
+// the output depends on the prompt only.
+const outputWithNoFiles = new Map();
+function expectedOutput(cwd, prompt) {
+  if (!outputWithNoFiles.has(prompt)) {
+    outputWithNoFiles.set(prompt, JSON.stringify(withHome(home => evaluateAtHome(home, payloadAt(home, cwd, prompt), undefined))));
+  }
+  return outputWithNoFiles.get(prompt);
+}
+
+for (const [label, writeSource] of [...Object.entries(FILL_SOURCES), ['every one of these files', writeEveryFillSource]]) {
+  test(`${label} changes the output for no prompt, at any fill and any value of ${THRESHOLD_VARIABLE}`, () => withEmptyProject((dir) => {
+    const differences = [];
+    forEachFill((home, windowSize, tokens, fill) => {
+      const payload = payloadAt(home, dir, '');
+      writeSource(home, payload, windowSize, tokens);
+      for (const prompt of ALL_PROMPTS) {
+        for (const threshold of THRESHOLD_VALUES) {
+          const actual = JSON.stringify(evaluateAtHome(home, { ...payload, prompt }, threshold));
+          if (actual !== expectedOutput(dir, prompt)) differences.push(`"${prompt}" at ${fill}, threshold ${threshold}`);
+        }
+      }
+    });
+    assert.deepStrictEqual(differences.slice(0, 5), [], `${differences.length} outputs differ from the output with no file`);
+  }));
+}
+
+test('a prompt that names plan execution gets the skill hint and both recalls, at any fill and any threshold value', () => withRecallProject((dir) => {
+  forEachFill((home, windowSize, tokens, fill) => {
+    for (const threshold of THRESHOLD_VALUES) {
+      // A new session for each run: a recalled entry is shown once per session.
+      const payload = payloadAt(home, dir, `${EXECUTION_PROMPT}: ${RECALL_PROMPT}`);
+      writeEveryFillSource(home, payload, windowSize, tokens);
+      assertHintAndRecall(evaluateAtHome(home, payload, threshold), `at ${fill}, threshold ${threshold}`);
+    }
+  });
+}));
+
+// The tests above call the hook function. The tests below run the hook
+// script, which is what Claude Code runs.
+
+// Runs the real hook with a new home folder. `fill(home, payload)` first
+// writes the files of the test into that folder. `payloadFor(home)` returns
+// the hook input.
+function runHookAtHome(payloadFor, fill = () => {}, { args = [], env = {} } = {}) {
+  return withHome((home) => {
+    const payload = payloadFor(home);
+    fill(home, payload);
+    return runHook(payload, { env: { ...process.env, ...homeVariables(home), ...env } }, args);
+  });
+}
+
+// Asserts that the hook script gives the same output with the files of
+// `fill` as with an empty home folder. Returns the text of that output.
+function assertScriptOutputUnchanged(dir, fill, options) {
+  const payloadFor = home => payloadAt(home, dir, EXECUTION_PROMPT);
+  const expected = runHookAtHome(payloadFor);
+  const actual = runHookAtHome(payloadFor, fill, options);
   assert.deepStrictEqual(actual, expected);
-  return context;
+  return contextOf(actual);
 }
 
-for (const [windowSize, percent] of [[SMALL_WINDOW, 30], [SMALL_WINDOW, 70], [SMALL_WINDOW, 95], [LARGE_WINDOW, 30], [LARGE_WINDOW, 70], [LARGE_WINDOW, 95]]) {
-  test(`"${EXECUTION_PROMPT}" at ${percent}% of a ${windowSize / 1000}K window gets the skill hint, as with no cache and no transcript`, () => withEmptyProject((dir) => {
-    const payload = executionPayload(dir);
-    const context = assertFilesChangeNothing(payload, fullWindow(payload, windowSize, percent));
-    assert.ok(context.includes('<user-prompt-submit-hook>') && context.includes('executing-plans'), `Expected the skill hint, got: ${context.slice(0, 200)}`);
-  }));
-}
+const everyFileFull = (home, payload) => writeEveryFillSource(home, payload, SMALL_WINDOW, SMALL_WINDOW);
 
-for (const tokens of [190000, 950000]) {
-  test(`a transcript that reports ${tokens / 1000}K tokens, with no cache file, changes nothing`, () => withEmptyProject((dir) => {
-    const payload = executionPayload(dir);
-    assertFilesChangeNothing(payload, home => writeTranscript(home, payload, tokens));
-  }));
-}
+test(`the hook script gives "${EXECUTION_PROMPT}" the skill hint when every file reports a full window`, () => withEmptyProject((dir) => {
+  const context = assertScriptOutputUnchanged(dir, everyFileFull);
+  assert.ok(context.includes('<user-prompt-submit-hook>') && context.includes('executing-plans'), `Expected the skill hint, got: ${context.slice(0, 200)}`);
+}));
 
-for (const prompt of EXECUTION_PROMPTS) {
-  test(`"${prompt}" at 95% gets what it gets with no cache and no transcript`, () => withEmptyProject((dir) => {
-    const payload = executionPayload(dir, prompt);
-    assertFilesChangeNothing(payload, fullWindow(payload, SMALL_WINDOW, 95));
-  }));
-}
-
-test('a prompt that names plan execution gets the skill hint and the recall at 95%', () => withRecallProject((dir) => {
-  const payload = executionPayload(dir, `${EXECUTION_PROMPT}: ${RECALL_PROMPT}`);
-  assertHintAndRecall(runHookAtHome(payload, fullWindow(payload, SMALL_WINDOW, 95)));
+test('the hook script gives the skill hint and both recalls when every file reports a full window', () => withRecallProject((dir) => {
+  assertHintAndRecall(runHookAtHome(home => payloadAt(home, dir, `${EXECUTION_PROMPT}: ${RECALL_PROMPT}`), everyFileFull));
 }));
 
 test('a cache file that is not valid JSON changes nothing', () => withEmptyProject((dir) => {
-  assertFilesChangeNothing(executionPayload(dir), home => writeWindowCache(home, '{not valid json'));
+  assertScriptOutputUnchanged(dir, home => writeFixture(cachePath(home), '{not valid json'));
 }));
 
-test('the variable SUPERPOWERS_PRESSURE_THRESHOLD is no longer read', () => withEmptyProject((dir) => {
-  const payload = executionPayload(dir);
-  assertFilesChangeNothing(payload, fullWindow(payload, SMALL_WINDOW, 30), { env: { SUPERPOWERS_PRESSURE_THRESHOLD: '10' } });
+test(`the hook script does not read the variable ${THRESHOLD_VARIABLE}`, () => withEmptyProject((dir) => {
+  assertScriptOutputUnchanged(dir, everyFileFull, { env: { [THRESHOLD_VARIABLE]: '10' } });
 }));
 
-test('the argument --pressure is ignored: the hook reads the prompt from standard input as always', () => withEmptyProject((dir) => {
-  const payload = executionPayload(dir);
-  assertFilesChangeNothing(payload, fullWindow(payload, SMALL_WINDOW, 95), { args: ['--pressure', dir] });
-}));
+for (const [label, argsFor] of [['with a folder after it', dir => ['--pressure', dir]], ['with nothing after it', () => ['--pressure']]]) {
+  test(`the argument --pressure ${label} is ignored: the hook script reads the prompt from standard input as always`, () => withEmptyProject((dir) => {
+    assertScriptOutputUnchanged(dir, everyFileFull, { args: argsFor(dir) });
+  }));
+}
 
 test('the SDD skill names no hook check at the start of a batch', () => {
   const sddText = fs.readFileSync(path.join(__dirname, '../../skills/subagent-driven-development/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.ok(!/context gate|context-pressure|hook check that blocks/i.test(sddText), 'the skill still describes the removed gate');
   assert.ok(sddText.includes('No hook checks how full the context window is'), 'the corrected sentence is missing');
+});
+
+// A skill, a hook or a guide that names a removed part tells the model or the
+// user to use something that no longer exists. The test files name the parts
+// to prove that the hook ignores them. The release notes and the old design
+// documents are history.
+test('no tracked file outside the tests and the history names a removed part of the gate', () => {
+  const removedNames = ['--pressure', THRESHOLD_VARIABLE, CACHE_FILE_NAME, 'statusline-context-cache'];
+  const allowed = [/^tests\//, /^RELEASE-NOTES\.md$/, /^docs\/superpowers-orchestrator\//];
+  const repoRoot = path.join(__dirname, '..', '..');
+  const listing = spawnSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' });
+  assert.strictEqual(listing.status, 0, `git ls-files failed: ${listing.stderr}`);
+  const files = listing.stdout.split('\0').filter(file => file && !allowed.some(pattern => pattern.test(file)));
+  assert.ok(files.includes('hooks/skill-activator.js'), 'the list of tracked files does not hold the hook itself');
+  const found = [];
+  for (const file of files) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+    } catch {
+      continue; // a tracked file that the work tree no longer holds, or a folder
+    }
+    removedNames.filter(name => text.includes(name)).forEach(name => found.push(`${file}: ${name}`));
+  }
+  assert.deepStrictEqual(found, []);
 });
 
 // The recall record of each session id used in this file stays in the
