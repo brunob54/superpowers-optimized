@@ -41,7 +41,10 @@
 //        - Read route: a Read call returns at most about 25,000 tokens, then
 //          a notice "PARTIAL view — <path>: showing lines A-B of T total"
 //          names the next offset. The notice sits in the tool result or in a
-//          separate attachment record (type read_truncation_notice).
+//          separate attachment record (type read_truncation_notice). A Read
+//          that the tool refuses for the size of the file ("exceeds maximum
+//          allowed size" or "tokens") is the same hand-over with no line
+//          delivered: a cut first read, so the file is listed.
 //        - cat route: a Bash `cat <file>` whose output exceeds 30,000
 //          characters is persisted; the result says "Output too large (N KB).
 //          Full output saved to: <path>" with a 2 KB preview. The agent may
@@ -49,11 +52,29 @@
 //      A PARTIAL count alone cannot see the cat route, which is why the
 //      acceptance measure is the line coverage over both routes.
 //
-//      Line numbering. The Read tool counts the empty line after a file's
-//      final newline as a line of its own, so its total is one more than sed
-//      or wc count. Totals are taken from the file on disk when it still
-//      exists; otherwise the Read total is used minus that empty line, unless
-//      a page showed text on the last line (a file without a final newline).
+//      Line numbering. The Read tool counts the empty text after a file's
+//      final newline as a line of its own, so its total (`totalLines` in a
+//      Read record, "of T total" in a notice) is one more than sed or wc
+//      count. Every figure of this section is in lines as sed and wc count
+//      them: the Read total minus that empty line, unless a page showed text
+//      on the last line (a file without a final newline). A received line
+//      number above the total is that empty line and is not counted, so a
+//      file received whole gives exactly 100 percent.
+//
+//      Where a total comes from. The total is the one that the transcript
+//      states for the time of the read: a PARTIAL notice or a Read record.
+//      Only when no record states a total is a text on disk counted: first
+//      the persisted copy of a `cat` that was the whole command (Claude Code
+//      wrote that copy at the time of the read), then the file itself. The
+//      file may have changed since the read, so that total is labelled
+//      "counted on disk today". A pattern range (`sed -n '/A/,/B/p'`) is
+//      resolved on the same text, and the row names which text it was.
+//
+//      Failed calls. A Read result with `is_error: true` delivered no line
+//      and is skipped; only a refusal for size (above) starts a row. A Bash
+//      result is never skipped on `is_error`: for Bash the field is the exit
+//      status of the whole command, and a `cat` inside a command that failed
+//      at a later step still printed its file.
 //
 // Usage:
 //   node tools/measure-context.js <transcript.jsonl> [--json]
@@ -136,10 +157,23 @@ const HEREDOC_START = /^<<-?\s*(["']?)(\w+)\1/;
 // A trailing `{print}` on an awk program changes nothing about which lines
 // are printed.
 const AWK_PRINT = /\s*\{\s*print\s*\}\s*$/;
-// Where a file's total line count came from.
+// Where a file's total line count came from, when a record states it.
 const TOTAL_FROM_NOTICE = 'from a PARTIAL notice';
 const TOTAL_FROM_READ = 'from a Read result';
-const TOTAL_FROM_DISK = 'counted on disk';
+// Where a text was read when no record states a total, and for every pattern
+// range: the saved output of a `cat`, written at the time of the read, or the
+// file itself, which may have changed since the read.
+const ON_PERSISTED_COPY = 'on the persisted copy';
+const ON_DISK_TODAY = 'on disk today';
+// The text of a Read that the tool refused for the size of the file. Real
+// transcripts hold two forms, both on a result with `is_error: true`:
+//   "File content (300.5KB) exceeds maximum allowed size (256KB). Use offset
+//    and limit parameters to read specific portions of the file, ..."
+//   "File content (30000 tokens) exceeds maximum allowed tokens (25000). ..."
+// Other failed Reads ("File does not exist.", an input that is not valid)
+// do not match and start no row.
+const READ_REFUSED_FOR_SIZE = /exceeds maximum allowed (?:size|tokens)/;
+const REFUSED_FOR_SIZE = 'refused for size';
 const UNKNOWN = 'unknown';
 // The end of a range that runs to the end of the file.
 const TO_END = Infinity;
@@ -363,7 +397,7 @@ function newCoverage() {
     aliases: new Map(),         // persisted output path -> file path
     notices: [],                // every PARTIAL notice, once per tool call
     noticedToolUses: new Set(), // tool_use ids whose notice is already counted
-    diskLines: new Map(),       // file path -> its lines on disk, or null
+    diskText: new Map(),        // file path -> its text on disk and where it was read, or null
   };
 }
 
@@ -376,6 +410,9 @@ function fileFor(coverage, rawPath) {
       path: filePath,
       firstRoute: null,       // ROUTE_READ or ROUTE_CAT
       cut: false,             // the first read did not deliver the whole file
+      refused: false,         // the first read was a Read refused for the size of the file
+      exactCopy: null,        // persisted output of a `cat` that was the whole command
+      patternSource: null,    // where the text of a resolved pattern range was read
       whole: false,           // one call delivered the whole file
       covered: new Set(),     // line numbers received
       openRanges: [],         // starts of ranges that run to the end of the file
@@ -390,10 +427,11 @@ function fileFor(coverage, rawPath) {
   return coverage.files.get(filePath);
 }
 
-function firstRead(file, route, cut, whole) {
+function firstRead(file, route, cut, whole, refused = false) {
   if (!file.firstRoute) {
     file.firstRoute = route;
     file.cut = cut;
+    file.refused = refused;
   }
   if (whole) file.whole = true;
 }
@@ -422,14 +460,19 @@ function setTotal(file, total, source) {
   }
 }
 
-// The file's total lines as sed and wc count them, with its source: the file
-// on disk when it still exists, else the Read tool's total minus the empty
-// line it counts after the final newline (kept when a page showed text there).
+// The file's total lines as sed and wc count them, with its source. The total
+// that the transcript states for the time of the read comes first. The Read
+// tool's total (`totalLines`, "of T total") is the wc count plus 1 when the
+// file ends with a newline, because the tool numbers the empty text after
+// that newline as a line; so 1 is subtracted, unless a page showed text on
+// that last line. Only when no record states a total is a text on disk
+// counted, and the source then says which text.
 function fileTotal(coverage, file) {
-  const disk = linesOnDisk(coverage, file);
-  if (disk) return { lines: disk.length, source: TOTAL_FROM_DISK };
-  if (file.readTotal === null) return null;
-  return { lines: file.readTotal - (file.lastLineHasText ? 0 : 1), source: file.totalSource };
+  if (file.readTotal !== null) {
+    return { lines: file.readTotal - (file.lastLineHasText ? 0 : 1), source: file.totalSource };
+  }
+  const text = textOnDisk(coverage, file);
+  return text ? { lines: text.lines.length, source: `counted ${text.where}` } : null;
 }
 
 function noticesIn(text) {
@@ -466,11 +509,30 @@ function trackToolResult(coverage, rec, index, block, use) {
   else if (use.name === BASH_TOOL) trackBash(coverage, rec, index, block, use.input || {});
 }
 
+// A Read that failed delivered no line, so it is not a read of the file. One
+// failure is a hand-over: the tool refused the call for the size of the file.
+// That is a cut first read with no line received, so the file gets a row and
+// its coverage comes from the page reads that follow. (This rule is for the
+// Read tool only: on a Bash result `is_error` is the exit status of the whole
+// command. Of 71 failed Bash commands holding a plain `cat` in the measured
+// transcripts, 69 had more than one step, so the `cat` may well have printed
+// its file before a later step failed.)
+function trackFailedRead(coverage, rawPath, text) {
+  if (!READ_REFUSED_FOR_SIZE.test(text)) return;
+  const file = fileFor(coverage, rawPath);
+  firstRead(file, ROUTE_READ, true, false, true);
+  file.events.push(`${READ_TOOL} ${REFUSED_FOR_SIZE} -> no line`);
+}
+
 function trackRead(coverage, rec, index, block, input) {
   const rawPath = input.file_path || '';
   if (!rawPath) return;
-  const file = fileFor(coverage, rawPath);
   const text = resultText(block);
+  if (block.is_error) {
+    trackFailedRead(coverage, rawPath, text);
+    return;
+  }
+  const file = fileFor(coverage, rawPath);
   const info = (rec.toolUseResult || {}).file || {};
   // The harness's own record of what was returned is preferred; the line
   // numbers printed in the result text are the fallback.
@@ -638,8 +700,11 @@ function trackBash(coverage, rec, index, block, input) {
   const persisted = PERSISTED_OUTPUT.exec(text);
   let cwd = rec.cwd || '';
 
-  for (const unit of splitShell(command)) {
-    const words = shellWords(unit[0]);
+  const units = splitShell(command).map((unit) => ({ unit, words: shellWords(unit[0]) }));
+  // A persisted output is the text of one file, and nothing else, only when
+  // one `cat` was the whole command; a `cd` before it prints nothing.
+  const printingUnits = units.filter(({ words }) => words[0] !== SHELL.CD).length;
+  for (const { unit, words } of units) {
     if (words[0] === SHELL.CD && words[1]) {
       cwd = absolutePath(words[1], cwd);
       continue;
@@ -651,6 +716,7 @@ function trackBash(coverage, rec, index, block, input) {
       const file = fileFor(coverage, absolutePath(operands[0], cwd));
       if (persisted) {
         coverage.aliases.set(persisted[1], file.path);
+        if (printingUnits === 1) file.exactCopy = persisted[1];
         const preview = previewLineCount(text);
         firstRead(file, ROUTE_CAT, true, false);
         addRange(file, 1, preview, index, `${SHELL.CAT} persisted (${preview} complete preview lines)`);
@@ -871,13 +937,15 @@ function mergeRanges(ranges) {
 
 // `awk '/A/,/B/'` and `sed -n '/A/,/B/p'` are emulated on the file's text on
 // disk: from each line matching A to the first later line matching B, both
-// included; no end pattern means to the end of the file.
+// included; no end pattern means to the end of the file. No record holds the
+// text with its line numbers, so the row names where the text was read.
 function patternRanges(coverage, file, startPattern, endPattern) {
-  const lines = linesOnDisk(coverage, file);
-  if (!lines) {
+  const text = textOnDisk(coverage, file);
+  if (!text) {
     file.events.push(`pattern range /${startPattern}/ not resolved: file not on disk`);
     return [];
   }
+  const { lines } = text;
   let startRe;
   let endRe;
   try {
@@ -887,6 +955,7 @@ function patternRanges(coverage, file, startPattern, endPattern) {
     file.events.push(`pattern range /${startPattern}/ not resolved: not a JavaScript regular expression`);
     return [];
   }
+  file.patternSource = text.where;
   const out = [];
   let i = 0;
   while (i < lines.length) {
@@ -906,24 +975,27 @@ function patternRanges(coverage, file, startPattern, endPattern) {
   return out;
 }
 
-// The file's text on disk, by its own path or by a persisted alias, split into
-// lines the way `wc -l` counts them. Cached; null when unreadable.
-function linesOnDisk(coverage, file) {
-  if (coverage.diskLines.has(file.path)) return coverage.diskLines.get(file.path);
-  const candidates = [file.path].concat(
-    Array.from(coverage.aliases.entries()).filter(([, p]) => p === file.path).map(([alias]) => alias));
-  let lines = null;
-  for (const candidate of candidates) {
+// The file's text on disk, split into lines the way `wc -l` counts them, and
+// where it was read. The persisted copy of a `cat` that was the whole command
+// comes first: Claude Code wrote it at the time of the read, so it is the
+// text the agent was offered. The file itself is the text of today. Cached;
+// null when neither can be read.
+function textOnDisk(coverage, file) {
+  if (coverage.diskText.has(file.path)) return coverage.diskText.get(file.path);
+  const candidates = [[file.exactCopy, ON_PERSISTED_COPY], [file.path, ON_DISK_TODAY]].filter(([candidate]) => candidate);
+  let found = null;
+  for (const [candidate, where] of candidates) {
     try {
-      lines = fs.readFileSync(candidate, 'utf8').split(LINE_BREAK);
+      const lines = fs.readFileSync(candidate, 'utf8').split(LINE_BREAK);
       if (lines.length && lines[lines.length - 1] === '') lines.pop();
+      found = { lines, where };
       break;
     } catch {
       // Try the next candidate.
     }
   }
-  coverage.diskLines.set(file.path, lines);
-  return lines;
+  coverage.diskText.set(file.path, found);
+  return found;
 }
 
 function rangesToString(lines) {
@@ -957,17 +1029,24 @@ function finishCoverage(coverage) {
     const uncovered = [];
     if (lines !== null) for (let l = 1; l <= lines; l += 1) if (!received.has(l)) uncovered.push(l);
     const complete = file.whole || (lines !== null && uncovered.length === 0);
-    file.lastLineReached = lines !== null ? received.has(lines) : (file.whole ? true : null);
+    // Without a total, two cases still have an answer: a file received whole,
+    // and a file of which no line was received, which is zero percent of any
+    // total. An open range is a delivery of lines, although it has no end yet.
+    const nothingReceived = received.size === 0 && file.openRanges.length === 0;
+    const whenTotalUnknown = (wholeValue, nothingValue) => (complete ? wholeValue : (nothingReceived ? nothingValue : null));
+    file.lastLineReached = lines !== null ? received.has(lines) : whenTotalUnknown(true, false);
 
     fileCoverage.push({
       path: file.path,
       firstRoute: file.firstRoute,
+      refusedForSize: file.refused,
       totalLines: lines,
       totalLinesSource: total ? total.source : null,
       receivedRanges: rangesToString(received),
       receivedLines: received.size,
-      coveragePercent: lines !== null ? Math.round(percent(received.size, lines) * 10) / 10 : (complete ? 100 : null),
-      uncoveredRanges: lines !== null ? rangesToString(uncovered) : (complete ? 'none' : null),
+      patternRangesSource: file.patternSource,
+      coveragePercent: lines !== null ? Math.round(percent(received.size, lines) * 10) / 10 : whenTotalUnknown(100, 0),
+      uncoveredRanges: lines !== null ? rangesToString(uncovered) : whenTotalUnknown('none', null),
       lastLineReached: file.lastLineReached,
       events: file.events,
     });
@@ -1046,10 +1125,12 @@ function report(file, m) {
     `persisted output file: ${notices.persistedThenRead})`);
   console.log('File coverage (files whose first read was cut; lines received over both routes):');
   for (const f of m.fileCoverage) {
-    const firstReadLabel = f.firstRoute === ROUTE_CAT ? `${ROUTE_CAT}, persisted` : `${ROUTE_READ}, cut by a PARTIAL notice`;
+    const firstReadLabel = f.firstRoute === ROUTE_CAT ? `${ROUTE_CAT}, persisted`
+      : `${ROUTE_READ}, ${f.refusedForSize ? REFUSED_FOR_SIZE : 'cut by a PARTIAL notice'}`;
+    const patternNote = f.patternRangesSource ? `; pattern ranges resolved ${f.patternRangesSource}` : '';
     console.log(`  ${f.path} | first read: ${firstReadLabel} | ` +
       `total lines: ${orUnknown(f.totalLines, (n) => `${n} (${f.totalLinesSource})`)} | ` +
-      `received: ${f.receivedRanges} (${f.receivedLines} lines) | ` +
+      `received: ${f.receivedRanges} (${f.receivedLines} lines${patternNote}) | ` +
       `coverage: ${orUnknown(f.coveragePercent, (p) => `${p.toFixed(1)}%`)} | ` +
       `uncovered: ${orUnknown(f.uncoveredRanges, (u) => u)} | ` +
       `last line reached: ${orUnknown(f.lastLineReached, (r) => (r ? 'yes' : 'no'))}`);

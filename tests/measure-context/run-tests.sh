@@ -32,6 +32,18 @@ FIX_CAT_THEN_READ="$FIX/cat-then-read-cut.jsonl"
 # The on-disk fixture reads two real files from the fixtures directory, so
 # the template's @@FIX@@ is replaced with that directory at run time.
 FIX_ON_DISK_TEMPLATE="$FIX/pipeline-on-disk.template.jsonl"
+# Review finding 14 fixtures (see the comment before section 18). The two
+# templates name files that the suite writes at run time, so their @@FIX@@
+# is replaced with a directory under the work path.
+FIX_AT_READ_TIME_TEMPLATE="$FIX/total-at-read-time.template.jsonl"
+FIX_FAILED_RESULTS="$FIX/failed-results.jsonl"
+FIX_READ_REFUSED="$FIX/read-refused.jsonl"
+FIX_PERSISTED_COPY_TEMPLATE="$FIX/persisted-copy.template.jsonl"
+# The labels of a total that does not come from a Read record.
+SOURCE_DISK_TODAY="counted on disk today"
+SOURCE_PERSISTED_COPY="counted on the persisted copy"
+SOURCE_NOTICE="from a PARTIAL notice"
+SOURCE_READ_RESULT="from a Read result"
 
 # The fixture's hand-chosen byte counts, by class.
 EXP_AGENT_PROMPTS=100
@@ -106,6 +118,29 @@ run_json() { # transcript
 run_text() { # transcript
   node "$SCRIPT" "$1" >"$OUTF" 2>"$ERRF"
   STATUS=$?
+}
+
+# Write a transcript from a template: every @@FIX@@ becomes the directory, so
+# that the transcript names files that exist on disk at run time.
+fill_template() { # template directory out
+  node -e '
+    const fs = require("fs");
+    const [template, directory, out] = process.argv.slice(1);
+    const dir = JSON.stringify(directory).slice(1, -1);
+    fs.writeFileSync(out, fs.readFileSync(template, "utf8").split("@@FIX@@").join(dir));
+  ' "$1" "$2" "$3"
+}
+
+# Write a file of COUNT lines, "<word> 1" to "<word> COUNT", with a final
+# newline. The directory of the file is created when it is missing.
+write_lines() { # file count word
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const [file, count, word] = process.argv.slice(1);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, Array.from({ length: Number(count) }, (_, i) => `${word} ${i + 1}\n`).join(""));
+  ' "$1" "$2" "$3"
 }
 
 bold "1. The script runs on the fixture and reports every class"
@@ -198,6 +233,20 @@ assert_partial_notices() { # desc count paged-to-end paged-short not-paged persi
   assert_eq "$1: paged short" "$(field partialNotices.pagedShort)" "$4"
   assert_eq "$1: not paged" "$(field partialNotices.notPaged)" "$5"
   assert_eq "$1: on a persisted output file" "$(field partialNotices.persistedThenRead)" "$6"
+}
+
+# One row of the file coverage, from its five figures.
+assert_coverage_row() { # desc index total source ranges percent last-line-reached
+  assert_eq "$1: total lines" "$(field "fileCoverage.$2.totalLines")" "$3"
+  assert_eq "$1: source of the total" "$(field "fileCoverage.$2.totalLinesSource")" "$4"
+  assert_eq "$1: received ranges" "$(field "fileCoverage.$2.receivedRanges")" "$5"
+  assert_eq "$1: coverage" "$(field "fileCoverage.$2.coveragePercent")" "$6"
+  assert_eq "$1: last line reached" "$(field "fileCoverage.$2.lastLineReached")" "$7"
+}
+
+# How many lines of the text report hold a needle.
+report_lines_with() { # needle
+  grep -cF -- "$1" "$OUTF"
 }
 
 bold "7. Read route: a PARTIAL notice, then paged to the end by offset"
@@ -307,12 +356,7 @@ bold "15. Pipelines and files on disk: cat | sed, awk patterns, head caps, cd, t
 # The template names two real files under the fixtures directory, so the
 # total comes from the file on disk (the persisted copies do not exist).
 ON_DISK="$WORK/pipeline-on-disk.jsonl"
-node -e '
-  const fs = require("fs");
-  const [template, fixtures, out] = process.argv.slice(1);
-  const dir = JSON.stringify(fixtures).slice(1, -1);
-  fs.writeFileSync(out, fs.readFileSync(template, "utf8").split("@@FIX@@").join(dir));
-' "$FIX_ON_DISK_TEMPLATE" "$FIX" "$ON_DISK"
+fill_template "$FIX_ON_DISK_TEMPLATE" "$FIX" "$ON_DISK"
 run_json "$ON_DISK"
 assert_eq "exits 0" "$STATUS" "0"
 assert_eq "two cut files are listed" "$(field fileCoverage.length)" "2"
@@ -320,7 +364,8 @@ assert_eq "two cut files are listed" "$(field fileCoverage.length)" "2"
 # `cat FILE | sed -n '2,3p'`: the range of the second pipe segment applies
 # to the file named in the first, so 3 of 6 lines were received.
 assert_eq "six-lines: total lines are counted on disk" "$(field fileCoverage.0.totalLines)" "6"
-assert_eq "six-lines: the total's source is the disk" "$(field fileCoverage.0.totalLinesSource)" "counted on disk"
+assert_eq "six-lines: the total's source is the disk, and the label says that the count is today's" "$(field fileCoverage.0.totalLinesSource)" "$SOURCE_DISK_TODAY"
+assert_eq "six-lines: no pattern range was resolved, so no source is named for one" "$(field fileCoverage.0.patternRangesSource)" "null"
 assert_eq "six-lines: cat | sed receives the sed range of the file, not the whole file" "$(field fileCoverage.0.receivedRanges)" "1-3"
 assert_eq "six-lines: coverage is one half" "$(field fileCoverage.0.coveragePercent)" "50"
 assert_eq "six-lines: the last line was not reached" "$(field fileCoverage.0.lastLineReached)" "false"
@@ -335,6 +380,9 @@ assert_eq "sections: pattern ranges, head caps, cd, awk NR and both tail forms a
 assert_eq "sections: coverage is nine tenths" "$(field fileCoverage.1.coveragePercent)" "90"
 assert_eq "sections: line 4 is the only gap" "$(field fileCoverage.1.uncoveredRanges)" "4"
 assert_eq "sections: the last line was reached" "$(field fileCoverage.1.lastLineReached)" "true"
+assert_eq "sections: the pattern ranges are resolved on the file as it is on disk today, and the row says so" "$(field fileCoverage.1.patternRangesSource)" "on disk today"
+run_text "$ON_DISK"
+assert_file_contains "sections: the text report names the source of the pattern ranges beside the received lines" "$OUTF" 'received: 1-3, 5-10 (9 lines; pattern ranges resolved on disk today)'
 
 bold "16. An open range (awk 'NR>=N') after a notice counts as paging"
 run_json "$FIX_OPEN_RANGE"
@@ -354,6 +402,129 @@ assert_eq "the empty final line shown by the last page is subtracted from the to
 assert_eq "coverage is complete" "$(field fileCoverage.0.coveragePercent)" "100"
 assert_eq "the last line was reached" "$(field fileCoverage.0.lastLineReached)" "true"
 assert_partial_notices "the notice on the persisted copy is paged to the end and counted as persisted-then-read" 1 1 0 0 1
+
+# --- Review finding 14: the total line count of a file is the one the
+# transcript states, and a failed Read delivers no line.
+#
+# A Read record states the total of the file at the time of the read
+# (`toolUseResult.file.totalLines`, and the "of T total" of a PARTIAL
+# notice). The file on disk today can be longer or shorter, so its count is
+# only the fallback, and the report then labels it "counted on disk today".
+# A tool result with `is_error: true` on a Read call delivered no line. A
+# Read that the tool refused for the size of the file is a cut first read
+# with no line received. On a Bash call `is_error` is the exit status of the
+# whole command, so a `cat` inside a failed command still counts.
+
+bold "18. The total at the time of the read comes before the file on disk today"
+# The files as they are today. The transcript read grew.txt when it had 100
+# lines and shrank.txt when it had 300; deleted.txt is not written at all.
+THEN_DIR="$WORK/at-read-time"
+write_lines "$THEN_DIR/grew.txt" 300 line
+write_lines "$THEN_DIR/shrank.txt" 100 line
+write_lines "$THEN_DIR/no-total.txt" 100 line
+write_lines "$THEN_DIR/refused.txt" 100 line
+write_lines "$THEN_DIR/whole.txt" 300 line
+AT_READ_TIME="$WORK/total-at-read-time.jsonl"
+fill_template "$FIX_AT_READ_TIME_TEMPLATE" "$THEN_DIR" "$AT_READ_TIME"
+run_json "$AT_READ_TIME"
+assert_eq "exits 0" "$STATUS" "0"
+assert_eq "five cut files are listed" "$(field fileCoverage.length)" "5"
+# grew.txt: a notice "1-50 of 101 total", then a page 51-101 whose last line
+# is the empty line 101. The Read total of 101 is 100 real lines, all received.
+assert_coverage_row "a file that grew after it was paged to the end" 0 100 "$SOURCE_NOTICE" "1-100" 100 true
+# shrank.txt: a notice "1-100 of 301 total", then a page 101-150.
+assert_coverage_row "a file that became shorter after half of it was read" 1 300 "$SOURCE_NOTICE" "1-150" 50 false
+assert_coverage_row "a file that no longer exists" 2 100 "$SOURCE_NOTICE" "1-80" 80 false
+# no-total.txt: the Read record is cut but states no total, and no notice
+# states one, so the count on disk is the only source.
+assert_coverage_row "a cut Read record without a total falls back to the disk" 3 100 "$SOURCE_DISK_TODAY" "1-50" 50 false
+# refused.txt: the Read was refused for size and nothing was read afterwards.
+assert_coverage_row "a refused Read with no later read, the file still on disk" 4 100 "$SOURCE_DISK_TODAY" "none" 0 false
+assert_partial_notices "each notice is classified on the total of its own record" 4 1 2 1 0
+assert_eq "a file read whole in one call stays counted as fully received, whatever its length today" "$(field fullyReceivedFiles)" "1"
+run_text "$AT_READ_TIME"
+assert_eq "the label of today's disk count is printed on the two fallback rows only" "$(report_lines_with "$SOURCE_DISK_TODAY")" "2"
+assert_file_contains "a row with a total from the record names that source" "$OUTF" "grew.txt | first read: Read, cut by a PARTIAL notice | total lines: 100 ($SOURCE_NOTICE) | received: 1-100 (100 lines) | coverage: 100.0% | uncovered: none | last line reached: yes"
+assert_file_contains "a fallback row carries the label" "$OUTF" "no-total.txt | first read: Read, cut by a PARTIAL notice | total lines: 100 ($SOURCE_DISK_TODAY) | received: 1-50 (50 lines) | coverage: 50.0%"
+assert_file_contains "a refused Read with the file on disk is a row at zero percent" "$OUTF" "refused.txt | first read: Read, refused for size | total lines: 100 ($SOURCE_DISK_TODAY) | received: none (0 lines) | coverage: 0.0% | uncovered: 1-100 | last line reached: no"
+
+bold "19. A failed Read delivers no line; a cat inside a failed Bash command still counts"
+run_json "$FIX_FAILED_RESULTS"
+assert_eq "exits 0" "$STATUS" "0"
+# missing.md: one Read that failed (the file does not exist). later.md: the
+# same failure, then a Read that is cut. small.md: `cat small.md; ls absent`
+# ends with exit status 1 because of the `ls`, after the cat printed the file.
+assert_eq "the file whose failed Read was followed by a cut Read is the only row" "$(field fileCoverage.length)" "1"
+assert_eq "the row is that file" "$(field fileCoverage.0.path)" "/tmp/mc-fixture/later.md"
+assert_coverage_row "the failed Read is not the first read, so the cut Read is" 0 6 "$SOURCE_NOTICE" "1-3" 50 false
+assert_eq "a Read that failed for another reason than size is not a refusal" "$(field fileCoverage.0.refusedForSize)" "false"
+assert_partial_notices "the notice of the cut Read is counted" 1 0 0 1 0
+assert_eq "only the file that the cat printed is fully received" "$(field fullyReceivedFiles)" "1"
+assert_eq "one path is listed" "$(field fullyReceivedPaths.length)" "1"
+assert_eq "the path is the file of the cat, although its command has is_error" "$(field fullyReceivedPaths.0)" "/tmp/mc-fixture/small.md"
+
+bold "20. A Read refused for the size of the file is a cut first read with no line"
+run_json "$FIX_READ_REFUSED"
+assert_eq "exits 0" "$STATUS" "0"
+assert_eq "the four refused files and the one cut by a notice are listed" "$(field fileCoverage.length)" "5"
+assert_eq "no refused file is counted as fully received" "$(field fullyReceivedFiles)" "0"
+# The one notice is that of noticed.md (below); a refusal is not a notice.
+assert_partial_notices "a refusal is not a PARTIAL notice, and a refused page does not page a notice" 1 0 0 1 0
+# huge.md: "exceeds maximum allowed size", then one page 1-50; the page's
+# record states 101 total, which is 100 real lines.
+assert_eq "the first read's route is Read" "$(field fileCoverage.0.firstRoute)" "Read"
+assert_eq "the row says that the first read was refused" "$(field fileCoverage.0.refusedForSize)" "true"
+assert_coverage_row "refused, then half of the file in one page" 0 100 "$SOURCE_READ_RESULT" "1-50" 50 false
+# huge-tokens.md: "exceeds maximum allowed tokens" and no later read. No
+# record states a total and the file is not on disk; no line received is
+# zero percent of any total.
+assert_eq "the token form of the refusal is a refusal too" "$(field fileCoverage.1.refusedForSize)" "true"
+assert_coverage_row "refused, never read afterwards, the file not on disk" 1 null null "none" 0 false
+assert_eq "no line was received" "$(field fileCoverage.1.receivedLines)" "0"
+# huge-all.md: refused, a page 1-3, a page refused again (not a first read:
+# it only delivers nothing), then a page 4-7 whose line 7 is empty.
+assert_coverage_row "refused, then paged to the end" 2 6 "$SOURCE_READ_RESULT" "1-6" 100 true
+# noticed.md: a first read cut by a notice at line 3 of 6, then a page that
+# was refused. The refusal is not the first read, so the row keeps its kind.
+assert_eq "a refusal after a first read does not make the first read a refusal" "$(field fileCoverage.3.refusedForSize)" "false"
+assert_coverage_row "cut by a notice, then a refused page" 3 6 "$SOURCE_NOTICE" "1-3" 50 false
+# huge-tail.md: refused, then `tail -n +5`: lines were received from line 5
+# to an end that no record and no file states, so the figures stay unknown.
+assert_coverage_row "refused, then an open range, the total unknown" 4 null null "none" null null
+run_json "$FIX_PAGED_SHORT"
+assert_eq "a first read cut by a PARTIAL notice is not a refusal" "$(field fileCoverage.0.refusedForSize)" "false"
+run_text "$FIX_READ_REFUSED"
+assert_file_contains "the text report names the refusal as the first read" "$OUTF" "/tmp/mc-fixture/huge.md | first read: Read, refused for size | total lines: 100 ($SOURCE_READ_RESULT) | received: 1-50 (50 lines) | coverage: 50.0% | uncovered: 51-100 | last line reached: no"
+assert_file_contains "a first read cut by a notice keeps its label when a later page is refused" "$OUTF" "/tmp/mc-fixture/noticed.md | first read: Read, cut by a PARTIAL notice | total lines: 6 ($SOURCE_NOTICE)"
+assert_file_contains "a refusal with nothing read afterwards prints zero percent, not unknown" "$OUTF" "/tmp/mc-fixture/huge-tokens.md | first read: Read, refused for size | total lines: unknown | received: none (0 lines) | coverage: 0.0% | uncovered: unknown | last line reached: no"
+assert_eq "no row of this report rests on today's disk" "$(report_lines_with "$SOURCE_DISK_TODAY")" "0"
+
+bold "21. A persisted cat: the persisted copy comes before the file on disk today"
+# grew.txt was 100 lines "line N" when the cat ran, and Claude Code saved
+# that text; today the file has 300 other lines. shrank.txt was printed by
+# `cat shrank.txt; echo done`, so its saved output is not the file alone.
+# after-cd.txt was printed by `cd <dir> && cat after-cd.txt`: the cd prints
+# nothing, so that saved output is the file alone.
+COPY_DIR="$WORK/persisted"
+write_lines "$COPY_DIR/grew.txt" 300 changed
+write_lines "$COPY_DIR/tool-results/grew-copy.txt" 100 line
+write_lines "$COPY_DIR/shrank.txt" 100 line
+write_lines "$COPY_DIR/tool-results/two-units.txt" 150 line
+write_lines "$COPY_DIR/after-cd.txt" 300 changed
+write_lines "$COPY_DIR/tool-results/after-cd-copy.txt" 100 line
+PERSISTED_COPY="$WORK/persisted-copy.jsonl"
+fill_template "$FIX_PERSISTED_COPY_TEMPLATE" "$COPY_DIR" "$PERSISTED_COPY"
+run_json "$PERSISTED_COPY"
+assert_eq "exits 0" "$STATUS" "0"
+# Two preview lines, `sed -n '3,50p'` on the copy, then the pattern range
+# /^line 60$/,/^line 100$/, which matches the copy and not the file today.
+assert_coverage_row "the total and the pattern range come from the persisted copy" 0 100 "$SOURCE_PERSISTED_COPY" "1-50, 60-100" 91 true
+assert_eq "the row names the source of the pattern range" "$(field fileCoverage.0.patternRangesSource)" "on the persisted copy"
+assert_coverage_row "a saved output of two commands is not a copy of the file, so the disk is counted" 1 100 "$SOURCE_DISK_TODAY" "1-2" 2 false
+assert_coverage_row "a cd before the cat leaves the saved output a copy of the file" 2 100 "$SOURCE_PERSISTED_COPY" "1-2" 2 false
+run_text "$PERSISTED_COPY"
+assert_file_contains "the text report names the persisted copy for the total and for the pattern range" "$OUTF" "grew.txt | first read: cat, persisted | total lines: 100 ($SOURCE_PERSISTED_COPY) | received: 1-50, 60-100 (91 lines; pattern ranges resolved on the persisted copy) | coverage: 91.0%"
+assert_eq "the label of today's disk count is on the one fallback row" "$(report_lines_with "$SOURCE_DISK_TODAY")" "1"
 
 echo
 bold "Results: $PASS passed, $FAIL failed"
