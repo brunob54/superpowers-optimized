@@ -610,6 +610,54 @@ test('T23b: a scratch file that does not exist is matched through its parent fol
   assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0, 'The scratch file must not be logged');
 });
 
+// ── A Bash call is not an edit ───────────────────────────────────────────────
+
+console.log('\nA Bash call is not an edit');
+
+// track-edits.js also runs after the Bash tool, to keep a workspace file that a
+// command created out of `git status` (tests/codex/test-git-exclude-hooks.js).
+// The stop hook counts the lines of the edit log, and it reads the save marker.
+// A Bash call must change neither: the save command of the skill writes the
+// marker itself when it runs, and a command is not an edit of a file.
+
+function afterBash(homeDir, cwdDir, sessionId, command, toolInputExtra = {}) {
+  const output = runHook(TRACK_EDITS, {
+    tool_name: 'Bash',
+    tool_input: { command, ...toolInputExtra },
+    cwd: cwdDir,
+    session_id: sessionId,
+  }, homeDir);
+  assert.deepStrictEqual(output, JSON.parse(EMPTY_HOOK_OUTPUT), 'track-edits must never block');
+}
+
+test('T26: after a Bash call with the save command, the log folder holds no file', () => {
+  const { homeDir, cwdDir } = makeHome();
+  fs.writeFileSync(path.join(cwdDir, SESSION_LOG), SAVED_HEADING);
+  afterBash(homeDir, cwdDir, SESSION_A, saveCommandWithEntry(ENTRY_TEXT));
+  const { logDir } = markerPaths(homeDir);
+  assert.deepStrictEqual(fs.existsSync(logDir) ? fs.readdirSync(logDir) : [], [],
+    'Expected no edit log, no save marker and no statistics file');
+  assert.deepStrictEqual(stop(homeDir, cwdDir, SESSION_A), JSON.parse(EMPTY_HOOK_OUTPUT));
+});
+
+test('T26b: a Bash call with the save command adds no edit-log line and does not move the save marker', () => {
+  const { homeDir, cwdDir } = makeHome();
+  trackEdit(homeDir, cwdDir, SESSION_A, 'Edit', SIGNIFICANT_FILE, { old_string: 'a', new_string: 'b' });
+  fs.writeFileSync(path.join(cwdDir, SESSION_LOG), SAVED_HEADING);
+  afterBash(homeDir, cwdDir, SESSION_A, saveCommandWithEntry(ENTRY_TEXT));
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 1);
+  assert.strictEqual(fs.existsSync(markerPaths(homeDir, SESSION_A).marker), false, 'The hook wrote the save marker');
+  expectDecisionLogBlock(stop(homeDir, cwdDir, SESSION_A), 'session A');
+});
+
+// The documented input of a Bash call holds no `file_path`. If one arrives,
+// the call is still not an edit.
+test('T26c: a Bash call whose input also holds a file path adds no edit-log line', () => {
+  const { homeDir, cwdDir } = makeHome();
+  afterBash(homeDir, cwdDir, SESSION_A, 'npm test', { file_path: path.join(cwdDir, SIGNIFICANT_FILE) });
+  assert.strictEqual(ownEditLogLines(homeDir, SESSION_A), 0);
+});
+
 // ── Session statistics: one file per session ─────────────────────────────────
 
 console.log('\nSession statistics: one file per session');

@@ -16,6 +16,10 @@
  * and a logged one made the stop hook ask for tests of a scratch script.
  * Without the field (a headless session has no scratchpad) every edit is
  * logged, as before.
+ *
+ * The hook also runs after every Bash tool use. A Bash call is never logged;
+ * the hook only writes the git exclude entry of an AI artifact file that the
+ * command names (see excludeArtifactsNamedIn).
  */
 
 const fs = require('fs');
@@ -33,7 +37,8 @@ const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
 
 /**
  * Keep an AI artifact file out of `git status` without editing a tracked file.
- * Called after every Edit or Write; it acts only when the file name is in
+ * Called after every Edit or Write, and after a Bash command that names such
+ * a file; it acts only when the file name is in
  * AI_ARTIFACTS and the file lies directly in one of the two folders where the
  * skills write these files: the project folder of the session, or the top
  * folder of the file's git work tree (the folder that holds the checked-out
@@ -47,6 +52,57 @@ function excludeArtifact(filePath) {
   const folder = realPath(path.dirname(filePath));
   if (!isProjectFolder(folder) && !isTopFolderOfWorkTree(folder)) return;
   excludeFromGit(filePath);
+}
+
+const BASH_TOOL = 'Bash';
+
+/**
+ * Keep the AI artifact files that a Bash command names out of `git status`.
+ * A Bash command can create such a file: the save command of the
+ * context-management skill appends to session-log.md with `cat >>`, and the
+ * Edit and Write tools do not see that.
+ *
+ * The text of the command only selects the file names to look at; the state
+ * of each file decides. The function looks for the file in two folders:
+ *   - the `cwd` of the hook input. This is the folder of the shell after the
+ *     command, so a file name without a folder in the command means a file
+ *     there. The folder follows a `cd` of the assistant, so it is not read as
+ *     the project folder: excludeArtifact applies its folder rule to it, as
+ *     it does after a Write of the same file.
+ *   - the project folder of the session, for a command that ran in another
+ *     folder and named the file by a path.
+ * A file that does not exist gets no entry, and a tracked file gets none. A
+ * folder with the name of an artifact gets none: the entry would hide every
+ * file in it.
+ * A file inside the session scratchpad gets none either, as after a Write: a
+ * repository there is a test fixture, and its `git status` must stay as the
+ * commands left it.
+ *
+ * Limits: a command that builds the file name from a variable is not seen.
+ * A command that names the file by a path into a third folder is not seen
+ * either. A command that only reads the file gives it the entry too: the
+ * entry depends on the file, not on what the command does with it.
+ */
+function excludeArtifactsNamedIn(command, cwd, scratchpadDir) {
+  if (typeof command !== 'string') return;
+  const folders = new Set(
+    [cwd, process.env[PROJECT_DIR_VARIABLE]].filter(folder => typeof folder === 'string' && folder !== '')
+  );
+  for (const name of AI_ARTIFACTS.filter(artifact => command.includes(artifact))) {
+    for (const folder of folders) {
+      const filePath = path.resolve(folder, name);
+      if (isFile(filePath) && !isInsideScratchpad(filePath, scratchpadDir)) excludeArtifact(filePath);
+    }
+  }
+}
+
+/** True when the path is a file, or a symbolic link to a file. */
+function isFile(filePath) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 const SAVED_TAG = '[saved]';
@@ -176,6 +232,12 @@ async function main() {
   try {
     const data = JSON.parse(input);
     const { tool_name, tool_input, cwd, session_id, scratchpad_dir } = data;
+
+    // A Bash call is not logged as an edit, and it does not move the save
+    // marker: only the exclude entry of a file that the command names.
+    if (tool_name === BASH_TOOL) {
+      excludeArtifactsNamedIn(tool_input?.command, cwd, scratchpad_dir);
+    }
 
     // Only track Edit and Write operations
     if (tool_name !== 'Edit' && tool_name !== 'Write') {
