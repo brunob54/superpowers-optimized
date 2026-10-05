@@ -49,10 +49,10 @@ When verifying completion of any task that created or modified production code, 
 ```bash
 grep -rn "TODO\|FIXME\|placeholder\|NotImplementedError\|raise NotImplementedError" <src-dir> \
   --include="*.ts" --include="*.js" --include="*.py" --include="*.go" --include="*.rs" \
-  | grep -v -i "test\|spec\|__tests__"
+  | grep -v -E '^([^:]*/)?((tests?|__tests__|specs?)/|[^/:]*\.(test|spec)\.[^/:]*:|[^/:]*_test\.(go|py):|test_[^/:]*\.py:)'
 ```
 
-Adjust `<src-dir>` and `--include` patterns to the project's language and source structure. If any match falls in a file this task created or modified: the task is not done. Remove the stub or confirm with the user it is intentional before claiming completion.
+The last filter reads only the file path before the first colon, and it drops a line only when the file is a test file: a folder named `test`, `tests`, `__tests__`, `spec` or `specs`, or a file named `*.test.*`, `*.spec.*`, `*_test.go`, `*_test.py` or `test_*.py`. Adjust `<src-dir>` and `--include` patterns to the project's language and source structure. If any match falls in a file this task created or modified: the task is not done. Remove the stub or confirm with the user it is intentional before claiming completion.
 
 ## Regression Test Verification (Red-Green Cycle)
 
