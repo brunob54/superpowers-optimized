@@ -8,6 +8,216 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.63.0 — six confirmed findings outside the review's limit of 15 are corrected
+
+**Problem.** The whole-project review of 2026-10-03 confirmed more findings
+than its limit of 15. In three, a check reported success without checking:
+a named test that was not found, a test pattern that matched no file, a stub
+scan (a search for unfinished code) that dropped production lines. A tool
+missed quoted log targets, three scripts failed to start under
+`core.autocrlf=true`, and a test wrote into the user's real log.
+
+**Change.** This release corrects all six, and also the regression and the
+gaps that its review round found.
+
+**Effect.** Update the plugin and restart the command-line interface (CLI). A
+clone with `core.autocrlf=true` must delete four files and check them out
+again (section 3).
+
+The review report lists the findings outside its limit of 15 in the section
+"Confirmed, but cut by the cap of 15". On 2026-10-05 each of them was checked
+again against the code of v7.62.0: 2 findings rated Important no longer
+exist, because their code changed, and two Minor places changed in part; the
+others still hold. The user chose this order: first the six small corrections
+of this release (items 1 to 6 below), then a design step for the corrections
+that change a rule or a gate, then seven more small corrections. Several
+findings are accepted as limits. Item 6 changes a test only.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the CLI.
+
+### 1. A named test that is not found fails the run (`tests/claude-code/run-skill-tests.sh`)
+
+The runner of the behavioural tests counted a `--test` name that it did not
+find as skipped. The run then ended with "STATUS: PASSED" and exit code 0, for
+example for `--test tests/claude-code/test-multi-code-review.sh` (a path, where
+the runner expects a file name) or for a misspelled name. Now such a name
+counts as failed: the run ends with "STATUS: FAILED" and exit code 1, and the
+message says that a test name is a file name inside `tests/claude-code/`. The
+"Skipped:" line of the summary is removed, because nothing is skipped any more.
+
+After the review, two more forms stop the run before any test runs, with exit
+code 1: a second `--test` option (before, it replaced the first name, so the
+first named test never ran) and an empty name (`--test ""`, which ran the
+default list). The new fast suite `tests/skill-test-runner/` runs the runner
+with a substitute `claude` program, so it never calls the real CLI.
+
+### 2. `find-polluter.sh` runs the test files that its pattern names
+
+`skills/systematic-debugging/find-polluter.sh` finds the test that creates an
+unwanted file or folder (the "pollution"). It runs the test files one by one
+and stops at the first test after which the pollution exists. The documented
+pattern `'src/**/*.test.ts'` matched no file, because `find .` prints every
+path with `./` in front. The script then ran no test and printed "No polluter
+found - all tests clean!" with exit code 0.
+
+Now the script:
+
+- matches the pattern with `./` in front and also as the caller wrote it, so
+  every file that the pattern matched before still matches (the review found
+  that the first correction dropped a top-level `tests/` folder for
+  `'*/tests/*.py'`);
+- adds one `find -path` test for each choice of keeping or removing each `**/`
+  of the pattern, because in `find -path` a `**/` stands for one or more
+  folders, never for zero;
+- stops with exit code 1 and a message when the list of files is empty;
+- stops with exit code 1 when the pollution exists before a test runs (before,
+  it skipped every test and printed "all tests clean");
+- reads the file names one line at a time, so a name with a space stays one
+  name.
+
+The documented example is now `'src/.git' 'src/**/*.test.ts'`, in the script
+and in `skills/systematic-debugging/root-cause-tracing.md`: the old example
+`'.git'`, run from the root of a repository, always found the pollution before
+the first test. The new fast suite `tests/find-polluter/` runs the script with
+a substitute `npm` program.
+
+### 3. Every script keeps LF line ends under `core.autocrlf=true` (`.gitattributes`)
+
+With `core.autocrlf=true` (a git setting that is common on Windows), git
+writes the line ends of a text file as CRLF (carriage return and line feed)
+unless a rule in `.gitattributes` asks for LF (line feed only).
+Four tracked scripts had no
+such rule: `sdd-workspace`, `task-brief` and `review-package` in
+`skills/subagent-driven-development/scripts/`, and
+`tests/claude-code/analyze-token-usage.py`. Under that setting, `./task-brief`
+failed with `env: bash\r: No such file or directory`. The three scripts now
+have one named rule each, and `*.py` files have a rule. A named rule is used
+instead of a rule for the whole folder, because a folder rule would also
+change a binary file put into the folder.
+
+The new unit test `tests/codex/test-script-line-ends.js` asks git for the
+checked-out content of every tracked file that starts with `#!`, and of
+`hooks/run-hook.cmd`, under `core.autocrlf=true`, and fails on a carriage
+return. It ignores the user's own git attributes file, `core.safecrlf` and
+`init.templateDir`, which made an earlier version fail or hide a missing rule.
+
+**Action for a clone with `core.autocrlf=true`:** git does not rewrite a file
+whose content did not change, so a clone made before this release keeps the
+CRLF copies, and `git checkout` alone changes nothing (measured). Delete the
+four files first, then check them out again:
+
+```bash
+rm skills/subagent-driven-development/scripts/sdd-workspace \
+   skills/subagent-driven-development/scripts/task-brief \
+   skills/subagent-driven-development/scripts/review-package \
+   tests/claude-code/analyze-token-usage.py
+git checkout -- skills/subagent-driven-development/scripts tests/claude-code/analyze-token-usage.py
+```
+
+No test of this release ran on Windows; the behaviour was measured on macOS
+with `core.autocrlf=true`.
+
+### 4. The stub scan drops a line only when its file is a test file
+
+`skills/verification-before-completion/SKILL.md` asks for a stub scan before a
+task is called done: a `grep` for `TODO`, `FIXME`, `placeholder` and
+`NotImplementedError`. A stub is code that stands in for code not written yet.
+The last filter of the scan removed every output line that held "test" or
+"spec" anywhere, also in the code text or inside a word. So stubs in
+`components/Inspector.ts` or `attestation/verify.go`, or on a line with
+"latest" or "special", were not reported, and a task could be called done
+with a stub in it.
+
+Now `grep` runs inside `<src-dir>` in a subshell (a child shell, so the caller's
+current folder does not change), so a printed path never holds the folders
+above `<src-dir>`. The
+filter reads only that path, up to the first colon, and drops a line only for
+a folder named `test`, `tests`, `__tests__`, `spec` or `specs`, or a file named
+`*.test.*`, `*.spec.*`, `*_test.go`, `*_test.py`, `test_*.py`, `tests.py` or
+`conftest.py`. The review found that the first correction still dropped every
+line when an absolute `<src-dir>` had a parent folder named `tests`; the
+subshell form removes that case. The new fast suite
+`tests/verification-before-completion/` copies the command out of the skill
+text and runs it under bash and zsh, with a relative and an absolute
+`<src-dir>`.
+
+### 5. `analyze-compaction` reads quoted and variable log targets
+
+`tools/analyze-compaction.js` marks the Bash calls of a transcript that write
+a ruling log of the orchestrator, and counts the headings that they write. It
+read the target of a `>>` redirect as the raw word after it, so a target in
+quotes, or a variable, got no mark. Now the tool removes the quotes, reads a
+variable that the same command assigns a literal value before the redirect,
+and reads a balanced `$(...)` as part of a word. Only the file name of a
+target must be literal; the folder part may hold a variable, as the unquoted
+form already allowed. The review found that the first correction also marked
+a command that only held such a redirect as text inside a here-document body
+(the lines between `<<'EOF'` and `EOF`); the redirect scan now skips those
+bodies, and the heading count still reads the body of a real log write.
+
+Measured on 2026-10-05 over 1,787 transcript files of this project (headings
+counted in marked Bash commands only): v7.62.0 marks 78 commands and counts 18
+headings; this release marks 129 commands and counts 39 headings. The first
+correction marked 143 commands; the 14 that this release no longer marks hold
+the log name only as text inside a here-document body. v7.62.0 had the same
+fault for an unquoted name: the 10 commands that v7.62.0 marks and this
+release does not mark also hold the log name only inside a here-document
+body.
+
+### 6. The test of the subagent guard no longer writes into the real log
+
+`tests/codex/test-subagent-guard.js` ran the hook with the user's own home
+folder, so every run of the test added 20 records to
+`~/.claude/hooks-logs/subagent-violations.jsonl`. On 2026-10-05 that file held
+14,529 lines, 14,475 of them from the test. The test now gives the hook a
+temporary home folder and checks that the records arrive there. The records
+already in the file stay; the file belongs to the user.
+
+### Review
+
+One review round of three fresh reviewers ran on the six corrections:
+correctness, adversarial (concrete inputs, run, not only reasoned), and test
+quality with 59 mutations (small deliberate defects) on a separate clone.
+Each new suite failed on the code before its correction. The reviewers found
+one regression (section 2, the `./` prefix) and further gaps in items 1 to 5;
+item 6 had no finding. One fix round corrected them, with tests first. One
+verification pass then replayed every reviewer input on the code before and
+after the fix round: every input gave the expected result, and no new defect
+was found.
+
+### Limits
+
+- `run-skill-tests.sh` takes one test name only. `--test` or `--timeout` with
+  no value stops with "unbound variable".
+- `find-polluter.sh`: a file name that holds a new line breaks the list; the
+  number of `find -path` tests doubles with each `**/`; in `find -path` a `*`
+  also matches `/`; the "To investigate" hint prints a name with a space
+  without quotes; an empty list and a found polluter both end with exit code 1.
+- The line-end test does not ignore a system attributes file or the
+  repository's own `.git/info/attributes`.
+- The stub scan takes one folder as `<src-dir>`; folder names match with
+  letter case, so a stub in a `Tests/` folder is printed; a path that holds a
+  colon is read wrongly. Inside Claude Code, `grep` can be a shell function
+  that runs ugrep (another grep program), which skips files that a
+  `.gitignore` names.
+- `analyze-compaction` gives no mark for a variable assigned in another call,
+  a file name made by `$(...)`, or a backslash escape; it reads a body after
+  `<<\EOF` as code; a heading in a `<<-` body that starts with a tab is not
+  counted.
+- Not in this release: the corrections of the review report that change a rule
+  or a gate (they need a design step first), and seven more small corrections.
+
+### Tests
+
+The fast suites are 20 now: `tests/codex/run-unit-tests.sh` (21 suites inside)
+and 19 suites `tests/<name>/run-tests.sh` that load the guard against a command
+that does not exist. New: `tests/skill-test-runner/` (16 checks),
+`tests/find-polluter/` (30), `tests/verification-before-completion/` (9 when
+zsh is installed, 5 without) and
+`tests/codex/test-script-line-ends.js` (4). `tests/analyze-compaction/` has 76
+checks. `tests/suite-guard/` requires at least 19 guarded suites now.
+
 ## v7.62.0 — the context gate and the statusline bridge are removed, and four more review findings are corrected
 
 **Problem.** The context gate (a check that a hook made on each user prompt)

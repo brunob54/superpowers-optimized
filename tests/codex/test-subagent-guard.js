@@ -25,12 +25,26 @@ const assert = require('assert');
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const HOOK_PATH = path.join(__dirname, '..', '..', 'hooks', 'subagent-guard.js');
 const source = fs.readFileSync(HOOK_PATH, 'utf8');
 
+// The hook appends one record per blocked message to a log file under
+// $HOME/.claude. The test gives the hook a temporary HOME, so a test run
+// never writes into the real ~/.claude of the person who runs it. The
+// folder is removed when the process exits.
+const TEMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-guard-test-'));
+process.on('exit', () => fs.rmSync(TEMP_HOME, { recursive: true, force: true }));
+const HOOK_ENV = { ...process.env, HOME: TEMP_HOME };
+const VIOLATION_LOG = path.join(TEMP_HOME, '.claude', 'hooks-logs', 'subagent-violations.jsonl');
+const TEST_AGENT_ID = 'test-agent';
+
 let passed = 0;
 let failed = 0;
+// The number of runGuard calls that returned decision=block. Each one must
+// leave exactly one record in VIOLATION_LOG.
+let blockCount = 0;
 
 function test(label, fn) {
   try {
@@ -51,21 +65,25 @@ function test(label, fn) {
 function runGuard(lastMessage) {
   const input = JSON.stringify({
     last_assistant_message: lastMessage,
-    agent_id: 'test-agent',
+    agent_id: TEST_AGENT_ID,
     agent_type: 'test',
   });
+  let output;
   try {
-    const output = execSync(`node "${HOOK_PATH}"`, {
+    output = execSync(`node "${HOOK_PATH}"`, {
       input,
+      env: HOOK_ENV,
       encoding: 'utf8',
       timeout: 5000,
     });
-    return JSON.parse(output.trim());
   } catch (err) {
     // execSync throws on non-zero exit, but the hook should always exit 0
-    if (err.stdout) return JSON.parse(err.stdout.trim());
-    throw err;
+    if (!err.stdout) throw err;
+    output = err.stdout;
   }
+  const result = JSON.parse(output.trim());
+  if (result.decision === 'block') blockCount++;
+  return result;
 }
 
 const REVIEW_MARKER = '<!-- multi-review report -->';
@@ -253,6 +271,7 @@ test('Allow output is empty object', () => {
 test('Handles invalid JSON input gracefully', () => {
   try {
     const output = execSync(`echo "not json" | node "${HOOK_PATH}"`, {
+      env: HOOK_ENV,
       encoding: 'utf8',
       timeout: 5000,
     });
@@ -531,6 +550,25 @@ test('Two marker lines inside the window exempt', () => {
 test('A CRLF message with the marker on the second non-blank line exempts', () => {
   const out = runGuard(`Self-Review complete.\r\n${ORCHESTRATION_MARKER}\r\n${VERB_SKILL_BODY}\r\n`);
   assert.deepStrictEqual(out, {}, `Expected exempt, got: ${JSON.stringify(out)}`);
+});
+
+// ── Violation log isolation ──────────────────────────────────────────────────
+
+console.log('\nViolation log isolation');
+
+// This test must stay the last one: it counts the records of every
+// runGuard call above.
+test('Each blocked message writes one record to the log in the temporary HOME', () => {
+  assert.ok(blockCount > 0, 'No runGuard call returned decision=block');
+  assert.ok(
+    fs.existsSync(VIOLATION_LOG),
+    `No log at ${VIOLATION_LOG}: the hook did not receive the temporary HOME`
+  );
+  const records = fs.readFileSync(VIOLATION_LOG, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.strictEqual(records.length, blockCount, `Expected ${blockCount} records, found ${records.length}`);
+  for (const record of records) {
+    assert.strictEqual(record.agentId, TEST_AGENT_ID, `Unexpected record: ${JSON.stringify(record)}`);
+  }
 });
 
 // ── Summary ──────────────────────────────────────────────────────────────────
