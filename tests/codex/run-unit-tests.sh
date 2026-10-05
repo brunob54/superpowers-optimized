@@ -60,6 +60,7 @@ run_test "track-edits and context-engine (git ignore entries)" "${SCRIPT_DIR}/te
 run_test "context-engine (file names in the snapshot)" "${SCRIPT_DIR}/test-context-engine.js"
 run_test "save marker (track-edits, stop-reminders, context-management save command)" "${SCRIPT_DIR}/test-track-edits.js"
 run_test "version files (every place states one version)" "${SCRIPT_DIR}/test-version-files.js"
+run_test "script line ends (every #! file checks out with LF)" "${SCRIPT_DIR}/test-script-line-ends.js"
 
 echo "=================================================="
 echo " Results: ${PASS} suites passed, ${FAIL} suites failed"
