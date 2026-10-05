@@ -39,6 +39,9 @@ FIX_AT_READ_TIME_TEMPLATE="$FIX/total-at-read-time.template.jsonl"
 FIX_FAILED_RESULTS="$FIX/failed-results.jsonl"
 FIX_READ_REFUSED="$FIX/read-refused.jsonl"
 FIX_PERSISTED_COPY_TEMPLATE="$FIX/persisted-copy.template.jsonl"
+FIX_CHANGED_DURING_SESSION="$FIX/changed-during-session.jsonl"
+FIX_LAST_LINE_NOT_SHOWN="$FIX/last-line-not-shown.jsonl"
+FIX_FAILED_BASH="$FIX/failed-bash.jsonl"
 # The labels of a total that does not come from a Read record.
 SOURCE_DISK_TODAY="counted on disk today"
 SOURCE_PERSISTED_COPY="counted on the persisted copy"
@@ -222,17 +225,19 @@ assert_file_contains "no argument prints the usage line" "$ERRF" 'usage: node to
 # fixtures whose total comes only from Read say "of 7 total" for six lines;
 # the tool subtracts that line unless a page shows text on the last line.
 
-# The PARTIAL notices line, from its five counts.
-partial_line() { # count paged-to-end paged-short not-paged persisted
-  printf 'PARTIAL notices: %s (paged to the end: %s, paged short: %s, not paged: %s; of these on a persisted output file: %s)' "$1" "$2" "$3" "$4" "$5"
+# The PARTIAL notices line, from its counts. The count "end not proven" is
+# zero when it is left out.
+partial_line() { # count paged-to-end paged-short not-paged persisted [end-not-proven]
+  printf 'PARTIAL notices: %s (paged to the end: %s, paged short: %s, end not proven: %s, not paged: %s; of these on a persisted output file: %s)' "$1" "$2" "$3" "${6:-0}" "$4" "$5"
 }
-# The five PARTIAL notice counts of the JSON report.
-assert_partial_notices() { # desc count paged-to-end paged-short not-paged persisted
+# The PARTIAL notice counts of the JSON report.
+assert_partial_notices() { # desc count paged-to-end paged-short not-paged persisted [end-not-proven]
   assert_eq "$1: count" "$(field partialNotices.count)" "$2"
   assert_eq "$1: paged to the end" "$(field partialNotices.pagedToEnd)" "$3"
   assert_eq "$1: paged short" "$(field partialNotices.pagedShort)" "$4"
   assert_eq "$1: not paged" "$(field partialNotices.notPaged)" "$5"
   assert_eq "$1: on a persisted output file" "$(field partialNotices.persistedThenRead)" "$6"
+  assert_eq "$1: end not proven" "$(field partialNotices.endNotProven)" "${7:-0}"
 }
 
 # One row of the file coverage, from its five figures.
@@ -424,11 +429,12 @@ write_lines "$THEN_DIR/shrank.txt" 100 line
 write_lines "$THEN_DIR/no-total.txt" 100 line
 write_lines "$THEN_DIR/refused.txt" 100 line
 write_lines "$THEN_DIR/whole.txt" 300 line
+write_lines "$THEN_DIR/refused-then-page.txt" 300 line
 AT_READ_TIME="$WORK/total-at-read-time.jsonl"
 fill_template "$FIX_AT_READ_TIME_TEMPLATE" "$THEN_DIR" "$AT_READ_TIME"
 run_json "$AT_READ_TIME"
 assert_eq "exits 0" "$STATUS" "0"
-assert_eq "five cut files are listed" "$(field fileCoverage.length)" "5"
+assert_eq "six cut files are listed" "$(field fileCoverage.length)" "6"
 # grew.txt: a notice "1-50 of 101 total", then a page 51-101 whose last line
 # is the empty line 101. The Read total of 101 is 100 real lines, all received.
 assert_coverage_row "a file that grew after it was paged to the end" 0 100 "$SOURCE_NOTICE" "1-100" 100 true
@@ -440,6 +446,9 @@ assert_coverage_row "a file that no longer exists" 2 100 "$SOURCE_NOTICE" "1-80"
 assert_coverage_row "a cut Read record without a total falls back to the disk" 3 100 "$SOURCE_DISK_TODAY" "1-50" 50 false
 # refused.txt: the Read was refused for size and nothing was read afterwards.
 assert_coverage_row "a refused Read with no later read, the file still on disk" 4 100 "$SOURCE_DISK_TODAY" "none" 0 false
+# refused-then-page.txt: refused, then a page 1-50 whose record states 101
+# total. No notice states a total, and the file has 300 lines today.
+assert_coverage_row "the total of a Read record, without a notice, comes before the disk" 5 100 "$SOURCE_READ_RESULT" "1-50" 50 false
 assert_partial_notices "each notice is classified on the total of its own record" 4 1 2 1 0
 assert_eq "a file read whole in one call stays counted as fully received, whatever its length today" "$(field fullyReceivedFiles)" "1"
 run_text "$AT_READ_TIME"
@@ -467,7 +476,10 @@ bold "20. A Read refused for the size of the file is a cut first read with no li
 run_json "$FIX_READ_REFUSED"
 assert_eq "exits 0" "$STATUS" "0"
 assert_eq "the four refused files and the one cut by a notice are listed" "$(field fileCoverage.length)" "5"
-assert_eq "no refused file is counted as fully received" "$(field fullyReceivedFiles)" "0"
+# whole-then-refused.md: one Read delivered the whole file, a later Read
+# was refused. a-directory: a Read that failed with another text (EISDIR).
+assert_eq "only the file read whole before its refusal is fully received" "$(field fullyReceivedFiles)" "1"
+assert_eq "a refusal after a whole first read leaves the file fully received, and a Read that failed with a third error text is not a read" "$(field fullyReceivedPaths.0)" "/tmp/mc-fixture/whole-then-refused.md"
 # The one notice is that of noticed.md (below); a refusal is not a notice.
 assert_partial_notices "a refusal is not a PARTIAL notice, and a refused page does not page a notice" 1 0 0 1 0
 # huge.md: "exceeds maximum allowed size", then one page 1-50; the page's
@@ -512,6 +524,11 @@ write_lines "$COPY_DIR/shrank.txt" 100 line
 write_lines "$COPY_DIR/tool-results/two-units.txt" 150 line
 write_lines "$COPY_DIR/after-cd.txt" 300 changed
 write_lines "$COPY_DIR/tool-results/after-cd-copy.txt" 100 line
+write_lines "$COPY_DIR/plan.txt" 100 line
+write_lines "$COPY_DIR/tool-results/log-and-plan.txt" 300 line
+write_lines "$COPY_DIR/twice.txt" 300 changed
+write_lines "$COPY_DIR/tool-results/twice-first.txt" 100 line
+write_lines "$COPY_DIR/tool-results/twice-second.txt" 200 line
 PERSISTED_COPY="$WORK/persisted-copy.jsonl"
 fill_template "$FIX_PERSISTED_COPY_TEMPLATE" "$COPY_DIR" "$PERSISTED_COPY"
 run_json "$PERSISTED_COPY"
@@ -522,9 +539,125 @@ assert_coverage_row "the total and the pattern range come from the persisted cop
 assert_eq "the row names the source of the pattern range" "$(field fileCoverage.0.patternRangesSource)" "on the persisted copy"
 assert_coverage_row "a saved output of two commands is not a copy of the file, so the disk is counted" 1 100 "$SOURCE_DISK_TODAY" "1-2" 2 false
 assert_coverage_row "a cd before the cat leaves the saved output a copy of the file" 2 100 "$SOURCE_PERSISTED_COPY" "1-2" 2 false
+# plan.txt was printed by `git log; cat plan.txt`; a Read of that saved
+# output is cut, and its record, the notice in its text and the notice in
+# an attachment record all state 301 total, which is the line count of the
+# output of both commands. The file has 100 lines.
+assert_eq "a Read of a saved output of two commands does not state the total of the file" "$(field fileCoverage.3.totalLines)" "100"
+assert_eq "the total of that file is counted on disk" "$(field fileCoverage.3.totalLinesSource)" "$SOURCE_DISK_TODAY"
+# twice.txt was printed by two cats. A pattern range was resolved on the
+# first saved copy (100 lines) before the second cat saved 200 lines.
+assert_coverage_row "the newest saved copy of a file gives the total" 4 200 "$SOURCE_PERSISTED_COPY" "1-200" 100 true
 run_text "$PERSISTED_COPY"
 assert_file_contains "the text report names the persisted copy for the total and for the pattern range" "$OUTF" "grew.txt | first read: cat, persisted | total lines: 100 ($SOURCE_PERSISTED_COPY) | received: 1-50, 60-100 (91 lines; pattern ranges resolved on the persisted copy) | coverage: 91.0%"
-assert_eq "the label of today's disk count is on the one fallback row" "$(report_lines_with "$SOURCE_DISK_TODAY")" "1"
+assert_eq "the label of today's disk count is on the two fallback rows" "$(report_lines_with "$SOURCE_DISK_TODAY")" "2"
+
+bold "22. A file that changed during the session: the newest stated total starts a new version"
+# A Read record or a notice that states another total than the one before
+# it shows that the file changed. Line numbers of the reads before the
+# change do not name the same lines afterwards, so the row holds the reads
+# since the newest change, and names the earlier versions with their figures.
+run_json "$FIX_CHANGED_DURING_SESSION"
+assert_eq "exits 0" "$STATUS" "0"
+assert_eq "four cut files are listed" "$(field fileCoverage.length)" "4"
+# shrunk.md: a notice "1-500 of 1001 total"; then pages 1-200 and 201-401
+# whose records state 401 total, the last one showing line 401 empty.
+assert_coverage_row "a file that became shorter and was then read to its end" 0 400 "$SOURCE_READ_RESULT" "1-400" 100 true
+assert_eq "the row counts one earlier version" "$(field fileCoverage.0.earlierVersions.length)" "1"
+assert_eq "the earlier version keeps its own total" "$(field fileCoverage.0.earlierVersions.0.totalLines)" "1000"
+assert_eq "the earlier version keeps the source of its total" "$(field fileCoverage.0.earlierVersions.0.totalLinesSource)" "$SOURCE_NOTICE"
+assert_eq "the earlier version keeps its own coverage" "$(field fileCoverage.0.earlierVersions.0.coveragePercent)" "50"
+assert_eq "the earlier version did not reach its last line" "$(field fileCoverage.0.earlierVersions.0.lastLineReached)" "false"
+# grown.md: read to the end at 100 lines; then one page 1-100 whose record
+# states 201 total. The second half of the file as it is now was never read.
+assert_coverage_row "a file that grew after it was read to its end" 1 200 "$SOURCE_READ_RESULT" "1-100" 50 false
+assert_eq "the version read to its end is kept as an earlier version" "$(field fileCoverage.1.earlierVersions.0.coveragePercent)" "100"
+assert_eq "that earlier version reached its last line" "$(field fileCoverage.1.earlierVersions.0.lastLineReached)" "true"
+# cut-again.md: read to the end at 100 lines; then a Read cut by a notice
+# "1-100 of 201 total" and one page 101-150.
+assert_coverage_row "a second notice on a grown file" 2 200 "$SOURCE_NOTICE" "1-150" 75 false
+# no-record.md: a notice "1-50 of 101 total"; then a cut Read whose record
+# has no structured result, so only the notice in its text states the new
+# total of 201, and its lines 1-100 are read from the line numbers.
+assert_coverage_row "the read that states a new total only in its notice keeps its own lines" 3 200 "$SOURCE_NOTICE" "1-100" 50 false
+# A notice is paged to the end when the last line was reached in its own
+# version or in a later one: the notices of shrunk.md, of grown.md and the
+# first of cut-again.md. The second notice of cut-again.md is paged short,
+# although the version before it was read to its end. Of no-record.md, the
+# first notice is paged short and the second is not paged.
+assert_partial_notices "each notice is judged on its own version and the later ones" 6 3 2 1 0
+# whole-then-changed.md: one Read delivered the whole file; a later page
+# states another total. The file was received whole once, which stays true.
+assert_eq "a file received whole in one call stays so after it changed" "$(field fullyReceivedFiles)" "1"
+assert_eq "that file is the one listed" "$(field fullyReceivedPaths.0)" "/tmp/mc-fixture/whole-then-changed.md"
+run_text "$FIX_CHANGED_DURING_SESSION"
+assert_file_contains "the text report names the earlier version after the figures of the newest one" "$OUTF" "/tmp/mc-fixture/shrunk.md | first read: Read, cut by a PARTIAL notice | total lines: 400 ($SOURCE_READ_RESULT) | received: 1-400 (400 lines) | coverage: 100.0% | uncovered: none | last line reached: yes | changed during the session: 1 earlier version (1000 lines, 50.0%)"
+assert_eq "every row of a changed file says so" "$(report_lines_with "changed during the session")" "4"
+run_json "$FIX_PAGED_SHORT"
+assert_eq "a file whose records state one total has no earlier version" "$(field fileCoverage.0.earlierVersions.length)" "0"
+run_text "$FIX_PAGED_SHORT"
+assert_eq "the row of an unchanged file does not say that it changed" "$(report_lines_with "changed during the session")" "0"
+
+bold "23. The last numbered line of the Read count: shown, received by a range, or never shown"
+# The Read count T is one more than the lines with text when the file ends
+# with a newline. Only a page that shows line T tells whether line T is
+# empty. When no page showed it, the report assumes a final newline for the
+# total (T - 1 lines), but it does not say "last line reached: yes" or 100
+# percent unless a range ran past line T - 1.
+run_json "$FIX_LAST_LINE_NOT_SHOWN"
+assert_eq "exits 0" "$STATUS" "0"
+assert_eq "seven cut files are listed" "$(field fileCoverage.length)" "7"
+# unshown.md: 101 lines and no final newline, so the Read count is 101;
+# pages 1-50 and 51-100. Line 101 is text that was never received.
+assert_coverage_row "every line but the last numbered one, which no page showed" 0 100 "$SOURCE_NOTICE" "1-100" null null
+assert_eq "the row says that the end is not proven" "$(field fileCoverage.0.endNotProven)" "true"
+assert_eq "no claim is made about uncovered lines" "$(field fileCoverage.0.uncoveredRanges)" "null"
+# past-end.md: `sed -n '51,200p'` ran past the end of the file, so the last
+# line was received whether it is line 100 or line 101.
+assert_coverage_row "a range past the end proves the last line" 1 100 "$SOURCE_NOTICE" "1-100" 100 true
+assert_eq "that row is proven" "$(field fileCoverage.1.endNotProven)" "false"
+assert_coverage_row "a range to the end of the file proves the last line" 2 100 "$SOURCE_NOTICE" "1-100" 100 true
+# shown-text.md: the last page shows text on line 101: no final newline.
+assert_coverage_row "a page that shows text on the last numbered line" 3 101 "$SOURCE_NOTICE" "1-101" 100 true
+# short.md: pages 1-50 and 51-80. Line 100 was not received, so "no" is
+# true with and without a final newline.
+assert_coverage_row "a read that stops before the last line with text" 4 100 "$SOURCE_NOTICE" "1-80" 80 false
+assert_eq "a row that is short for certain is not marked as not proven" "$(field fileCoverage.4.endNotProven)" "false"
+# gap.md: pages 1-50 and 61-100: a gap, and the end not proven.
+assert_coverage_row "a gap before an end that is not proven" 5 100 "$SOURCE_NOTICE" "1-50, 61-100" 90 null
+assert_eq "the gap is named" "$(field fileCoverage.5.uncoveredRanges)" "51-60"
+assert_eq "the row with a gap is marked too" "$(field fileCoverage.5.endNotProven)" "true"
+# whole-later.md: a notice at line 50, then a `cat` that printed the file:
+# a range from line 1 to the end of the file.
+assert_coverage_row "a cat of the whole file proves the last line" 6 100 "$SOURCE_NOTICE" "1-100" 100 true
+assert_partial_notices "a notice whose end is not proven is neither paged to the end nor paged short" 7 4 1 0 0 2
+run_text "$FIX_LAST_LINE_NOT_SHOWN"
+assert_file_contains "the text report gives the reason beside the unknown figures" "$OUTF" "/tmp/mc-fixture/unshown.md | first read: Read, cut by a PARTIAL notice | total lines: 100 ($SOURCE_NOTICE) | received: 1-100 (100 lines) | coverage: unknown | uncovered: unknown | last line reached: unknown (line 101 of the Read count was never shown; it is text when the file has no final newline)"
+assert_file_contains "the PARTIAL notices line counts the notices whose end is not proven" "$OUTF" "$(partial_line 7 4 1 0 0 2)"
+assert_eq "the reason is printed on the two rows that are not proven" "$(report_lines_with "was never shown")" "2"
+
+bold "24. A failed Bash command: one printing step is skipped, several steps are tracked"
+# On a Bash result `is_error` is the exit status of the whole command. With
+# one printing step it is the status of that step, which printed no file.
+# With several steps, a step before the failure may have printed.
+run_json "$FIX_FAILED_BASH"
+assert_eq "exits 0" "$STATUS" "0"
+# absent.md (`cat absent.md`) and absent-too.md (`cd <dir> && cat
+# absent-too.md`) were never printed: neither is a row nor fully received.
+assert_eq "three cut files are listed" "$(field fileCoverage.length)" "3"
+assert_eq "a failed cat that is the only printing step is not a file received whole" "$(field fullyReceivedFiles)" "0"
+# cut.md: a notice at line 3 of 6. `sed -n '4,5p' cut.md; ls absent` failed
+# at the ls, after the sed printed. `sed -n '6,6p' cut.md` failed by itself.
+assert_coverage_row "a range in a failed command of several steps counts, a failed one-step range does not" 0 6 "$SOURCE_NOTICE" "1-5" 83.3 false
+assert_partial_notices "the range of the failed command of several steps pages the notice" 1 0 1 0 0
+# saved.md: `cat saved.md; ls absent` failed at the ls; the saved output
+# and its two complete preview lines are tracked.
+assert_eq "a failed command of several steps with a saved output starts the cat route" "$(field fileCoverage.1.firstRoute)" "cat"
+assert_coverage_row "the preview lines of that saved output count" 1 null null "1-2" null null
+# long-line.md: a persisted cat whose preview holds no complete line, and
+# nothing read afterwards: no line received, of a total that nothing states.
+assert_eq "the file is not a refused one" "$(field fileCoverage.2.refusedForSize)" "false"
+assert_coverage_row "no line received is zero percent, also for a file that was not refused" 2 null null "none" 0 false
 
 echo
 bold "Results: $PASS passed, $FAIL failed"
