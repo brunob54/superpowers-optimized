@@ -1,9 +1,41 @@
 #!/usr/bin/env node
 /**
- * Protect Secrets — PreToolUse Hook for Read|Edit|Write|Bash
+ * Protect Secrets — PreToolUse Hook for Read|Edit|Write|Grep|Bash
  *
- * Prevents reading, modifying, or exfiltrating sensitive files.
- * Three configurable safety levels: critical, high, strict.
+ * Refuses a tool call that reads, changes or sends away a file that holds
+ * secrets, and a Bash command that prints the environment.
+ *
+ * ONE path table (SENSITIVE_FILES, with the ALLOWLIST for template files)
+ * decides for every tool: the `file_path` of Read, Edit and Write, the `path`
+ * and the `glob` of Grep (never its `pattern`, which is text), and, in a Bash
+ * command, every redirect target and every word of every program. The shared
+ * reader (shell-words.js) splits the Bash command into programs and words.
+ *
+ * A Bash word that names a secret file passes only through a named exemption
+ * of the program that receives it: a program that does not touch the content
+ * (`ls`, `test`, `stat`, `chmod`, `touch`), a text argument (`echo`, the
+ * pattern of `grep`, a commit message), or a program or an option that loads
+ * the file without printing it (`source`, `--env-file`, `ssh -i`,
+ * `curl --cacert`). A program that is not named in such a table is refused.
+ *
+ * A Bash command that the reader cannot read to its end is refused. An error
+ * inside the Bash rules is refused in the same way. An error inside the check
+ * of Read, Edit, Write or Grep is a pass (see hook-io.js for the reason).
+ *
+ * Limits. The hook reads text; it cannot see these, and passes them:
+ *   - a variable that holds the path (`F=.env; cat "$F"`), and an alias;
+ *   - a script file that exists already, `make`, `npm run`;
+ *   - a read of a whole folder (`grep -r KEY .`, `tar czf all.tgz .`);
+ *   - a file name pattern with fewer than three plain characters that does
+ *     not start with a dot (`cat *`, `cat *.*`), and a pattern with a negated
+ *     set of characters (`.[!.]*`);
+ *   - `xargs` that gets file names from a program other than `find`, `ls`,
+ *     `echo` or `printf`;
+ *   - code of an interpreter (`python3 -c "open('.env')"`), except a call
+ *     that starts a process;
+ *   - a variable with a secret name in lower case (`echo "$api_key"`,
+ *     `$token`): only a name in upper case counts;
+ *   - a command that is written to hide its meaning on purpose.
  *
  * Based on claude-code-hooks by karanb192 (MIT License).
  * Adapted for superpowers-orchestrator plugin with cross-platform support.
@@ -11,110 +43,153 @@
  * Logs blocked operations to: ~/.claude/hooks-logs/YYYY-MM-DD.jsonl
  */
 
-const fs = require('fs');
-const path = require('path');
+'use strict';
 
-const SAFETY_LEVEL = 'high';
+const {
+  splitArgs, hasLong, gitCall, expandBraces, toPosix, ASSIGNMENT, XARGS, TEXT_PROGRAMS, FIND_EXEC_OPTIONS,
+} = require('./shell-words');
+const { runHook, refusal, decideCommand, firstRefusal, ALLOWED, BASH_TOOL, NO_RETRY } = require('./hook-io');
+
+const HOOK_NAME = 'protect-secrets';
+const GREP_TOOL = 'Grep';
+const FILE_TOOLS = ['Read', 'Edit', 'Write'];
+const WRITE_TOOLS = ['Edit', 'Write'];
+const ASK_USER = 'ask the user to create or change the file, or to give you the one value that the task needs; '
+  + 'to create the file from a template without replacing it: `cp -n <template> <file>`';
 
 // Files explicitly safe to access (templates, examples)
 const ALLOWLIST = [
-  /\.env\.example$/i, /\.env\.sample$/i, /\.env\.template$/i,
-  /\.env\.schema$/i, /\.env\.defaults$/i, /env\.example$/i, /example\.env$/i,
+  /\.env\.example$/, /\.env\.sample$/, /\.env\.template$/,
+  /\.env\.schema$/, /\.env\.defaults$/, /env\.example$/, /example\.env$/,
 ];
 
-// Sensitive file patterns for Read, Edit, Write tools
+// The path table. Every path is compared in lower case and with `/` as the separator,
+// so each expression is written in lower case.
 const SENSITIVE_FILES = [
-  // CRITICAL
-  { level: 'critical', id: 'env-file',           regex: /(?:^|\/)\.env(?:\.[^/]*)?$/,                    reason: '.env file contains secrets' },
-  { level: 'critical', id: 'envrc',              regex: /(?:^|\/)\.envrc$/,                              reason: '.envrc (direnv) contains secrets' },
-  { level: 'critical', id: 'ssh-private-key',    regex: /(?:^|\/)\.ssh\/id_[^/]+$/,                      reason: 'SSH private key' },
-  { level: 'critical', id: 'ssh-private-key-2',  regex: /(?:^|\/)(id_rsa|id_ed25519|id_ecdsa|id_dsa)$/,  reason: 'SSH private key' },
-  { level: 'critical', id: 'ssh-authorized',     regex: /(?:^|\/)\.ssh\/authorized_keys$/,               reason: 'SSH authorized_keys' },
-  { level: 'critical', id: 'aws-credentials',    regex: /(?:^|\/)\.aws\/credentials$/,                   reason: 'AWS credentials file' },
-  { level: 'critical', id: 'aws-config',         regex: /(?:^|\/)\.aws\/config$/,                        reason: 'AWS config may contain secrets' },
-  { level: 'critical', id: 'kube-config',        regex: /(?:^|\/)\.kube\/config$/,                       reason: 'Kubernetes config contains credentials' },
-  { level: 'critical', id: 'pem-key',            regex: /\.pem$/i,                                       reason: 'PEM key file' },
-  { level: 'critical', id: 'key-file',           regex: /\.key$/i,                                       reason: 'Key file' },
-  { level: 'critical', id: 'p12-key',            regex: /\.(p12|pfx)$/i,                                 reason: 'PKCS12 key file' },
-
-  // HIGH
-  { level: 'high', id: 'credentials-json',       regex: /(?:^|\/)credentials\.json$/i,                   reason: 'Credentials file' },
-  { level: 'high', id: 'secrets-file',           regex: /(?:^|\/)(secrets?|credentials?)\.(json|ya?ml|toml)$/i, reason: 'Secrets configuration file' },
-  { level: 'high', id: 'service-account',        regex: /service[_-]?account.*\.json$/i,                 reason: 'GCP service account key' },
-  { level: 'high', id: 'gcloud-creds',           regex: /(?:^|\/)\.config\/gcloud\/.*(credentials|tokens)/i, reason: 'GCloud credentials' },
-  { level: 'high', id: 'azure-creds',            regex: /(?:^|\/)\.azure\/(credentials|accessTokens)/i,  reason: 'Azure credentials' },
-  { level: 'high', id: 'docker-config',          regex: /(?:^|\/)\.docker\/config\.json$/,               reason: 'Docker config may contain registry auth' },
-  { level: 'high', id: 'netrc',                  regex: /(?:^|\/)\.netrc$/,                              reason: '.netrc contains credentials' },
-  { level: 'high', id: 'npmrc',                  regex: /(?:^|\/)\.npmrc$/,                              reason: '.npmrc may contain auth tokens' },
-  { level: 'high', id: 'pypirc',                 regex: /(?:^|\/)\.pypirc$/,                             reason: '.pypirc contains PyPI credentials' },
-  { level: 'high', id: 'gem-creds',              regex: /(?:^|\/)\.gem\/credentials$/,                   reason: 'RubyGems credentials' },
-  { level: 'high', id: 'vault-token',            regex: /(?:^|\/)(\.vault-token|vault-token)$/,          reason: 'Vault token file' },
-  { level: 'high', id: 'keystore',               regex: /\.(keystore|jks)$/i,                            reason: 'Java keystore' },
-  { level: 'high', id: 'htpasswd',               regex: /(?:^|\/)\.?htpasswd$/,                          reason: 'htpasswd contains hashed passwords' },
-  { level: 'high', id: 'pgpass',                 regex: /(?:^|\/)\.pgpass$/,                             reason: 'PostgreSQL password file' },
-  { level: 'high', id: 'my-cnf',                 regex: /(?:^|\/)\.my\.cnf$/,                            reason: 'MySQL config may contain password' },
-
-  // STRICT
-  { level: 'strict', id: 'database-config',      regex: /(?:^|\/)(?:config\/)?database\.(json|ya?ml)$/i, reason: 'Database config may contain passwords' },
-  { level: 'strict', id: 'ssh-known-hosts',      regex: /(?:^|\/)\.ssh\/known_hosts$/,                   reason: 'SSH known_hosts reveals infrastructure' },
-  { level: 'strict', id: 'gitconfig',            regex: /(?:^|\/)\.gitconfig$/,                          reason: '.gitconfig may contain credentials' },
-  { level: 'strict', id: 'curlrc',               regex: /(?:^|\/)\.curlrc$/,                             reason: '.curlrc may contain auth' },
+  { id: 'env-file',           regex: /(?:^|\/)\.env(?:\.[^/]*)?$/,                    reason: '.env file contains secrets' },
+  { id: 'envrc',              regex: /(?:^|\/)\.envrc$/,                              reason: '.envrc (direnv) contains secrets' },
+  { id: 'ssh-private-key',    regex: /(?:^|\/)\.ssh\/id_[^/]+$/,                      reason: 'SSH private key' },
+  { id: 'ssh-private-key-2',  regex: /(?:^|\/)(id_rsa|id_ed25519|id_ecdsa|id_dsa)$/,  reason: 'SSH private key' },
+  { id: 'ssh-authorized',     regex: /(?:^|\/)\.ssh\/authorized_keys$/,               reason: 'SSH authorized_keys' },
+  { id: 'aws-credentials',    regex: /(?:^|\/)\.aws\/credentials$/,                   reason: 'AWS credentials file' },
+  { id: 'aws-config',         regex: /(?:^|\/)\.aws\/config$/,                        reason: 'AWS config may contain secrets' },
+  { id: 'kube-config',        regex: /(?:^|\/)\.kube\/config$/,                       reason: 'Kubernetes config contains credentials' },
+  { id: 'pem-key',            regex: /\.pem$/,                                        reason: 'PEM key file' },
+  { id: 'key-file',           regex: /\.key$/,                                        reason: 'Key file' },
+  { id: 'p12-key',            regex: /\.(p12|pfx)$/,                                  reason: 'PKCS12 key file' },
+  { id: 'credentials-json',   regex: /(?:^|\/)credentials\.json$/,                    reason: 'Credentials file' },
+  { id: 'secrets-file',       regex: /(?:^|\/)(secrets?|credentials?)\.(json|ya?ml|toml)$/, reason: 'Secrets configuration file' },
+  { id: 'service-account',    regex: /service[_-]?account.*\.json$/,                  reason: 'GCP service account key' },
+  { id: 'gcloud-creds',       regex: /(?:^|\/)\.config\/gcloud\/.*(credentials|tokens)/, reason: 'GCloud credentials' },
+  { id: 'azure-creds',        regex: /(?:^|\/)\.azure\/(credentials|accesstokens)/,   reason: 'Azure credentials' },
+  { id: 'docker-config',      regex: /(?:^|\/)\.docker\/config\.json$/,               reason: 'Docker config may contain registry auth' },
+  { id: 'netrc',              regex: /(?:^|\/)\.netrc$/,                              reason: '.netrc contains credentials' },
+  { id: 'npmrc',              regex: /(?:^|\/)\.npmrc$/,                              reason: '.npmrc may contain auth tokens' },
+  { id: 'pypirc',             regex: /(?:^|\/)\.pypirc$/,                             reason: '.pypirc contains PyPI credentials' },
+  { id: 'gem-creds',          regex: /(?:^|\/)\.gem\/credentials$/,                   reason: 'RubyGems credentials' },
+  { id: 'vault-token',        regex: /(?:^|\/)(\.vault-token|vault-token)$/,          reason: 'Vault token file' },
+  { id: 'keystore',           regex: /\.(keystore|jks)$/,                             reason: 'Java keystore' },
+  { id: 'htpasswd',           regex: /(?:^|\/)\.?htpasswd$/,                          reason: 'htpasswd contains hashed passwords' },
+  { id: 'pgpass',             regex: /(?:^|\/)\.pgpass$/,                             reason: 'PostgreSQL password file' },
+  { id: 'my-cnf',             regex: /(?:^|\/)\.my\.cnf$/,                            reason: 'MySQL config may contain password' },
+  { id: 'proc-environ',       regex: /(?:^|\/)proc\/[^/]+\/environ$/,                 reason: 'the environment of a process' },
 ];
+// A public key is not a secret.
+const PUBLIC_KEY = /\.pub$/;
+// Names that a file name pattern (`.e*`, `*.env*`) is tested against.
+const HIDDEN_SAMPLE_NAMES = ['.env', '.env.local', '.envrc', '.netrc', '.npmrc', '.pypirc', '.pgpass', '.vault-token', '.htpasswd', '.my.cnf'];
+const PATTERN_CHARACTERS = /[*?[]/;
+// A pattern that does not start with a dot counts only with this many plain characters: `*.env*` counts,
+// `*` and `*.*` do not (they would refuse every search).
+const MIN_PATTERN_CHARACTERS = 3;
+// Characters after which a word can hold a path: `if=.env`, `file=@.env`, `HEAD:.env`, `a.txt,.env`.
+const PATH_STARTS = /[=@:,]/g;
+// No path is longer than this, so only this many characters at the end of a word can name a file.
+// The limit keeps the time for one very long word (a megabyte of JSON) short.
+const PATH_TAIL = 4096;
+// A pattern that starts with `!` leaves files out (`rg -g '!*.pem'`).
+const EXCLUSION_MARK = '!';
 
-// Argument gap for the "verb operates on a secret file" rules below.
-//
-// It must reach across the operands of ONE command and no further. It therefore
-// stops at a command separator (`|`, `;`, `&`), at a redirect (`>`), and at a
-// newline — otherwise a rule reaches past its own command into a heredoc body, a
-// following command, or an unrelated `process.env.X` in a node script, and denies
-// work that never touches a secret. A backslash-continuation is still one command,
-// so it is explicitly allowed through: `cp \<newline> .env /tmp` stays blocked.
-//
-// `<` is deliberately NOT excluded — `cat < .env` really is a read.
-const ARG_GAP = '(?:[^|;&>\\n]|\\\\\\n)*';
-
-// Bash patterns that expose or exfiltrate secrets
-const BASH_PATTERNS = [
-  // CRITICAL
-  { level: 'critical', id: 'cat-env',            regex: new RegExp(`\\b(cat|less|head|tail|more|bat|view|sed|awk|nano|vi|vim|tee|strings|od|xxd|hexdump)\\s+${ARG_GAP}\\.env\\b`, 'i'), reason: 'Reading .env file exposes secrets' },
-  { level: 'critical', id: 'cat-ssh-key',        regex: new RegExp(`\\b(cat|less|head|tail|more|bat|sed|awk|nano|vi|vim|tee)\\s+${ARG_GAP}(id_rsa|id_ed25519|id_ecdsa|id_dsa|\\.pem|\\.key)\\b`, 'i'), reason: 'Reading private key' },
-  { level: 'critical', id: 'cat-aws-creds',      regex: new RegExp(`\\b(cat|less|head|tail|more|sed|awk|nano|vi|vim|tee)\\s+${ARG_GAP}\\.aws\\/credentials`, 'i'), reason: 'Reading AWS credentials' },
-
-  // HIGH — Environment exposure
-  { level: 'high', id: 'env-dump',               regex: /\bprintenv\b|(?:^|[;&|]\s*)env\s*(?:$|[;&|])/,                    reason: 'Environment dump may expose secrets' },
-  { level: 'high', id: 'echo-secret-var',        regex: /\becho\b[^;|&]*\$\{?[A-Za-z_]*(?:SECRET|KEY|TOKEN|PASSWORD|PASSW|CREDENTIAL|API_KEY|AUTH|PRIVATE)[A-Za-z_]*\}?/i, reason: 'Echoing secret variable' },
-  { level: 'high', id: 'printf-secret-var',      regex: /\bprintf\b[^;|&]*\$\{?[A-Za-z_]*(?:SECRET|KEY|TOKEN|PASSWORD|CREDENTIAL|API_KEY|AUTH|PRIVATE)[A-Za-z_]*\}?/i, reason: 'Printing secret variable' },
-  { level: 'high', id: 'cat-secrets-file',       regex: new RegExp(`\\b(cat|less|head|tail|more)\\s+${ARG_GAP}(credentials?|secrets?)\\.(json|ya?ml|toml)`, 'i'), reason: 'Reading secrets file' },
-  { level: 'high', id: 'cat-netrc',              regex: new RegExp(`\\b(cat|less|head|tail|more)\\s+${ARG_GAP}\\.netrc`, 'i'), reason: 'Reading .netrc credentials' },
-  { level: 'high', id: 'source-env',             regex: new RegExp(`\\bsource\\s+${ARG_GAP}\\.env\\b|(?:^|[;&|]\\s*)\\.\\s+${ARG_GAP}\\.env\\b`, 'i'), reason: 'Sourcing .env loads secrets' },
-  { level: 'high', id: 'export-cat-env',         regex: /export\s+.*\$\(cat\s+[^)]*\.env/i,                                reason: 'Exporting secrets from .env' },
-
-  // HIGH — Exfiltration
-  { level: 'high', id: 'curl-upload-env',        regex: /\bcurl\b[^;|&]*(-d\s*@|-F\s*[^=]+=@|--data[^=]*=@)[^;|&]*(\.env|credentials|secrets|id_rsa|\.pem|\.key)/i, reason: 'Uploading secrets via curl' },
-  { level: 'high', id: 'curl-post-secrets',      regex: /\bcurl\b[^;|&]*-X\s*POST[^;|&]*[^;|&]*(\.env|credentials|secrets)/i, reason: 'POSTing secrets via curl' },
-  { level: 'high', id: 'wget-post-secrets',      regex: /\bwget\b[^;|&]*--post-file[^;|&]*(\.env|credentials|secrets)/i,  reason: 'POSTing secrets via wget' },
-  { level: 'high', id: 'scp-secrets',            regex: /\bscp\b[^;|&]*(\.env|credentials|secrets|id_rsa|\.pem|\.key)[^;|&]+:/i, reason: 'Copying secrets via scp' },
-  { level: 'high', id: 'rsync-secrets',          regex: /\brsync\b[^;|&]*(\.env|credentials|secrets|id_rsa)[^;|&]+:/i,    reason: 'Syncing secrets via rsync' },
-  { level: 'high', id: 'nc-secrets',             regex: /\bnc\b[^;|&]*<[^;|&]*(\.env|credentials|secrets|id_rsa)/i,       reason: 'Exfiltrating secrets via netcat' },
-
-  // HIGH — Copy/move/delete secrets
-  { level: 'high', id: 'cp-env',                 regex: new RegExp(`\\bcp\\b${ARG_GAP}\\.env\\b`, 'i'),                    reason: 'Copying .env file' },
-  { level: 'high', id: 'cp-ssh-key',             regex: new RegExp(`\\bcp\\b${ARG_GAP}(id_rsa|id_ed25519|\\.pem|\\.key)\\b`, 'i'), reason: 'Copying private key' },
-  { level: 'high', id: 'mv-env',                 regex: new RegExp(`\\bmv\\b${ARG_GAP}\\.env\\b`, 'i'),                    reason: 'Moving .env file' },
-  { level: 'high', id: 'rm-ssh-key',             regex: new RegExp(`\\brm\\b${ARG_GAP}(id_rsa|id_ed25519|id_ecdsa|authorized_keys)`, 'i'), reason: 'Deleting SSH key' },
-  { level: 'high', id: 'rm-env',                 regex: new RegExp(`\\brm\\b${ARG_GAP}\\.env\\b`, 'i'),                    reason: 'Deleting .env file' },
-  { level: 'high', id: 'rm-aws-creds',           regex: new RegExp(`\\brm\\b${ARG_GAP}\\.aws\\/credentials`, 'i'),         reason: 'Deleting AWS credentials' },
-  { level: 'high', id: 'truncate-secrets',       regex: new RegExp(`\\btruncate\\b${ARG_GAP}\\.(env|pem|key)\\b|(?:^|[;&|]\\s*)>\\s*\\.env\\b`, 'i'), reason: 'Truncating secrets file' },
-
-  // HIGH — Process environ
-  { level: 'high', id: 'proc-environ',           regex: /\/proc\/[^/]*\/environ/,                                          reason: 'Reading process environment' },
-  { level: 'high', id: 'xargs-cat-env',          regex: /xargs.*cat|\.env.*xargs/i,                                         reason: 'Reading .env via xargs' },
-  { level: 'high', id: 'find-exec-cat-env',      regex: /find\b.*\.env.*-exec|find\b.*-exec.*(cat|less)/i,                 reason: 'Finding and reading .env files' },
-
-  // STRICT
-  { level: 'strict', id: 'grep-password',        regex: /\bgrep\b[^|;]*(-r|--recursive)[^|;]*(password|secret|api.?key|token|credential)/i, reason: 'Grep for secrets may expose them' },
-  { level: 'strict', id: 'base64-secrets',       regex: /\bbase64\b[^|;]*(\.env|credentials|secrets|id_rsa|\.pem)/i,       reason: 'Base64 encoding secrets' },
-];
+// Programs that neither print nor change the content of a file that they name.
+const NO_CONTENT_PROGRAMS = new Set(['ls', 'test', '[', '[[', 'stat', 'chmod', 'touch']);
+// `find` only lists names, unless it runs or deletes what it finds.
+const FIND = 'find';
+const FIND_DELETE = '-delete';
+// Programs that print their own arguments or the names of files. Piped into `xargs`, those names become operands.
+const NAME_SOURCES = new Set([FIND, 'ls', ...TEXT_PROGRAMS]);
+// Shell words that give a value to a variable: an argument `NAME=path` is not an operand.
+const DECLARING_PROGRAMS = new Set(['export', 'declare', 'typeset', 'local', 'readonly']);
+// Programs that load the files which they name and do not print them. `source` and `.` set the variables
+// of the file in the shell, as `--env-file` does for a program.
+const LOADER_PROGRAMS = new Set(['ssh-add', 'source', '.']);
+// Programs whose first operand is a pattern or a program text, not a file.
+// `value`: the short options that take a value. `pattern`: the short options whose value is the pattern
+// or a file of patterns; with one of them every operand is a file.
+// A letter that is wrongly in `value` would hide the real pattern and exempt a file, so each list is short.
+// `text`: the options whose value is the pattern itself; that value is text, not a file.
+// (`jq -e` takes no value, so jq has no such option.)
+const GREP_OPTIONS = { value: 'efABCmdD', pattern: 'ef', text: ['-e', '--regexp'] };
+const NO_OPTIONS = { value: '', pattern: '', text: [] };
+const PATTERN_FIRST_PROGRAMS = {
+  grep: GREP_OPTIONS,
+  rg: { value: 'efgtABCm', pattern: 'ef', text: ['-e', '--regexp'] },
+  ag: NO_OPTIONS,
+  sed: { value: 'ef', pattern: 'ef', text: ['-e', '--expression'] },
+  awk: { value: 'fFv', pattern: 'f', text: [] },
+  jq: { value: 'f', pattern: 'f', text: [] },
+  yq: NO_OPTIONS,
+};
+const GIT_GREP = 'grep';
+const PATTERN_FIRST_LONG_VALUE = ['regexp', 'file', 'after-context', 'before-context', 'context', 'max-count',
+  'include', 'exclude', 'exclude-dir', 'glob', 'type', 'expression', 'field-separator', 'assign', 'from-file'];
+// The long options whose value is the pattern or a file of patterns.
+const PATTERN_OPTION_LONG = ['regexp', 'file', 'expression', 'from-file'];
+// The options of rg whose value is a file name pattern.
+const RG_GLOB_OPTIONS = ['-g', '--glob', '--iglob'];
+// Options whose value the program loads or skips; it does not print the file. '*': every program.
+const LOADER_OPTIONS = {
+  '*': ['--env-file', '--exclude'],
+  ssh: ['-i'], scp: ['-i'], 'ssh-keygen': ['-f'],
+  curl: ['--cacert', '--cert', '--key'],
+  kubectl: ['--kubeconfig'],
+  gcloud: ['--key-file'], npm: ['--userconfig'], twine: ['--config-file'], keytool: ['-keystore'],
+  docker: ['--secret'], dotenv: ['-e'], 'dotenv-cli': ['-e'],
+  uvicorn: ['--ssl-keyfile', '--ssl-certfile'],
+  openssl: ['-CAfile'],
+  'openssl x509': ['-in'], 'openssl req': ['-key', '-keyout', '-out'], 'openssl genrsa': ['-out'],
+};
+// Options whose value is text for a person or for the program, not a path.
+// Short options also count at the end of a group (`-am`).
+const TEXT_OPTIONS = {
+  git: ['-m', '--message', '--grep', '-S', '-G'],
+  gh: ['-t', '--title', '-b', '--body', '-q', '--jq'],
+  aws: ['--query'],
+  rsync: ['-e', '--rsh'],
+};
+// `zip ... -x <pattern>...`: the words after `-x` name files that zip leaves out.
+const ZIP = 'zip';
+const ZIP_EXCLUDE = '-x';
+// Sub-commands of git that do not print or store the content of the files that they name.
+const GIT_NO_CONTENT = new Set(['check-ignore', 'ls-files', 'status']);
+// A variable name in UPPER case is a secret name when one of its parts (between `_`) is a secret word,
+// wherever the part stands: API_KEY, FILE_ENCRYPTION_KEY, PGPASSWORD, GITHUB_TOKEN.
+// A name in lower case passes (`$key`, `$token`): that is a documented limit.
+// KEY counts alone or after a word such as API (`$MONKEY` and the list `$KEYS` are no secrets).
+const SECRET_NAME_PART = /^(.*(SECRETS?|TOKEN|PASSWORD|PASSWD)|(API|ACCESS|PRIVATE|SECRET|SSH)?KEY|CREDENTIALS?|PRIVATE)$/;
+// A name with one of these parts is a number, not the secret: TOKEN_COUNT, PASSWORD_LENGTH.
+const COUNTER_PARTS = new Set(['COUNT', 'LIMIT', 'LENGTH', 'SIZE']);
+// PASS is a password when another part names what it belongs to (`DB_PASS`). Alone, or with one of
+// these parts only, it is the number of tests that passed: PASS, TESTS_PASS, TOTAL_PASS.
+const PASS_PART = 'PASS';
+const PASS_COUNTER_PARTS = new Set(['TESTS', 'TEST', 'TOTAL', 'NUM']);
+// AUTH is a secret word (`REDIS_AUTH`), except in a name that holds an address or a setting:
+// AUTH_URL, AUTH_METHOD, SSH_AUTH_SOCK.
+const AUTH_PART = 'AUTH';
+const ADDRESS_PARTS = new Set(['URL', 'URI', 'HOST', 'PORT', 'SOCK', 'METHOD', 'ENDPOINT', 'DOMAIN']);
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const PRINT_ENVIRONMENT = 'printenv';
+// Shell words that list every variable when they have no name argument.
+const ENV_LISTERS = new Set(['export', 'declare', 'typeset']);
 
 // Hardcoded secret patterns — scans content being written for leaked credentials.
 // When detected, blocks the write and instructs the agent to use environment variables instead.
@@ -135,61 +210,266 @@ const HARDCODED_SECRET_PATTERNS = [
   { id: 'supabase-key',      regex: /sbp_[A-Za-z0-9]{40,}/,                                                                 name: 'Supabase service key',         envHint: 'SUPABASE_SERVICE_ROLE_KEY' },
 ];
 
-// Files where hardcoded secrets are expected and should not be flagged
+// Files in which a text that looks like a secret is expected and is not flagged
 const CONTENT_SCAN_ALLOWLIST = [
-  /\.env(\..*)?$/i,           // .env files are WHERE secrets belong
-  /\.env\.example$/i,         // Example env files may have placeholder patterns
-  /\.env\.sample$/i,
-  /\.env\.template$/i,
+  /\.env(\..*)?$/i,           // template files such as .env.example hold placeholder values
   /known-issues\.md$/i,       // Error documentation may reference key formats
   /SKILL\.md$/i,              // Skill files may document patterns
   /RELEASE-NOTES\.md$/i,      // Release notes may reference patterns
 ];
 
-const LEVELS = { critical: 1, high: 2, strict: 3 };
-const EMOJIS = { critical: '🔐', high: '🛡️', strict: '⚠️' };
-
-const LOG_DIR = path.join(
-  process.env.HOME || process.env.USERPROFILE || '.',
-  '.claude',
-  'hooks-logs'
-);
-
-function log(data) {
-  try {
-    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-    const file = path.join(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.jsonl`);
-    fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), hook: 'protect-secrets', ...data }) + '\n');
-  } catch {}
-}
+// One spelling for every path: `/` as the separator (Windows writes `\`) and lower case
+// (the file systems of macOS and Windows do not tell `.ENV` from `.env`).
+const normalizePath = (p) => toPosix(String(p)).toLowerCase();
 
 function isAllowlisted(filePath) {
-  return filePath && ALLOWLIST.some(p => p.test(filePath));
+  return Boolean(filePath) && ALLOWLIST.some(p => p.test(normalizePath(filePath)));
 }
 
-function checkFilePath(filePath, safetyLevel = SAFETY_LEVEL) {
-  if (!filePath || isAllowlisted(filePath)) return { blocked: false, pattern: null };
-  const threshold = LEVELS[safetyLevel] || 2;
-  for (const p of SENSITIVE_FILES) {
-    if (LEVELS[p.level] <= threshold && p.regex.test(filePath)) {
-      return { blocked: true, pattern: p };
-    }
-  }
-  return { blocked: false, pattern: null };
+// The row of the path table that refuses this path, or null.
+function secretRow(filePath) {
+  if (!filePath) return null;
+  const p = normalizePath(filePath);
+  if (PUBLIC_KEY.test(p) || ALLOWLIST.some(a => a.test(p))) return null;
+  return SENSITIVE_FILES.find(row => row.regex.test(p)) || null;
 }
 
-function checkBashCommand(cmd, safetyLevel = SAFETY_LEVEL) {
-  if (!cmd) return { blocked: false, pattern: null };
-  // Note: allowlist is NOT applied to bash commands as a whole-string match
-  // because a command like "cat .env.example && cat .env" would bypass all checks.
-  // Allowlist is only used for file-path checks in checkFilePath().
-  const threshold = LEVELS[safetyLevel] || 2;
-  for (const p of BASH_PATTERNS) {
-    if (LEVELS[p.level] <= threshold && p.regex.test(cmd)) {
-      return { blocked: true, pattern: p };
+// The parts of a file name pattern.
+const ANY_TEXT = Symbol('*');
+const ANY_CHARACTER = Symbol('?');
+
+// The test for a set of characters of a pattern: `[a-z]`, `[abc]`.
+function characterSet(chars) {
+  // A negated set (`[!a]`) is not read as one: `!` counts as a plain member. `.[!.]*` therefore
+  // matches no secret name; that is a documented limit.
+  return (ch) => {
+    for (let k = 0; k < chars.length; k++) {
+      const isRange = chars[k + 1] === '-' && k + 2 < chars.length;
+      if (isRange ? ch >= chars[k] && ch <= chars[k + 2] : ch === chars[k]) return true;
+      if (isRange) k += 2;
     }
+    return false;
+  };
+}
+
+// Splits a file name pattern into its parts: `*` (any text), `?` (one character), `[a-z]` (a set
+// of characters) or a plain character. A run of `*` is one `*`.
+function patternParts(pattern) {
+  const parts = [];
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    const close = c === '[' ? pattern.indexOf(']', i + 2) : -1;
+    if (c === '*') { if (parts[parts.length - 1] !== ANY_TEXT) parts.push(ANY_TEXT); }
+    else if (c === '?') parts.push(ANY_CHARACTER);
+    else if (close !== -1) { parts.push(characterSet(pattern.slice(i + 1, close))); i = close; }
+    else parts.push(c);
   }
-  return { blocked: false, pattern: null };
+  return parts;
+}
+
+// True when the pattern parts match the whole name. The work grows with the length of the pattern
+// times the length of the name; there is no regular expression that could try every split of the name.
+function matchesPattern(parts, name) {
+  let p = 0;
+  let s = 0;
+  let star = -1;                 // the last `*` that was passed
+  let resume = 0;                // where in the name the text of that `*` ends at present
+  while (s < name.length) {
+    const part = parts[p];
+    const fits = part === ANY_CHARACTER || (typeof part === 'function' ? part(name[s]) : part === name[s]);
+    if (part === ANY_TEXT) { star = p++; resume = s; }
+    else if (fits) { p++; s++; }
+    else if (star !== -1) { p = star + 1; s = ++resume; }
+    else return false;
+  }
+  while (parts[p] === ANY_TEXT) p++;
+  return p === parts.length;
+}
+
+/**
+ * The row for a path that may be a file name pattern. A brace list (`{a,b}`)
+ * is tested word by word. A pattern is tested itself (`*.pem`), and against
+ * the names of secret files that it can match (`.e*`, `*.env*`): in `find
+ * -name`, `grep --include`, `rg -g` and the Grep tool a `*` also matches the
+ * dot at the start of a name.
+ */
+function secretRowOfPattern(pattern) {
+  for (const text of expandBraces(pattern) || [pattern]) {
+    const direct = secretRow(text);
+    if (direct) return direct;
+    if (!PATTERN_CHARACTERS.test(text)) continue;
+    const p = normalizePath(text);
+    const dir = p.slice(0, p.lastIndexOf('/') + 1);
+    const name = p.slice(dir.length);
+    if (!name.startsWith('.') && name.replace(/[*?[\]]/g, '').length < MIN_PATTERN_CHARACTERS) continue;
+    const parts = patternParts(name);
+    const sample = HIDDEN_SAMPLE_NAMES.find(s => matchesPattern(parts, s));
+    const row = sample ? secretRow(dir + sample) : null;
+    if (row) return row;
+  }
+  return null;
+}
+
+function checkFilePath(filePath) {
+  const row = secretRow(filePath);
+  return { blocked: Boolean(row), pattern: row };
+}
+
+// The row for a Bash word. Inside a word a path can start after one of PATH_STARTS; each of them is
+// read as a path separator, so that the path after it is found in one pass over the end of the word.
+function secretRowOfWord(word) {
+  const tail = word.text.slice(-PATH_TAIL);
+  for (const text of expandBraces(tail) || [tail]) {
+    // The word as it is (a file name can hold `@`, `:`, `,` or `=`), and the path after such a character.
+    const row = secretRowOfPattern(text) || secretRowOfPattern(text.replace(PATH_STARTS, '/'));
+    if (row) return row;
+  }
+  return null;
+}
+
+// True when the word at `k` is the value of one of `options`, in the next word or after `=`.
+function isValueOf(args, k, options, shortGroups = false) {
+  const own = args[k].text;
+  if (options.some(o => own.startsWith(`${o}=`))) return true;
+  if (k === 0) return false;
+  const before = args[k - 1].text;
+  if (options.includes(before)) return true;
+  // `-am "<message>"`: the last letter of a group of short options takes the value.
+  return shortGroups && /^-[A-Za-z]{2,}$/.test(before) && options.includes(`-${before[before.length - 1]}`);
+}
+
+// The words without the pattern operand of a program such as grep. `options`: a row of PATTERN_FIRST_PROGRAMS.
+function withoutPattern(words, options) {
+  const a = splitArgs(words, options.value, PATTERN_FIRST_LONG_VALUE);
+  // When an option gives the pattern (`-e X`, `-eX`, `--regexp=X`, `-f file`), no operand is the
+  // pattern: every operand is a file. Only the value of the option is text.
+  const patternInOption = [...options.pattern].some(o => a.short.has(o)) || PATTERN_OPTION_LONG.some(o => a.long.includes(o));
+  if (patternInOption) return words.filter((x, k) => !isValueOf(words, k, options.text, true));
+  return words.filter(x => x !== a.operands[0]);
+}
+
+/**
+ * The words of one command that the path table tests. A word that a named
+ * exemption of the program covers is left out.
+ * `feedsXargs`: a later member of the same pipe runs through `xargs`.
+ */
+function testedWords(c, feedsXargs) {
+  const program = c.program;
+  const texts = c.args.map(a => a.text);
+  if (!program || LOADER_PROGRAMS.has(program)) return [];
+  if (NAME_SOURCES.has(program) && feedsXargs) return c.args;
+  if (NO_CONTENT_PROGRAMS.has(program) || TEXT_PROGRAMS.has(program)) return [];
+  if (program === FIND) return texts.some(x => FIND_EXEC_OPTIONS.has(x) || x === FIND_DELETE) ? c.args : [];
+  if (DECLARING_PROGRAMS.has(program)) return c.args.filter(a => !ASSIGNMENT.test(a.text));
+
+  const subProgram = program === 'openssl' && texts[0] ? `openssl ${texts[0]}` : '';
+  const loaders = [...LOADER_OPTIONS['*'], ...(LOADER_OPTIONS[program] || []), ...(LOADER_OPTIONS[subProgram] || [])];
+  const textOptions = TEXT_OPTIONS[program] || [];
+  let words = c.args.filter((a, k) => !isValueOf(c.args, k, loaders) && !isValueOf(c.args, k, textOptions, true));
+
+  if (program === 'git') {
+    const { sub, rest } = gitCall(c.args);
+    const cached = sub === 'rm' && hasLong(splitArgs(rest).long, 'cached');
+    if (GIT_NO_CONTENT.has(sub) || cached) return [];
+    if (sub === GIT_GREP) return withoutPattern(rest, GREP_OPTIONS);
+  }
+  if (program === 'cp') {
+    // `cp -n` never replaces a file that exists, so its last operand, the destination, may name the file.
+    // With `-t <folder>` the last operand is a source.
+    const a = splitArgs(words);
+    const keepsDestination = a.short.has('n') || a.long.includes('no-clobber');
+    const namesFolderFirst = a.short.has('t') || a.long.includes('target-directory');
+    if (keepsDestination && !namesFolderFirst) words = words.filter(x => x !== a.operands[a.operands.length - 1]);
+  }
+  // Words that only name files to leave out. They are text. They are taken out at the end, so that
+  // they exempt no other word: the pattern and the files are found with every word in its place.
+  const leftOut = new Set();
+  if (program === ZIP) {
+    // `zip ... -x <pattern>...`: the patterns end at the next option.
+    for (let k = texts.indexOf(ZIP_EXCLUDE) + 1; k > 0 && k < texts.length && !texts[k].startsWith('-'); k++) leftOut.add(c.args[k]);
+  }
+  if (program === 'rg') {
+    // A glob that starts with `!` names the files that rg leaves out.
+    c.args.forEach((a, k) => {
+      if (isValueOf(c.args, k, RG_GLOB_OPTIONS) && a.text.replace(/^--i?glob=/, '').startsWith(EXCLUSION_MARK)) leftOut.add(a);
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(PATTERN_FIRST_PROGRAMS, program)) words = withoutPattern(words, PATTERN_FIRST_PROGRAMS[program]);
+  return words.filter(x => !leftOut.has(x));
+}
+
+// True for the name of a variable that holds a secret: one of its parts is a secret word in upper case.
+function isSecretName(name) {
+  const parts = name.split('_');
+  if (parts.some(part => COUNTER_PARTS.has(part))) return false;
+  const others = parts.filter(part => part !== PASS_PART);
+  const password = others.length < parts.length && others.some(part => !PASS_COUNTER_PARTS.has(part));
+  const login = parts.includes(AUTH_PART) && !parts.some(part => ADDRESS_PARTS.has(part));
+  return password || login || parts.some(part => SECRET_NAME_PART.test(part));
+}
+
+// The names that a command gives as arguments (`printenv HOME`, `declare -p API_KEY`).
+const namedVariables = (c) => c.args.filter(a => VARIABLE_NAME.test(a.text)).map(a => a.text);
+
+// A program that prints every variable of the environment.
+function dumpsEnvironment(c) {
+  if (c.program === PRINT_ENVIRONMENT) return namedVariables(c).length === 0;
+  if (c.program === 'env') return Boolean(c.bare);
+  if (ENV_LISTERS.has(c.program)) return c.args.every(a => /^-[px]+$/.test(a.text));
+  return c.program === 'set' && c.args.length === 0;
+}
+
+// The variable with a secret name whose value the command would print: `echo`, `printf`, a here-string,
+// `printenv NAME`, `declare -p NAME`.
+function printedSecretVariable(c) {
+  const printsNamed = c.program === PRINT_ENVIRONMENT || (ENV_LISTERS.has(c.program) && c.args.some(a => /^-[A-Za-z]*p/.test(a.text)));
+  const named = printsNamed ? namedVariables(c).find(isSecretName) : null;
+  if (named) return named;
+  const hereStrings = c.redirects.filter(r => r.op === '<<<').map(r => r.target);
+  const words = [...(TEXT_PROGRAMS.has(c.program) ? c.args : []), ...hereStrings];
+  const ref = words.flatMap(w => w.refs).find(r => r.printsValue && isSecretName(r.name));
+  return ref ? ref.name : null;
+}
+
+function fileRefusal(row, what) {
+  return refusal(row.id, `${what} (${row.reason}).`, ASK_USER);
+}
+
+// `lastXargs`: for each pipe, the place of its last member that runs through `xargs`.
+function checkOne(c, lastXargs) {
+  for (const r of c.redirects) {
+    if (r.op.startsWith('<<')) continue;                               // a here-document or a here-string: text, not a file
+    const row = secretRowOfWord(r.target);
+    const effect = r.op.includes('>') ? 'write' : 'read';
+    if (row) return fileRefusal(row, `The redirect \`${r.op}\` would ${effect} the secret file \`${r.target.text}\``);
+  }
+  if (dumpsEnvironment(c)) {
+    return refusal('env-dump', `\`${c.program}\` would print every variable of the environment, and some hold secrets.`,
+      '`printenv NAME` for one variable that is not a secret, or `echo "${NAME:+set}"` to see whether a variable is set');
+  }
+  const secretVariable = printedSecretVariable(c);
+  if (secretVariable) {
+    return refusal('echo-secret-var', `\`${c.program}\` would print the value of the secret variable \`${secretVariable}\`.`,
+      `\`echo "\${${secretVariable}:+set}"\` shows whether it is set and does not print the value`);
+  }
+  const feedsXargs = lastXargs.has(c.pipeline) && lastXargs.get(c.pipeline) > c.order;
+  for (const word of testedWords(c, feedsXargs)) {
+    const row = secretRowOfWord(word);
+    if (row) return fileRefusal(row, `\`${c.program}\` would use the secret file \`${word.text.slice(-200)}\``);
+  }
+  return null;
+}
+
+function checkBashCommand(cmd) {
+  if (!cmd) return ALLOWED;
+  return decideCommand(cmd, (commands) => {
+    // Found once for the whole call, so that the time for a long list of commands grows with its length.
+    const lastXargs = new Map();
+    for (const c of commands) {
+      if (c.prefixes.includes(XARGS) && !(lastXargs.get(c.pipeline) > c.order)) lastXargs.set(c.pipeline, c.order);
+    }
+    return firstRefusal(commands, (c) => checkOne(c, lastXargs));
+  });
 }
 
 function isContentScanAllowlisted(filePath) {
@@ -197,87 +477,61 @@ function isContentScanAllowlisted(filePath) {
 }
 
 function checkWriteContent(toolName, toolInput) {
-  if (!['Edit', 'Write'].includes(toolName)) return { blocked: false, pattern: null };
+  if (!WRITE_TOOLS.includes(toolName)) return ALLOWED;
 
   const filePath = toolInput?.file_path || '';
-  if (isContentScanAllowlisted(filePath)) return { blocked: false, pattern: null };
+  if (isContentScanAllowlisted(filePath)) return ALLOWED;
 
   // Extract content being written: Write uses 'content', Edit uses 'new_string'
   const content = toolName === 'Write' ? toolInput?.content : toolInput?.new_string;
-  if (!content || typeof content !== 'string') return { blocked: false, pattern: null };
+  if (!content || typeof content !== 'string') return ALLOWED;
 
   for (const p of HARDCODED_SECRET_PATTERNS) {
     if (p.regex.test(content)) {
       return {
         blocked: true,
         pattern: {
-          level: 'critical',
           id: `hardcoded-${p.id}`,
-          reason: `Hardcoded ${p.name} detected in content. Move the value to an environment variable (e.g. .env file) and reference it as process.env.${p.envHint} instead.`,
+          reason: `Hardcoded ${p.name} detected in content. Do not write the value into a file. Write code that reads it from the environment (process.env.${p.envHint}), and ask the user to store the value. ${NO_RETRY}`,
         },
       };
     }
   }
-  return { blocked: false, pattern: null };
+  return ALLOWED;
 }
 
-function check(toolName, toolInput, safetyLevel = SAFETY_LEVEL) {
-  if (['Read', 'Edit', 'Write'].includes(toolName)) {
-    const fileResult = checkFilePath(toolInput?.file_path, safetyLevel);
-    if (fileResult.blocked) return fileResult;
-    // Also scan content being written for hardcoded secrets
-    return checkWriteContent(toolName, toolInput);
+// Read, Edit, Write name one file. Grep names a file or folder (`path`) and a file name pattern (`glob`).
+// A glob that starts with `!` names the files that the search leaves out.
+function checkToolPaths(toolName, toolInput) {
+  const glob = toolInput?.glob;
+  const includes = typeof glob === 'string' && !glob.startsWith(EXCLUSION_MARK) ? glob : null;
+  const candidates = toolName === GREP_TOOL
+    ? [[toolInput?.path, secretRow], [includes, secretRowOfPattern]]
+    : [[toolInput?.file_path, secretRow]];
+  for (const [value, rowOf] of candidates) {
+    const row = typeof value === 'string' ? rowOf(value) : null;
+    if (row) {
+      return {
+        blocked: true,
+        pattern: { id: row.id, reason: `\`${toolName}\` would use the secret file \`${value}\` (${row.reason}). Safe form: ${ASK_USER}. ${NO_RETRY}` },
+      };
+    }
   }
-  if (toolName === 'Bash') {
-    return checkBashCommand(toolInput?.command, safetyLevel);
-  }
-  return { blocked: false, pattern: null };
+  return ALLOWED;
 }
 
-async function main() {
-  let input = '';
-  for await (const chunk of process.stdin) input += chunk;
-
-  try {
-    const data = JSON.parse(input);
-    const { tool_name, tool_input, session_id, cwd, permission_mode } = data;
-
-    if (!['Read', 'Edit', 'Write', 'Bash'].includes(tool_name)) {
-      process.stdout.write('{}');
-      return;
-    }
-
-    const result = check(tool_name, tool_input);
-
-    if (result.blocked) {
-      const p = result.pattern;
-      const target = tool_input?.file_path || tool_input?.command?.slice(0, 100);
-      log({ level: 'BLOCKED', id: p.id, priority: p.level, tool: tool_name, target, session_id, cwd, permission_mode });
-
-      const action = { Read: 'read', Edit: 'modify', Write: 'write to', Bash: 'execute' }[tool_name];
-      process.stdout.write(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: `${EMOJIS[p.level]} [${p.id}] Cannot ${action}: ${p.reason}`,
-        },
-      }));
-      return;
-    }
-
-    process.stdout.write('{}');
-  } catch (e) {
-    log({ level: 'ERROR', error: e.message });
-    process.stdout.write('{}');
-  }
+function check(toolName, toolInput) {
+  if (toolName === BASH_TOOL) return checkBashCommand(toolInput?.command);
+  const pathResult = checkToolPaths(toolName, toolInput);
+  // Also scan content being written for hardcoded secrets
+  return pathResult.blocked ? pathResult : checkWriteContent(toolName, toolInput);
 }
 
 if (require.main === module) {
-  main();
+  runHook(HOOK_NAME, [...FILE_TOOLS, GREP_TOOL, BASH_TOOL], (data) => check(data.tool_name, data.tool_input));
 } else {
   module.exports = {
-    SENSITIVE_FILES, BASH_PATTERNS, HARDCODED_SECRET_PATTERNS, CONTENT_SCAN_ALLOWLIST,
-    ALLOWLIST, LEVELS, SAFETY_LEVEL,
+    SENSITIVE_FILES, HARDCODED_SECRET_PATTERNS, CONTENT_SCAN_ALLOWLIST, ALLOWLIST,
     check, checkFilePath, checkBashCommand, checkWriteContent, isAllowlisted, isContentScanAllowlisted,
   };
 }

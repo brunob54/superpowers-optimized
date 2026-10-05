@@ -39,18 +39,10 @@ function evaluatePayload(data) {
 
   const cmd = data.tool_input?.command || '';
 
-  const dangerResult = checkCommand(cmd);
-  if (dangerResult.blocked) {
-    const p = dangerResult.pattern;
-    const emoji = { critical: '🚨', high: '⛔', strict: '⚠️' }[p.level] || '⛔';
-    return blockResponse(`${emoji} [${p.id}] ${p.reason}`);
-  }
-
-  const secretResult = checkBashCommand(cmd);
-  if (secretResult.blocked) {
-    const p = secretResult.pattern;
-    const emoji = { critical: '🔐', high: '🛡️', strict: '⚠️' }[p.level] || '🛡️';
-    return blockResponse(`${emoji} [${p.id}] ${p.reason}`);
+  // Each check returns { blocked, pattern: { id, reason } }. The message has the form that the two
+  // hooks print themselves: the rule name in brackets, then the reason.
+  for (const result of [checkCommand(cmd, { cwd: data.cwd }), checkBashCommand(cmd)]) {
+    if (result.blocked) return blockResponse(`[${result.pattern.id}] ${result.pattern.reason}`);
   }
 
   return {};

@@ -91,7 +91,7 @@
         ]
       },
       {
-        "matcher": "Read|Edit|Write|Bash",
+        "matcher": "Read|Edit|Write|Grep|Bash",
         "hooks": [
           {
             "type": "command",

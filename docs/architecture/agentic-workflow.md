@@ -26,8 +26,8 @@ User sends a prompt
         │
         ▼  (meanwhile, running on every tool call)
 ┌─ Safety Hooks (PreToolUse) ───────────────────────────────┐
-│  block-dangerous-commands.js → 30+ patterns (rm -rf, etc) │
-│  protect-secrets.js → 50+ patterns (.env, SSH keys, etc)  │
+│  block-dangerous-commands.js → rules on command words     │
+│  protect-secrets.js → one path table (.env, keys, etc)    │
 └───────────────────────────────────────────────────────────┘
         │
         ▼  (after every Edit/Write)

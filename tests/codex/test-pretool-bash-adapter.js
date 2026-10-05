@@ -105,13 +105,17 @@ test('awk to read .env → blocked (awk bypass)', {
   tool_input: { command: "awk '{print}' .env" },
 }, isBlocked);
 
-// NOTE: .env.example allowlist only applies to Read/Edit/Write tool file-path checks,
-// NOT to bash commands. The protect-secrets bash regex \.env\b matches .env.example
-// (word boundary satisfied by the trailing dot). This is intentional — the allowlist
-// cannot be safely applied to bash because "cat .env.example && cat .env" would bypass.
-test('.env.example via bash → blocked (allowlist does not apply to bash commands)', {
+// The path table of protect-secrets decides for each word of a Bash command, so the
+// allow list for template files applies to Bash as it applies to Read, Edit and Write.
+// A later word that names the real file is still refused.
+test('.env.example via bash → allow (the allow list applies to each word)', {
   tool_name: 'Bash',
   tool_input: { command: 'cat .env.example' },
+}, isAllowed);
+
+test('.env.example, then the real file → blocked', {
+  tool_name: 'Bash',
+  tool_input: { command: 'cat .env.example && cat .env' },
 }, isBlocked);
 
 // ── Dangerous commands: must block ────────────────────────────────────────────
@@ -122,6 +126,23 @@ test('rm -rf ~ → block', {
   tool_name: 'Bash',
   tool_input: { command: 'rm -rf ~' },
 }, isBlocked);
+
+// The checks return { blocked, pattern: { id, reason } }. The adapter writes "[id] reason".
+test('the message of a dangerous command starts with the rule name in brackets', {
+  tool_name: 'Bash',
+  tool_input: { command: 'rm -rf ~' },
+}, (result) => {
+  isBlocked(result);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /^\[rm-home\] `rm` would delete the home folder/);
+});
+
+test('the message of a secret file command has the same form', {
+  tool_name: 'Bash',
+  tool_input: { command: 'cat .env' },
+}, (result) => {
+  isBlocked(result);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /^\[env-file\] `cat` would use the secret file/);
+});
 
 test('rm -rf $HOME → block', {
   tool_name: 'Bash',
