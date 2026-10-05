@@ -251,7 +251,7 @@ can land between a ruling's write and its commit.
 
 **The secrets-hook probe.** This rule stands here in full so that this
 file needs no other skill's text. `hooks/safety/protect-secrets.js` scans
-the path of every Read, Edit and Write and the content of every Edit and
+the path of every Read, Edit, Write and Grep and the content of every Edit and
 Write for hardcoded secrets; `hooks/safety/block-dangerous-commands.js`
 and the Bash rules of the secrets hook read a Bash command as shell
 words, refuse a command that they cannot read to its end, and their

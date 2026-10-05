@@ -103,7 +103,7 @@ hooks:
 
   # Claude Code: protect secrets from file/bash ops
   - event: PreToolUse
-    matcher: "Read|Edit|Write|Bash"
+    matcher: "Read|Edit|Write|Grep|Bash"
     command: "node {PLUGIN_ROOT}/hooks/safety/protect-secrets.js"
     platforms: [claude-code]
 

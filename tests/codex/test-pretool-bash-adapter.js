@@ -127,6 +127,23 @@ test('rm -rf ~ → block', {
   tool_input: { command: 'rm -rf ~' },
 }, isBlocked);
 
+// The checks return { blocked, pattern: { id, reason } }. The adapter writes "[id] reason".
+test('the message of a dangerous command starts with the rule name in brackets', {
+  tool_name: 'Bash',
+  tool_input: { command: 'rm -rf ~' },
+}, (result) => {
+  isBlocked(result);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /^\[rm-home\] `rm` would delete the home folder/);
+});
+
+test('the message of a secret file command has the same form', {
+  tool_name: 'Bash',
+  tool_input: { command: 'cat .env' },
+}, (result) => {
+  isBlocked(result);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /^\[env-file\] `cat` would use the secret file/);
+});
+
 test('rm -rf $HOME → block', {
   tool_name: 'Bash',
   tool_input: { command: 'rm -rf $HOME' },
