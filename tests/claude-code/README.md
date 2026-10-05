@@ -28,6 +28,9 @@ This test suite verifies that skills are loaded correctly and Claude follows the
 ./run-skill-tests.sh --test test-subagent-driven-development.sh
 ```
 
+The name after `--test` is a file name inside `tests/claude-code/`, not a path.
+A name that is not found fails the run.
+
 ### Run with verbose output:
 ```bash
 ./run-skill-tests.sh --verbose

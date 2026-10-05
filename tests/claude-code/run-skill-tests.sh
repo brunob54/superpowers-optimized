@@ -103,7 +103,6 @@ fi
 # Track results
 passed=0
 failed=0
-skipped=0
 
 # Run each test
 for test in "${tests[@]}"; do
@@ -113,9 +112,12 @@ for test in "${tests[@]}"; do
 
     test_path="$SCRIPT_DIR/$test"
 
+    # A test that is not found fails the run. A skipped test would let a
+    # path or a misspelled name end with "STATUS: PASSED".
     if [ ! -f "$test_path" ]; then
-        echo "  [SKIP] Test file not found: $test"
-        skipped=$((skipped + 1))
+        echo "  [FAIL] Test file not found: $test"
+        echo "  A test name must be a file name inside tests/claude-code/, not a path."
+        failed=$((failed + 1))
         continue
     fi
 
@@ -178,7 +180,6 @@ echo "========================================"
 echo ""
 echo "  Passed:  $passed"
 echo "  Failed:  $failed"
-echo "  Skipped: $skipped"
 echo ""
 
 if [ "$RUN_INTEGRATION" = false ] && [ ${#integration_tests[@]} -gt 0 ]; then
