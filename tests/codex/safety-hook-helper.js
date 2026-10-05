@@ -23,6 +23,12 @@ const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 const DENY = 'deny';
 const ALLOW = 'allow';
 const BASH = 'Bash';
+const HOOK_EVENT = 'PreToolUse';
+// The field names of a refusal, sorted and joined.
+const REFUSAL_FIELDS = 'hookEventName,permissionDecision,permissionDecisionReason';
+// A home folder that is not below a temporary folder, so that no rule can take it for a scratch folder.
+// It does not exist: the hook then writes no log. The log test uses makeHome().
+const PLAIN_HOME = '/Users/shared-homes/safety-hook-tester';
 // The work folder that a case gets when it names none. It does not have to exist.
 const DEFAULT_CWD = '/Users/tester/project';
 // How many hook processes run at the same time.
@@ -58,10 +64,22 @@ function runHook(hookFile, input, env) {
       if (status !== 0) return reject(new Error(`hook ended with exit status ${status}: ${stderr.trim()}`));
       let output;
       try { output = JSON.parse(stdout); } catch (e) { return reject(new Error(`hook output is not JSON: ${stdout.slice(0, 200)}`)); }
+      // A pass is exactly `{}`: the hook reports no decision and the tool call goes on.
+      if (Object.keys(output).length === 0) return resolve({ decision: ALLOW, rule: '', reason: '' });
+      // A refusal has exactly the shape that the hooks reference of Claude Code gives for PreToolUse
+      // (https://code.claude.com/docs/en/hooks.md, read 2026-10-05):
+      //   { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny",
+      //                             "permissionDecisionReason": "<reason>" } }
+      // `permissionDecision` may also be "allow", "ask" or "defer"; the safety hooks never print those.
       const specific = output.hookSpecificOutput || {};
-      const reason = specific.permissionDecisionReason || '';
+      const reason = specific.permissionDecisionReason;
+      const shapeOk = Object.keys(output).join() === 'hookSpecificOutput'
+        && Object.keys(specific).sort().join() === REFUSAL_FIELDS
+        && specific.hookEventName === HOOK_EVENT && specific.permissionDecision === DENY
+        && typeof reason === 'string' && reason.length > 0;
+      if (!shapeOk) return reject(new Error(`hook output is neither a pass nor a refusal: ${stdout.slice(0, 200)}`));
       const rule = (/^\[([^\]]+)\]/.exec(reason) || [])[1] || '';
-      resolve({ decision: specific.permissionDecision === DENY ? DENY : ALLOW, rule, reason });
+      resolve({ decision: DENY, rule, reason });
     });
     child.stdin.end(typeof input === 'string' ? input : JSON.stringify(input));
   });
@@ -120,5 +138,5 @@ function compare(result, expect, rule) {
 
 module.exports = {
   hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, makeReport, compare,
-  DENY, ALLOW, BASH, DEFAULT_CWD,
+  DENY, ALLOW, BASH, DEFAULT_CWD, PLAIN_HOME,
 };

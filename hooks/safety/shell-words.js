@@ -41,19 +41,58 @@ const INTERPRETERS = /^(python[\d.]*|node|nodejs|ruby|perl|php|deno|bun)$/;
 const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'fi', 'do', 'done', 'while', 'until', '!', '{', '}', 'coproc']);
 // Words that start a construct whose own words are data, not a program with arguments.
 const DATA_KEYWORDS = new Set(['for', 'select', 'case', 'esac']);
-// Prefix programs: the real program follows them. Value: the short options of the prefix that take a value.
+// Prefix programs: the real program follows them. For each one: the letters of its short options that take
+// a value, and the names of its long options that take a value in the next word. Without these lists the
+// value (`sudo --user bob git ...`) would be read as the program.
+const prefix = (short = '', long = []) => ({ short, long });
 const PREFIX_PROGRAMS = {
-  sudo: 'ugpCDhRTUrt', doas: 'uC', command: '', builtin: '', exec: 'a', nohup: '', nice: 'n', time: 'of',
-  timeout: 'ks', xargs: 'nIPLsEdaJR', stdbuf: 'ioe', env: 'uCS', npx: 'p', pnpx: '', bunx: '',
+  sudo: prefix('ugpCDhRTUrt', ['user', 'group', 'prompt', 'close-from', 'chdir', 'host', 'chroot', 'command-timeout', 'other-user', 'role', 'type']),
+  doas: prefix('uC'),
+  command: prefix(),
+  builtin: prefix(),
+  exec: prefix('a'),
+  nohup: prefix(),
+  nice: prefix('n', ['adjustment']),
+  time: prefix('of', ['output', 'format']),
+  timeout: prefix('ks', ['kill-after', 'signal']),
+  xargs: prefix('nIPLsEdaJR', ['max-args', 'max-procs', 'max-lines', 'max-chars', 'eof', 'delimiter', 'arg-file']),
+  stdbuf: prefix('ioe', ['input', 'output', 'error']),
+  env: prefix('uCS', ['unset', 'chdir', 'split-string']),
+  caffeinate: prefix('tw'),
+  npx: prefix('p', ['package']),
+  pnpx: prefix(),
+  bunx: prefix(),
 };
 const XARGS = 'xargs';
 // Programs whose arguments are text that they print. Their words never start a program.
 const TEXT_PROGRAMS = new Set(['echo', 'printf']);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
-// A call that starts a process, with a quoted text as its first argument (`os.system("...")`, `execSync('...')`).
-const PROCESS_START_CALL = /\b(system|popen|Popen|run|call|check_output|check_call|getoutput|getstatusoutput|exec|execSync|spawn|spawnSync)\s*\(\s*(['"`])((?:\\.|(?!\2)[^\\\n])*)\2/g;
-// Options of a shell that take a value (`bash -o pipefail -c "..."`).
-const SHELL_VALUE_OPTIONS = new Set(['-o', '+o', '-O', '+O', '--rcfile', '--init-file']);
+// The names of calls that start a process in Python, JavaScript, Perl, Ruby and PHP.
+const PROCESS_START_NAMES = 'system|popen|Popen|run|call|check_output|check_call|getoutput|getstatusoutput|exec|execSync|spawn|spawnSync|execFile|execFileSync';
+// A quoted text in interpreter code. `group` is the number of the group that holds the quote character.
+const quotedText = (quotes, group) => `([${quotes}])((?:\\\\.|(?!\\${group})[^\\\\\\n])*)\\${group}`;
+// `/re/.exec('text')` is a method of a regular expression, not a process start.
+const NOT_A_REGEXP_METHOD = '(?<!\\/[dgimsuvy]{0,7}\\.)';
+// A call with a quoted text as its first argument (`os.system("...")`, `execSync('...')`).
+const startWithText = (quotes) => new RegExp(`${NOT_A_REGEXP_METHOD}\\b(${PROCESS_START_NAMES})\\s*\\(\\s*${quotedText(quotes, 2)}`, 'g');
+const START_WITH_TEXT = startWithText('\'"');
+// JavaScript also quotes a text with backticks. In other languages a backtick in a comment is prose.
+const START_WITH_TEXT_SCRIPT = startWithText('\'"`');
+const SCRIPT_INTERPRETERS = /^(node|nodejs|deno|bun)$/;
+// Perl, Ruby and PHP also write the call without parentheses: `system "..."`.
+const START_WITHOUT_PARENTHESES = new RegExp(`\\b(system|exec)\\s+${quotedText('\'"', 2)}`, 'g');
+const BARE_CALL_INTERPRETERS = /^(perl|ruby|php)$/;
+// A call with a list of words (`subprocess.run(["git", "reset", "--hard"])`), and a call with the
+// program and then a list (`spawnSync('git', ['reset', '--hard'])`).
+const START_WITH_LIST = new RegExp(`\\b(${PROCESS_START_NAMES})\\s*\\(\\s*\\[([^\\]\\n]*)\\]`, 'g');
+const START_WITH_PROGRAM_AND_LIST = new RegExp(`\\b(${PROCESS_START_NAMES})\\s*\\(\\s*${quotedText('\'"`', 2)}\\s*,\\s*\\[([^\\]\\n]*)\\]`, 'g');
+const STRING_LITERAL = /(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
+// Long options of a shell that take a value in the next word.
+const SHELL_LONG_VALUE_OPTIONS = new Set(['--rcfile', '--init-file']);
+// A brace list (`{a,b}`) stands for several words. No more words than this are built from one word.
+const MAX_BRACE_WORDS = 64;
+const SU_COMMAND_PREFIX = '--command=';
+const GIT_EXEC_PREFIX = '--exec=';
 // Options of ssh that take a value: the word after them is not the host.
 const SSH_VALUE_OPTIONS = 'bcDEeFIiJLlmOopQRSWw';
 const FIND_EXEC_OPTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir']);
@@ -76,7 +115,7 @@ const PROBLEM = {
 };
 
 // Options of git itself (before the sub-command) that take a value in the next word.
-const GIT_GLOBAL_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env', '--super-prefix']);
+const GIT_GLOBAL_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env', '--super-prefix', '--attr-source']);
 
 // Windows writes `\` between folders. The hooks compare paths with `/`.
 const toPosix = (p) => p.replace(/\\/g, '/');
@@ -181,23 +220,27 @@ function readText(text, sink, origin, bodyOnly = false) {
     i = Math.min(end, n) + 1;
   }
 
-  // Finds the `))` that closes arithmetic text which starts at `from`. Returns the index of its first `)`,
-  // or -1 when the text is not arithmetic (then the two `(` open subshells).
-  function arithmeticEnd(from) {
-    let depth = 0;
-    for (let j = from; j < n; j++) {
-      if (t[j] === '(') depth++;
-      else if (t[j] === ')') {
-        if (depth === 0) return t[j + 1] === ')' ? j : -1;
-        depth--;
+  // Finds the `))` that closes arithmetic text. `innerOpen` is the index of the second `(` of `((`.
+  // Returns the index of the first `)` of that `))`, or -1 when the text is not arithmetic (then the
+  // two `(` open subshells). The closing parenthesis of every `(` is found once for the whole text,
+  // so that many `((` in one text cost no more than one pass.
+  let closers = null;
+  function arithmeticEnd(innerOpen) {
+    if (!closers) {
+      closers = new Int32Array(n).fill(-1);
+      const open = [];
+      for (let j = 0; j < n; j++) {
+        if (t[j] === '(') open.push(j);
+        else if (t[j] === ')' && open.length) closers[open.pop()] = j;
       }
     }
-    return -1;
+    const end = closers[innerOpen];
+    return end !== -1 && t[end + 1] === ')' ? end : -1;
   }
 
   // Reads `$(( ... ))`. Returns false when the text is not arithmetic (then it is a `$(` with a subshell).
   function readArithmetic(w, owner) {
-    const end = arithmeticEnd(i + 3);
+    const end = arithmeticEnd(i + 2);
     if (end === -1) return false;
     readText(t.slice(i + 3, end), sink, { kind: 'substitution', parent: owner, depth: origin.depth }, true);
     w.text += SUBSTITUTION_MARK;
@@ -274,10 +317,12 @@ function readText(text, sink, origin, bodyOnly = false) {
         let end = t.indexOf('\n', i);
         if (end === -1) end = n;
         const line = t.slice(i, end);
-        const content = h.strip ? line.replace(/^\t+/, '') : line;
+        const tabs = h.strip ? /^\t*/.exec(line)[0].length : 0;
+        // A text with Windows line ends has a carriage return at the end of each line.
+        const content = line.slice(tabs).replace(/\r$/, '');
         // bash also ends the body at `<delimiter>)` inside `$( ... )`; zsh does not. The reader takes the
         // reading of bash, because it leaves the text after that line visible to the rules.
-        if (openSubstitutions > 0 && content.startsWith(`${h.delimiter})`)) { i += line.length - content.length + h.delimiter.length; break; }
+        if (openSubstitutions > 0 && content.startsWith(`${h.delimiter})`)) { i += tabs + h.delimiter.length; break; }
         i = Math.min(end + 1, n);
         if (content === h.delimiter) break;
         lines.push(line);
@@ -292,9 +337,10 @@ function readText(text, sink, origin, bodyOnly = false) {
   // Reads commands up to the end of the text, or up to the `)` that closes a substitution.
   // Returns true when it stopped at that `)`.
   function readList(closer, listOrigin) {
-    const unit = sink.units++;
-    const groups = [];             // one number for each open "(" of this list
-    let groupCount = 0;
+    let scope = sink.scopes++;     // a number for the list or the subshell in which a command stands
+    const groups = [];             // for each open "(" of this list, the scope around it
+    let plainWords = 0;            // words of the present command that are not keywords
+    let plainWordsNotFor = 0;      // the same, without the word `for`
     let caseDepth = 0;
     let pipeline = sink.pipelines++;
     let previous = null;           // the command before the present one in this list
@@ -303,12 +349,12 @@ function readText(text, sink, origin, bodyOnly = false) {
     let inTest = false;            // between `[[` and `]]`: operators are plain characters there
     const newCommand = () => ({
       words: [], redirects: [], hereDocs: [], separator: '', previous: null,
-      pipeline, scope: [unit, ...groups].join('.'), origin: listOrigin, order: sink.order++,
+      pipeline, scope, origin: listOrigin, order: sink.order++,
     });
     let cmd = newCommand();
     const word = () => (w || (w = newWord()));
-    const atCommandStart = () => cmd.words.every((x) => KEYWORDS.has(x.text));
-    const arithmeticAllowed = () => !w && cmd.words.every((x) => KEYWORDS.has(x.text) || x.text === 'for');
+    const atCommandStart = () => plainWords === 0;
+    const arithmeticAllowed = () => !w && plainWordsNotFor === 0;
 
     const endWord = () => {
       if (!w) return;
@@ -328,6 +374,10 @@ function readText(text, sink, origin, bodyOnly = false) {
         if (done.text === 'esac' && caseDepth > 0) caseDepth--;
       }
       if (done.text === ']]') inTest = false;
+      if (done.quoted || !KEYWORDS.has(done.text)) {
+        plainWords++;
+        if (done.text !== 'for') plainWordsNotFor++;
+      }
       cmd.words.push(done);
     };
 
@@ -341,10 +391,14 @@ function readText(text, sink, origin, bodyOnly = false) {
         previous = cmd;
         Object.assign(cmd, resolveProgram(cmd.words));
         sink.commands.push(cmd);
+        const members = sink.pipelineMembers.get(cmd.pipeline);
+        if (members) members.push(cmd); else sink.pipelineMembers.set(cmd.pipeline, [cmd]);
       }
       if (separator !== '|') pipeline = sink.pipelines++;
-      if (separator === '(') groups.push(++groupCount);
-      if (separator === ')') groups.pop();
+      if (separator === '(') { groups.push(scope); scope = sink.scopes++; }
+      if (separator === ')') scope = groups.pop();
+      plainWords = 0;
+      plainWordsNotFor = 0;
       cmd = newCommand();
     };
 
@@ -369,7 +423,7 @@ function readText(text, sink, origin, bodyOnly = false) {
       if ((c === '<' || c === '>') && t[i + 1] === '(') { i += 2; readSubstitution(word(), cmd); continue; }
       if (c === '(') {
         if (t[i + 1] === '(' && arithmeticAllowed()) {                 // `(( ... ))`: arithmetic, no command inside
-          const end = arithmeticEnd(i + 2);
+          const end = arithmeticEnd(i + 1);
           if (end !== -1) { i = end + 2; continue; }
         }
         endCommand('(');
@@ -377,6 +431,7 @@ function readText(text, sink, origin, bodyOnly = false) {
         continue;
       }
       if (c === ')') {
+        endWord();                                                     // `esac)` : the word ends the `case` first
         if (groups.length) endCommand(')');
         else if (caseDepth > 0) endCommand(';');                       // the end of a pattern of `case`
         else if (closer === ')') { endCommand(''); i++; return true; }
@@ -423,38 +478,56 @@ function readText(text, sink, origin, bodyOnly = false) {
 }
 
 /**
+ * Skips the own options of a program. `i` is the index of the first word after
+ * the program name. Returns the index of the first word that is not an option.
+ * `shortWithValue`: the letters of short options that take a value.
+ * `longWithValue`: the names of long options that take a value in the next word.
+ */
+function skipOptions(words, i, shortWithValue = '', longWithValue = []) {
+  for (; i < words.length; i++) {
+    const v = words[i].text;
+    if (v === '--') return i + 1;
+    if (!v.startsWith('-') || v === '-') return i;
+    if (v.startsWith('--')) {
+      if (!v.includes('=') && longWithValue.includes(v.slice(2))) i++;
+      continue;
+    }
+    // In a group of short options (`-Eu bob`) the option that takes a value is the last letter.
+    const k = [...v.slice(1)].findIndex((letter) => shortWithValue.includes(letter));
+    if (k !== -1 && k === v.length - 2) i++;
+  }
+  return i;
+}
+
+/**
  * Removes keywords, variable assignments and prefix programs from the words of
  * one simple command. Returns the real program (lower case, without folder)
  * and its arguments.
  */
 function resolveProgram(words) {
-  const w = words.slice();
   const assignments = [];
   const prefixes = [];
   const result = (program, args, bare = false) => ({ program, args, assignments, prefixes, bare });
+  let i = 0;
   for (;;) {
-    for (;;) {
-      const first = w[0];
-      if (!first) return result('', []);
-      if (!first.quoted && KEYWORDS.has(first.text)) w.shift();
-      else if (!first.quoted && first.text === 'function') w.splice(0, 2);
-      else if (ASSIGNMENT.test(first.text)) assignments.push(w.shift());
-      else break;
+    for (; i < words.length; i++) {
+      const first = words[i];
+      if (ASSIGNMENT.test(first.text)) assignments.push(first);
+      else if (!first.quoted && first.text === 'function') i++;
+      else if (first.quoted || !KEYWORDS.has(first.text)) break;
     }
-    if (!w[0].quoted && DATA_KEYWORDS.has(w[0].text)) return result('', []);
-    const program = programName(w[0].text);
+    if (i >= words.length) return result('', []);
+    if (!words[i].quoted && DATA_KEYWORDS.has(words[i].text)) return result('', []);
+    const program = programName(words[i].text);
     const isPrefix = Object.prototype.hasOwnProperty.call(PREFIX_PROGRAMS, program)
-      && !(program === 'command' && w[1] && /^-[vV]$/.test(w[1].text));
-    if (!isPrefix) return result(program, w.slice(1));
+      && !(program === 'command' && words[i + 1] && /^-[vV]$/.test(words[i + 1].text));
+    if (!isPrefix) return result(program, words.slice(i + 1));
     prefixes.push(program);
-    w.shift();
-    while (w.length && (w[0].text.startsWith('-') || (program === 'env' && ASSIGNMENT.test(w[0].text)))) {
-      const option = w.shift();
-      if (ASSIGNMENT.test(option.text)) assignments.push(option);
-      else if (option.text.length === 2 && PREFIX_PROGRAMS[program].includes(option.text[1])) w.shift();
-    }
-    if (program === 'timeout' && w.length) w.shift();                  // the duration
-    if (!w.length) return result(program, [], true);
+    const own = PREFIX_PROGRAMS[program];
+    i = skipOptions(words, i + 1, own.short, own.long);
+    if (program === 'env') for (; i < words.length && ASSIGNMENT.test(words[i].text); i++) assignments.push(words[i]);
+    if (program === 'timeout' && i < words.length) i++;                // the duration
+    if (i >= words.length) return result(program, [], true);
   }
 }
 
@@ -462,7 +535,7 @@ function resolveProgram(words) {
 function derivedCommand(words, parent, sink) {
   const cmd = {
     words, redirects: [], hereDocs: [], separator: ';', previous: null, pipeline: sink.pipelines++,
-    scope: String(sink.units++), origin: { kind: 'code', parent, depth: parent.origin.depth + 1 }, order: sink.order++,
+    scope: sink.scopes++, origin: { kind: 'code', parent, depth: parent.origin.depth + 1 }, order: sink.order++,
   };
   return Object.assign(cmd, resolveProgram(words));
 }
@@ -503,18 +576,39 @@ function gitCall(args) {
   return { globals: args.slice(0, i), sub: args[i] ? args[i].text : '', rest: args.slice(i + 1) };
 }
 
+/**
+ * The words that the brace lists of a word stand for: `{a,b}/x` gives `a/x`
+ * and `b/x`. Returns null when they are more than MAX_BRACE_WORDS.
+ */
+function expandBraces(text) {
+  let words = [text];
+  for (;;) {
+    const next = words.flatMap((word) => {
+      const m = /^([^]*?)\{([^{}]*,[^{}]*)\}([^]*)$/.exec(word);
+      return m ? m[2].split(',').map((part) => m[1] + part + m[3]) : [word];
+    });
+    if (next.length === words.length) return words;
+    if (next.length > MAX_BRACE_WORDS) return null;
+    words = next;
+  }
+}
+
 // True when one long option is `full` or a shortened form of it. git and the GNU programs accept shortened forms.
 const hasLong = (long, full) => long.some((l) => l.length > 0 && full.startsWith(l));
 
-// The text that follows `-c` of a shell, at any place in the words (`docker run img sh -c "..."`).
-function shellCodeArgument(words) {
+// The word that follows `-c` of a shell, at any place in the words (`docker run img sh -c "..."`).
+// Other options of the shell may stand before it (`bash -euo pipefail -c`, `bash --login -c`, `bash -c --`).
+function shellCodeWord(words) {
   const k = words.findIndex((x) => SHELLS.has(programName(x.text)));
   if (k === -1) return null;
+  let hasCode = false;
   for (let j = k + 1; j < words.length; j++) {
     const v = words[j].text;
-    if (SHELL_VALUE_OPTIONS.has(v)) { j++; continue; }
-    if (!/^[-+][A-Za-z]/.test(v)) return null;
-    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(v)) return words[j + 1] ? words[j + 1].text : null;
+    if (v === '--') return (hasCode && words[j + 1]) || null;
+    if (v.startsWith('--')) { if (SHELL_LONG_VALUE_OPTIONS.has(v)) j++; continue; }
+    if (!/^[-+][A-Za-z]+$/.test(v)) return hasCode ? words[j] : null;
+    if (v[0] === '-' && v.includes('c')) hasCode = true;
+    if (/[oO]$/.test(v)) j++;                                          // `-o pipefail`, `-euo pipefail`
   }
   return null;
 }
@@ -527,9 +621,30 @@ function writtenTexts(c) {
   return [...c.hereDocs, ...printed];
 }
 
-// The texts inside interpreter code that go to a shell: the quoted first argument of a call that starts a process.
-function processStartTexts(code) {
-  return [...code.matchAll(PROCESS_START_CALL)].map((m) => m[3].replace(/\\(.)/g, '$1'));
+// The texts that the substitutions inside a word print, as far as the text shows them:
+// `"$(cat <<'EOF' ... EOF)"` prints the here-document, `"$(echo ...)"` prints its words.
+const printedBy = (word) => word.subs.flatMap((commands) => commands.flatMap(writtenTexts));
+
+// The quoted texts of a list in interpreter code: `["git", "reset", "--hard"]` gives three texts.
+function stringLiterals(code) {
+  return [...code.matchAll(STRING_LITERAL)].map((m) => m[2].replace(/\\(.)/g, '$1'));
+}
+
+/**
+ * What interpreter code gives to a new process, as far as plain texts show it.
+ * Returns { texts, lists }. `texts`: the quoted first argument of a call that
+ * starts a process (`os.system("...")`, `execSync('...')`, Perl `system "..."`);
+ * a shell reads it. `lists`: the words of a call with a list
+ * (`subprocess.run(["git", "reset", "--hard"])`, `spawnSync('git', ['reset'])`);
+ * the program gets them as they are.
+ */
+function processStarts(code, interpreter) {
+  const unescape = (text) => text.replace(/\\(.)/g, '$1');
+  const texts = [...code.matchAll(SCRIPT_INTERPRETERS.test(interpreter) ? START_WITH_TEXT_SCRIPT : START_WITH_TEXT)].map((m) => unescape(m[3]));
+  if (BARE_CALL_INTERPRETERS.test(interpreter)) texts.push(...[...code.matchAll(START_WITHOUT_PARENTHESES)].map((m) => unescape(m[3])));
+  const lists = [...code.matchAll(START_WITH_LIST)].map((m) => stringLiterals(m[2]));
+  lists.push(...[...code.matchAll(START_WITH_PROGRAM_AND_LIST)].map((m) => [unescape(m[3]), ...stringLiterals(m[4])]));
+  return { texts, lists: lists.filter((list) => list.length) };
 }
 
 // The interpreter that a script text names in its first line (`#!/usr/bin/env python3`), or '' for a shell script.
@@ -543,66 +658,89 @@ function scriptInterpreter(text) {
 /**
  * Finds the code texts of one command: text that a shell will run because of
  * its position. Returns { texts: [string], derived: [command] }.
- * `written`: the files that earlier commands of the same call wrote.
+ * `written`: the files that earlier commands of the same call wrote, by file name.
  */
 function codeOf(c, sink, written) {
   const texts = [];
   const derived = [];
   const all = c.words.filter((x) => !ASSIGNMENT.test(x.text));
-  const inlineCode = TEXT_PROGRAMS.has(c.program) ? null : shellCodeArgument(all);
-  if (inlineCode !== null) texts.push(inlineCode);
+  const pushWord = (word) => texts.push(word.text, ...printedBy(word));
+  const codeWord = TEXT_PROGRAMS.has(c.program) ? null : shellCodeWord(all);
+  if (codeWord) pushWord(codeWord);
   const isShell = SHELLS.has(c.program);
   const isInterpreter = INTERPRETERS.test(c.program);
-  const sameFile = (word, file) => word.text === file.name || baseName(word.text) === baseName(file.name);
-  // A written file runs as shell text, or, when it names an interpreter, its process-start calls run.
-  const runWritten = (file) => {
-    for (const text of file.texts) {
-      const interpreter = isInterpreter ? c.program : scriptInterpreter(text);
-      if (!interpreter) texts.push(text);
-      else if (INTERPRETERS.test(interpreter)) texts.push(...processStartTexts(text));
-    }
+  const literalWord = (text) => Object.assign(newWord(), { text, quoted: true });
+  const readInterpreterCode = (code, interpreter) => {
+    const starts = processStarts(code, interpreter);
+    texts.push(...starts.texts);
+    derived.push(...starts.lists.map((list) => derivedCommand(list.map(literalWord), c, sink)));
   };
+  // The texts that the other members of the pipe print, as far as the text shows them.
+  const pipedTexts = () => (sink.pipelineMembers.get(c.pipeline) || []).filter((d) => d !== c).flatMap(writtenTexts);
   if (isShell) {
     texts.push(...c.hereDocs);
-    for (const r of c.redirects) if (r.op === '<<<') texts.push(r.target.text);
-    const operands = splitArgs(c.args, 'cO', []).operands;
-    // The shell reads its commands from a pipe: the text of the earlier pipe members is the script.
-    if (inlineCode === null && operands.length === 0) {
-      for (const d of sink.commands) {
-        if (d.pipeline === c.pipeline && d.order < c.order) texts.push(...writtenTexts(d));
-      }
+    for (const r of c.redirects) if (r.op === '<<<') pushWord(r.target);
+    const operands = splitArgs(c.args, 'cOo').operands.filter((a) => a.text !== '-');
+    // The shell reads its commands from a pipe: the text of the other pipe members is the script.
+    // One pipe is read once, also when several shells stand in it.
+    if (!codeWord && operands.length === 0 && !sink.pipelinesRead.has(c.pipeline)) {
+      sink.pipelinesRead.add(c.pipeline);
+      texts.push(...pipedTexts());
     }
   }
   // The file that the command runs: the first operand of a shell, of an interpreter or of `source`,
   // else the command word itself when it is written as a path (`./run.sh`).
   const runsScript = isShell || isInterpreter || c.program === 'source' || c.program === '.';
   const script = runsScript ? c.args.find((a) => !a.text.startsWith('-')) : all.find((x) => x.text.includes('/') && programName(x.text) === c.program);
-  for (const file of written) if (script && sameFile(script, file)) runWritten(file);
-  for (const r of c.redirects) {
-    if (!WRITE_REDIRECTS.has(r.op) || r.target.dynamic) continue;
-    const stored = writtenTexts(c);
-    if (stored.length) written.push({ name: r.target.text, texts: stored });
+  // A written file runs as shell text, or, when it names an interpreter, its process-start calls run.
+  // Each stored text is read once: the list of a file is empty after the first command that runs it.
+  const scriptName = script ? baseName(script.text) : '';
+  for (const text of written.get(scriptName) || []) {
+    const interpreter = isInterpreter ? c.program : scriptInterpreter(text);
+    if (!interpreter) texts.push(text);
+    else if (INTERPRETERS.test(interpreter)) readInterpreterCode(text, interpreter);
   }
-  if (c.program === 'eval') texts.push(joinWords(c.args));
-  if (c.program === 'ssh') texts.push(joinWords(splitArgs(c.args, SSH_VALUE_OPTIONS).operands.slice(1)));
-  if (c.program === 'watch') texts.push(joinWords(splitArgs(c.args, 'nd', ['interval', 'differences']).operands));
+  if (written.has(scriptName)) written.set(scriptName, []);
+  const store = (word, stored) => {
+    if (word.dynamic || !stored.length) return;
+    const name = baseName(word.text);
+    if (!written.has(name)) written.set(name, []);
+    written.get(name).push(...stored);
+  };
+  for (const r of c.redirects) if (WRITE_REDIRECTS.has(r.op)) store(r.target, writtenTexts(c));
+  // `tee <file>` writes its input: its own here-document, or the text of the other pipe members.
+  if (c.program === 'tee') {
+    const input = [...c.hereDocs, ...pipedTexts()];
+    for (const a of c.args) if (!a.text.startsWith('-')) store(a, input);
+  }
+  if (c.program === 'eval') texts.push(joinWords(c.args), ...c.args.flatMap(printedBy));
+  // ssh and watch join every word after their own options to one text, and a shell reads that text.
+  if (c.program === 'ssh') texts.push(joinWords(c.args.slice(skipOptions(c.args, 0, SSH_VALUE_OPTIONS) + 1)));
+  if (c.program === 'watch') texts.push(joinWords(c.args.slice(skipOptions(c.args, 0, 'n', ['interval']))));
+  if (c.program === 'su') {
+    c.args.forEach((a, j) => {
+      if ((a.text === '-c' || a.text === '--command') && c.args[j + 1]) pushWord(c.args[j + 1]);
+      if (a.text.startsWith(SU_COMMAND_PREFIX)) texts.push(a.text.slice(SU_COMMAND_PREFIX.length));
+    });
+  }
   if (c.program === 'tmux' && c.args[0] && c.args[0].text === 'send-keys') texts.push(...c.args.slice(1).map((a) => a.text));
   if (c.program === 'osascript') {
     for (const m of joinWords(c.args).matchAll(/do shell script\s+"((?:[^"\\]|\\.)*)"/g)) texts.push(m[1].replace(/\\(.)/g, '$1'));
   }
   if (c.program === 'git') {
-    const k = c.args.findIndex((a) => a.text === 'foreach' || a.text === 'run');
-    const before = k > 0 ? c.args[k - 1].text : '';
-    if (before === 'submodule') texts.push(joinWords(c.args.slice(k + 1)));
-    if (before === 'bisect' && c.args[k + 1]) derived.push(derivedCommand(c.args.slice(k + 1), c, sink));
-    if (c.args.some((a) => a.text === 'rebase')) {
-      c.args.forEach((a, j) => {
-        if ((a.text === '-x' || a.text === '--exec') && c.args[j + 1]) texts.push(c.args[j + 1].text);
-        if (a.text.startsWith('--exec=')) texts.push(a.text.slice('--exec='.length));
+    const { sub, rest } = gitCall(c.args);
+    const afterOptions = (list) => list.slice(skipOptions(list, 0));
+    const inner = afterOptions(rest);
+    if (sub === 'submodule' && inner[0] && inner[0].text === 'foreach') texts.push(joinWords(afterOptions(inner.slice(1))));
+    if (sub === 'bisect' && inner[0] && inner[0].text === 'run' && inner[1]) derived.push(derivedCommand(inner.slice(1), c, sink));
+    if (sub === 'rebase') {
+      rest.forEach((a, j) => {
+        if ((a.text === '-x' || a.text === '--exec') && rest[j + 1]) texts.push(rest[j + 1].text);
+        if (a.text.startsWith(GIT_EXEC_PREFIX)) texts.push(a.text.slice(GIT_EXEC_PREFIX.length));
       });
     }
   }
-  if (isInterpreter) texts.push(...processStartTexts([...c.args.map((a) => a.text), ...c.hereDocs].join('\n')));
+  if (isInterpreter) readInterpreterCode([...c.args.map((a) => a.text), ...c.hereDocs].join('\n'), c.program);
   if (c.program === 'find') {                                         // the words after each `-exec` are a command
     let words = null;
     for (const a of c.args) {
@@ -623,10 +761,13 @@ function codeOf(c, sink, written) {
  * list when it was read completely).
  */
 function readCommand(text) {
-  const sink = { commands: [], problems: [], units: 0, pipelines: 0, order: 0 };
+  const sink = {
+    commands: [], problems: [], scopes: 0, pipelines: 0, order: 0,
+    pipelineMembers: new Map(), pipelinesRead: new Set(),
+  };
   readText(String(text || ''), sink, { kind: 'top', parent: null, depth: 0 });
   sink.commands.sort((a, b) => a.order - b.order);
-  const written = [];
+  const written = new Map();
   for (let k = 0; k < sink.commands.length; k++) {
     const c = sink.commands[k];
     const { texts, derived } = codeOf(c, sink, written);
@@ -640,6 +781,6 @@ function readCommand(text) {
 }
 
 module.exports = {
-  readCommand, splitArgs, hasLong, gitCall, toPosix,
+  readCommand, splitArgs, hasLong, gitCall, expandBraces, toPosix, baseName,
   SHELLS, INTERPRETERS, ASSIGNMENT, XARGS, TEXT_PROGRAMS, FIND_EXEC_OPTIONS, SUBSTITUTION_MARK,
 };

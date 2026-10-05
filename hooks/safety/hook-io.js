@@ -87,6 +87,15 @@ function firstRefusal(commands, rule) {
  * `decide(data)` for a result, and writes the decision to standard output.
  * `decide` returns { blocked, pattern: { id, reason } }.
  * A tool that is not in `tools`, and an input that is not JSON, pass.
+ *
+ * What an error inside a hook does:
+ * - For a Bash command, `decideCommand` turns the error into a refusal. The
+ *   hook could not judge the command, the command may destroy data, and the
+ *   model can write the command in a simpler form.
+ * - For Read, Edit, Write and Grep, an error inside `decide` arrives here and
+ *   the call passes. The error is written to the log. Reason: these checks
+ *   are a lookup in a table, and a defect that refused every Read, Edit and
+ *   Write would stop all work, with no other form that the model could use.
  */
 async function runHook(hook, tools, decide) {
   let input = '';
