@@ -2,8 +2,8 @@
 /**
  * Unit tests — every file that states the plugin version states the same one
  *
- * A release writes the version into nine places: the ones that the `CLAUDE.md`
- * section "Releases" lists, and the README release list. The v7.43.0 release commit wrote an EMPTY `VERSION`
+ * A release writes the version into eight places: the ones that the
+ * `CLAUDE.md` section "Releases" lists. The v7.43.0 release commit wrote an EMPTY `VERSION`
  * file, and every suite passed. `versionProblems(root)` reads each place under
  * `root` and returns one sentence per place that does not hold the version of
  * `.claude-plugin/plugin.json`. The tests run it on this repository, and on
@@ -35,11 +35,6 @@ const README_RANGE_COUNT = 2;
 // of version strings found there. An empty list means "no version found".
 const matches = (pattern) => (text) => Array.from(text.matchAll(pattern), (m) => m[1]);
 const firstMatch = (pattern) => (text) => matches(pattern)(text).slice(0, 1);
-// The release list is one long line of "description (vX.Y.Z)" items; its last
-// item is the newest release. Another sentence of the README may cite an old
-// release in the same form, so only this line is read.
-const RELEASE_LIST_START = 'The remaining releases';
-const releaseListLine = (text) => text.split('\n').find((line) => line.startsWith(RELEASE_LIST_START)) || '';
 const PLACES = [
   // Only one line end is removed (a Windows line end counts as one): a second
   // line, also an empty one, is not part of the version.
@@ -48,7 +43,6 @@ const PLACES = [
   { label: 'plugin.universal.yaml, meta', file: UNIVERSAL_YAML, read: firstMatch(new RegExp(`^  version: "(${VERSION_SHAPE})"$`, 'gm')) },
   { label: 'the README badge', file: README, read: matches(new RegExp(`badge/version-(${VERSION_SHAPE})-`, 'g')) },
   { label: 'the README release ranges', file: README, count: README_RANGE_COUNT, read: matches(new RegExp(`${FIRST_FORK_VERSION}–v(${VERSION_SHAPE})`, 'g')) },
-  { label: 'the README release list', file: README, read: (text) => matches(new RegExp(`\\(v(${VERSION_SHAPE})\\)`, 'g'))(releaseListLine(text)).slice(-1) },
   { label: 'the first RELEASE-NOTES.md heading', file: RELEASE_NOTES, read: firstMatch(new RegExp(`^## v(${VERSION_SHAPE})`, 'gm')) },
 ];
 
@@ -140,9 +134,9 @@ test('a RELEASE-NOTES.md without an entry for the version is reported', () => {
   assertOneProblem(damagedCopy(RELEASE_NOTES, withOtherVersion), 'the first RELEASE-NOTES.md heading');
 });
 
-test('a README with another version is reported for the badge, the ranges and the list', () => {
+test('a README with another version is reported for the badge and the ranges', () => {
   const problems = versionProblems(damagedCopy(README, withOtherVersion));
-  assert.strictEqual(problems.length, 3, JSON.stringify(problems));
+  assert.strictEqual(problems.length, 2, JSON.stringify(problems));
 });
 
 test('a README with one release range left at the old version is reported', () => {
