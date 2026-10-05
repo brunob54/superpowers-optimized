@@ -27,12 +27,14 @@
  *   - a script file that exists already, `make`, `npm run`;
  *   - a read of a whole folder (`grep -r KEY .`, `tar czf all.tgz .`);
  *   - a file name pattern with fewer than three plain characters that does
- *     not start with a dot (`cat *`, `cat *.*`);
+ *     not start with a dot (`cat *`, `cat *.*`), and a pattern with a negated
+ *     set of characters (`.[!.]*`);
  *   - `xargs` that gets file names from a program other than `find`, `ls`,
  *     `echo` or `printf`;
  *   - code of an interpreter (`python3 -c "open('.env')"`), except a call
  *     that starts a process;
- *   - a variable with a secret name in lower case (`echo "$api_key"`);
+ *   - a variable with a secret name in lower case (`echo "$api_key"`,
+ *     `$token`): only a name in upper case counts;
  *   - a command that is written to hide its meaning on purpose.
  *
  * Based on claude-code-hooks by karanb192 (MIT License).
@@ -169,15 +171,21 @@ const ZIP = 'zip';
 const ZIP_EXCLUDE = '-x';
 // Sub-commands of git that do not print or store the content of the files that they name.
 const GIT_NO_CONTENT = new Set(['check-ignore', 'ls-files', 'status']);
-// A part of a variable name (between `_`) that marks a secret: API_KEY, PGPASSWORD, DB_PASS, AUTH_TOKEN.
-// Only upper case counts: a loop variable such as `$key` is not a secret.
+// A variable name in UPPER case is a secret name when one of its parts (between `_`) is a secret word,
+// wherever the part stands: API_KEY, FILE_ENCRYPTION_KEY, PGPASSWORD, GITHUB_TOKEN.
+// A name in lower case passes (`$key`, `$token`): that is a documented limit.
 // KEY counts alone or after a word such as API (`$MONKEY` and the list `$KEYS` are no secrets).
-const SECRET_NAME_PART = /^(.*(SECRETS?|TOKEN|PASSWORD|PASSWD)|(API|ACCESS|PRIVATE|SECRET|SSH)?KEY|PASS|AUTH|CREDENTIALS?|PRIVATE)$/;
-// With one of these parts the variable holds a number or a place, not the secret: TOKEN_COUNT, KEY_FILE.
-const NOT_THE_SECRET_PARTS = new Set(['COUNT', 'LIMIT', 'LENGTH', 'SIZE', 'FILE', 'PATH', 'DIR', 'SOCK']);
-// `PASS` alone is the usual name for the number of tests that passed. With another part it is a
-// password (`DB_PASS`).
-const PASS_COUNTER = 'PASS';
+const SECRET_NAME_PART = /^(.*(SECRETS?|TOKEN|PASSWORD|PASSWD)|(API|ACCESS|PRIVATE|SECRET|SSH)?KEY|CREDENTIALS?|PRIVATE)$/;
+// A name with one of these parts is a number, not the secret: TOKEN_COUNT, PASSWORD_LENGTH.
+const COUNTER_PARTS = new Set(['COUNT', 'LIMIT', 'LENGTH', 'SIZE']);
+// PASS is a password when another part names what it belongs to (`DB_PASS`). Alone, or with one of
+// these parts only, it is the number of tests that passed: PASS, TESTS_PASS, TOTAL_PASS.
+const PASS_PART = 'PASS';
+const PASS_COUNTER_PARTS = new Set(['TESTS', 'TEST', 'TOTAL', 'NUM']);
+// AUTH is a secret word (`REDIS_AUTH`), except in a name that holds an address or a setting:
+// AUTH_URL, AUTH_METHOD, SSH_AUTH_SOCK.
+const AUTH_PART = 'AUTH';
+const ADDRESS_PARTS = new Set(['URL', 'URI', 'HOST', 'PORT', 'SOCK', 'METHOD', 'ENDPOINT', 'DOMAIN']);
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PRINT_ENVIRONMENT = 'printenv';
 // Shell words that list every variable when they have no name argument.
@@ -226,15 +234,56 @@ function secretRow(filePath) {
   return SENSITIVE_FILES.find(row => row.regex.test(p)) || null;
 }
 
-// A file name pattern as a regular expression: `*` is any text, `?` is one character,
-// `[a-z]` is a set of characters. A set that is not valid is read as plain characters.
-function patternToRegex(name) {
-  const source = (plain) => name.replace(plain, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-  try {
-    return new RegExp(`^${source(/[.+^${}()|\\]/g)}$`);
-  } catch {
-    return new RegExp(`^${source(/[.+^${}()|\\[\]]/g)}$`);
+// The parts of a file name pattern.
+const ANY_TEXT = Symbol('*');
+const ANY_CHARACTER = Symbol('?');
+
+// The test for a set of characters of a pattern: `[a-z]`, `[abc]`.
+function characterSet(chars) {
+  // A negated set (`[!a]`) is not read as one: `!` counts as a plain member. `.[!.]*` therefore
+  // matches no secret name; that is a documented limit.
+  return (ch) => {
+    for (let k = 0; k < chars.length; k++) {
+      const isRange = chars[k + 1] === '-' && k + 2 < chars.length;
+      if (isRange ? ch >= chars[k] && ch <= chars[k + 2] : ch === chars[k]) return true;
+      if (isRange) k += 2;
+    }
+    return false;
+  };
+}
+
+// Splits a file name pattern into its parts: `*` (any text), `?` (one character), `[a-z]` (a set
+// of characters) or a plain character. A run of `*` is one `*`.
+function patternParts(pattern) {
+  const parts = [];
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    const close = c === '[' ? pattern.indexOf(']', i + 2) : -1;
+    if (c === '*') { if (parts[parts.length - 1] !== ANY_TEXT) parts.push(ANY_TEXT); }
+    else if (c === '?') parts.push(ANY_CHARACTER);
+    else if (close !== -1) { parts.push(characterSet(pattern.slice(i + 1, close))); i = close; }
+    else parts.push(c);
   }
+  return parts;
+}
+
+// True when the pattern parts match the whole name. The work grows with the length of the pattern
+// times the length of the name; there is no regular expression that could try every split of the name.
+function matchesPattern(parts, name) {
+  let p = 0;
+  let s = 0;
+  let star = -1;                 // the last `*` that was passed
+  let resume = 0;                // where in the name the text of that `*` ends at present
+  while (s < name.length) {
+    const part = parts[p];
+    const fits = part === ANY_CHARACTER || (typeof part === 'function' ? part(name[s]) : part === name[s]);
+    if (part === ANY_TEXT) { star = p++; resume = s; }
+    else if (fits) { p++; s++; }
+    else if (star !== -1) { p = star + 1; s = ++resume; }
+    else return false;
+  }
+  while (parts[p] === ANY_TEXT) p++;
+  return p === parts.length;
 }
 
 /**
@@ -253,8 +302,8 @@ function secretRowOfPattern(pattern) {
     const dir = p.slice(0, p.lastIndexOf('/') + 1);
     const name = p.slice(dir.length);
     if (!name.startsWith('.') && name.replace(/[*?[\]]/g, '').length < MIN_PATTERN_CHARACTERS) continue;
-    const asRegex = patternToRegex(name);
-    const sample = HIDDEN_SAMPLE_NAMES.find(s => asRegex.test(s));
+    const parts = patternParts(name);
+    const sample = HIDDEN_SAMPLE_NAMES.find(s => matchesPattern(parts, s));
     const row = sample ? secretRow(dir + sample) : null;
     if (row) return row;
   }
@@ -271,7 +320,8 @@ function checkFilePath(filePath) {
 function secretRowOfWord(word) {
   const tail = word.text.slice(-PATH_TAIL);
   for (const text of expandBraces(tail) || [tail]) {
-    const row = secretRowOfPattern(text.replace(PATH_STARTS, '/'));
+    // The word as it is (a file name can hold `@`, `:`, `,` or `=`), and the path after such a character.
+    const row = secretRowOfPattern(text) || secretRowOfPattern(text.replace(PATH_STARTS, '/'));
     if (row) return row;
   }
   return null;
@@ -290,11 +340,12 @@ function isValueOf(args, k, options, shortGroups = false) {
 
 // The words without the pattern operand of a program such as grep. `options`: a row of PATTERN_FIRST_PROGRAMS.
 function withoutPattern(words, options) {
-  const files = words.filter((a, k) => !isValueOf(words, k, options.text, true));
-  const a = splitArgs(files, options.value, PATTERN_FIRST_LONG_VALUE);
+  const a = splitArgs(words, options.value, PATTERN_FIRST_LONG_VALUE);
+  // When an option gives the pattern (`-e X`, `-eX`, `--regexp=X`, `-f file`), no operand is the
+  // pattern: every operand is a file. Only the value of the option is text.
   const patternInOption = [...options.pattern].some(o => a.short.has(o)) || PATTERN_OPTION_LONG.some(o => a.long.includes(o));
-  const pattern = patternInOption ? null : a.operands[0];
-  return files.filter(x => x !== pattern);
+  if (patternInOption) return words.filter((x, k) => !isValueOf(words, k, options.text, true));
+  return words.filter(x => x !== a.operands[0]);
 }
 
 /**
@@ -330,23 +381,31 @@ function testedWords(c, feedsXargs) {
     const namesFolderFirst = a.short.has('t') || a.long.includes('target-directory');
     if (keepsDestination && !namesFolderFirst) words = words.filter(x => x !== a.operands[a.operands.length - 1]);
   }
+  // Words that only name files to leave out. They are text. They are taken out at the end, so that
+  // they exempt no other word: the pattern and the files are found with every word in its place.
+  const leftOut = new Set();
   if (program === ZIP) {
-    const from = texts.indexOf(ZIP_EXCLUDE);
-    const beforeExclude = new Set(from === -1 ? c.args : c.args.slice(0, from));
-    words = words.filter(x => beforeExclude.has(x));
+    // `zip ... -x <pattern>...`: the patterns end at the next option.
+    for (let k = texts.indexOf(ZIP_EXCLUDE) + 1; k > 0 && k < texts.length && !texts[k].startsWith('-'); k++) leftOut.add(c.args[k]);
   }
   if (program === 'rg') {
     // A glob that starts with `!` names the files that rg leaves out.
-    words = words.filter((a, k) => !(isValueOf(words, k, RG_GLOB_OPTIONS) && a.text.replace(/^--i?glob=/, '').startsWith(EXCLUSION_MARK)));
+    c.args.forEach((a, k) => {
+      if (isValueOf(c.args, k, RG_GLOB_OPTIONS) && a.text.replace(/^--i?glob=/, '').startsWith(EXCLUSION_MARK)) leftOut.add(a);
+    });
   }
   if (Object.prototype.hasOwnProperty.call(PATTERN_FIRST_PROGRAMS, program)) words = withoutPattern(words, PATTERN_FIRST_PROGRAMS[program]);
-  return words;
+  return words.filter(x => !leftOut.has(x));
 }
 
 // True for the name of a variable that holds a secret: one of its parts is a secret word in upper case.
 function isSecretName(name) {
   const parts = name.split('_');
-  return name !== PASS_COUNTER && parts.some(part => SECRET_NAME_PART.test(part)) && !parts.some(part => NOT_THE_SECRET_PARTS.has(part));
+  if (parts.some(part => COUNTER_PARTS.has(part))) return false;
+  const others = parts.filter(part => part !== PASS_PART);
+  const password = others.length < parts.length && others.some(part => !PASS_COUNTER_PARTS.has(part));
+  const login = parts.includes(AUTH_PART) && !parts.some(part => ADDRESS_PARTS.has(part));
+  return password || login || parts.some(part => SECRET_NAME_PART.test(part));
 }
 
 // The names that a command gives as arguments (`printenv HOME`, `declare -p API_KEY`).

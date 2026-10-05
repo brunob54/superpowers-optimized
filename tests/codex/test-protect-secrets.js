@@ -35,9 +35,15 @@ const BIG_INPUTS = [
   ['one long word', `curl -d '{${'"k": [1, 2], '.repeat(MEGABYTE / 13)}}' https://example.com; ${BIG_INPUT_END}`],
   ['one long word of path separators', `curl -d '${'/a=b:c,@'.repeat(MEGABYTE / 8)}' https://example.com; ${BIG_INPUT_END}`],
   ['nested subshells', `${'( '.repeat(MEGABYTE / 4)}${BIG_INPUT_END}${' )'.repeat(MEGABYTE / 4)}`],
+  // Smaller inputs whose time grew much faster than their size: a word of pattern characters.
+  ['a word of 10,000 stars', `logger '${'*'.repeat(10000)} start'; ${BIG_INPUT_END}`],
+  ['a word of mixed pattern characters', `logger '.${'*?[a]*'.repeat(2000)}'; ${BIG_INPUT_END}`],
+  ['a word of stars and question marks that starts with a dot', `ls -d .${'*?'.repeat(2000)} | wc -l; ${BIG_INPUT_END}`],
 ];
 const BIG_INPUT_SECONDS = 20;
 const FIXTURE = 'protect-secrets-cases.json';
+// Inputs that a first round of corrections decided wrongly, with the right decision.
+const REGRESSIONS = 'protect-secrets-regressions.json';
 const ENV_FILE = 'env-file';
 const ENV_DUMP = 'env-dump';
 const SECRET_VAR = 'echo-secret-var';
@@ -175,10 +181,54 @@ const REVIEW_PASSES = [
   bash('openssl -CAfile', 'openssl s_client -connect example.com:443 -CAfile ca.pem', ALLOW),
   bash('uvicorn loads a key and a certificate', 'uvicorn app:app --ssl-keyfile key.pem --ssl-certfile cert.pem', ALLOW),
   bash('a loop variable in lower case', 'for key in a b; do echo "$key"; done', ALLOW),
-  bash('variables that hold a number or a place, not the secret',
-    'echo "$TOKEN_COUNT $TOKEN_LIMIT $KEY_LENGTH $KEY_SIZE $KEY_FILE $KEY_PATH $SECRETS_DIR $SSH_AUTH_SOCK"', ALLOW),
   bash('variables whose names only hold the letters of a secret word', 'echo "$KEYBOARD $AUTHOR $PWD $MONKEY $KEYS"', ALLOW),
   bash('the counter of tests that passed', 'echo "passed: $PASS, failed: $FAIL"', ALLOW),
+];
+
+// The two lists of variable names. A name in upper case is a secret name when one of its parts
+// (between `_`) is a secret word, wherever the part stands. Counters and addresses are no secrets.
+const SECRET_NAMES = ['API_KEY', 'FILE_ENCRYPTION_KEY', 'DIR_PASSWORD', 'KEY_FILE', 'SECRETS_DIR', 'PGPASSWORD', 'DB_PASS',
+  'ROOT_PASS_OLD', 'API_KEY_PROD', 'SECRET_VALUE', 'GITHUB_TOKEN', 'TOKEN_URL', 'AWS_SECRET_ACCESS_KEY', 'CREDENTIALS',
+  'SSH_PRIVATE_KEY_PATH', 'PASSWD', 'AUTH', 'REDIS_AUTH', 'BASIC_AUTH'];
+const PLAIN_NAMES = ['PASS', 'TESTS_PASS', 'PASS_COUNT', 'PASSED', 'TOTAL_PASS', 'AUTH_URL', 'SSH_AUTH_SOCK', 'TOKEN_COUNT',
+  'KEY_COUNT', 'PASSWORD_LENGTH', 'AUTH_METHOD', 'PASS_TOTAL', 'KEYBOARD', 'AUTHOR', 'MONKEY', 'KEYS', 'key', 'token', 'api_key', 'Password'];
+
+// Neighbours of the corrections above, on both sides.
+const NEIGHBOURS = [
+  ...SECRET_NAMES.map((name) => bash(`echo of $${name}`, `echo "$${name}"`, DENY, SECRET_VAR)),
+  ...PLAIN_NAMES.map((name) => bash(`echo of $${name}`, `echo "$${name}"`, ALLOW)),
+  bash('grep --regexp=<pattern>: the operand is a file', `grep --regexp=KEY ${ENV}`, DENY, ENV_FILE),
+  bash('grep --regexp <pattern>: the operand is a file', `grep --regexp KEY ${ENV}`, DENY, ENV_FILE),
+  bash('grep -e<pattern> in one word: the operand is a file', `grep -eKEY ${ENV}`, DENY, ENV_FILE),
+  bash('grep --file=<patterns>: the operand is a file', `grep --file=patterns.txt ${ENV}`, DENY, ENV_FILE),
+  bash('grep with two -e options: the operand is a file', `grep -e KEY -e TOKEN ${ENV}`, DENY, ENV_FILE),
+  bash('sed --expression=<program>: the operand is a file', `sed --expression=p ${ENV}`, DENY, ENV_FILE),
+  bash('sed -n -e<program> in one word: the operand is a file', `sed -n -ep ${ENV}`, DENY, ENV_FILE),
+  bash('rg --regexp=<pattern>: the operand is a file', `rg --regexp=KEY ${ENV}`, DENY, ENV_FILE),
+  bash('git grep --regexp=<pattern> and the file', `git grep --regexp=KEY -- ${ENV}`, DENY, ENV_FILE),
+  bash('grep --regexp=<the name>: the operand is a folder', `grep -r --regexp='config/${ENV}' src/`, ALLOW),
+  bash('grep with two -e options that name the file as text', `grep -e 'config/${ENV}' -e x docs/`, ALLOW),
+  bash('sed --expression with a comment that names the file', `sed -n --expression='/PORT/p # config/${ENV}' README.md`, ALLOW),
+  bash('rg with an exclusion glob, then the file', `rg -g '!x' KEY ${ENV}`, DENY, ENV_FILE),
+  bash('rg with --glob=!<pattern>, then the file', `rg --glob='!*.md' KEY ${ENV}`, DENY, ENV_FILE),
+  bash('rg with an exclusion glob after the pattern, then the file', `rg KEY -g '!*.md' ${ENV}`, DENY, ENV_FILE),
+  bash('rg with an exclusion glob and a folder', "rg -g '!*.pem' KEY src/", ALLOW),
+  bash('zip with -x first, then the file', `zip -x '*.md' -r a.zip ${ENV}`, DENY, ENV_FILE),
+  bash('zip with -x and two patterns at the end', `zip -r out.zip . -x '${ENV}' '*.key'`, ALLOW),
+  bash('a key file whose name holds @', 'cat ~/.ssh/id_ed25519_user@host', DENY, SSH_KEY),
+  bash('a key file whose name holds a colon', 'cat ~/.ssh/id_rsa:old', DENY, SSH_KEY),
+  bash('an env file whose name holds =', `cat ${ENV}.a=b`, DENY, ENV_FILE),
+  bash('an env file whose name holds a comma', `cat ${ENV}.a,b`, DENY, ENV_FILE),
+  tool('Read of a key file whose name holds @', 'Read', { file_path: '/home/me/.ssh/id_ed25519_user@host' }, DENY, SSH_KEY),
+  bash('an ordinary file whose name holds @', 'cat notes@host.txt', ALLOW),
+  bash('a word of stars is no pattern for a secret file', "logger '*** start ***'", ALLOW),
+  bash('a pattern of stars and a dot that matches the file', `cat .***env`, DENY, ENV_FILE),
+  bash('a pattern with a question mark that matches the file', 'cat .en?', DENY, ENV_FILE),
+  bash('a pattern whose star at the end stands for no text', 'cat .envrc*', DENY, 'envrc'),
+  bash('a pattern with a set of characters that matches the file', 'cat .[a-f]nv', DENY, ENV_FILE),
+  bash('a pattern with a set of characters that does not match the file', 'cat .[x-z]nv', ALLOW),
+  tool('Grep glob that starts in the middle of the name', 'Grep', { pattern: 'KEY', glob: '*nv.local' }, DENY, ENV_FILE),
+  tool('Grep glob with a star that must take some text and leave the rest', 'Grep', { pattern: 'KEY', glob: '*.e*c' }, DENY, 'envrc'),
 ];
 
 // The refusal for a file names safe forms. Each of them must pass.
@@ -418,6 +468,7 @@ async function main() {
   await runNamed(report, 'a command that cannot be read to its end', UNREADABLE_CASES);
   await runNamed(report, 'review of 2026-10-04: refused now, and inputs that no test held', REVIEW_REFUSED);
   await runNamed(report, 'review of 2026-10-04: passes now', REVIEW_PASSES);
+  await runNamed(report, 'neighbours of the corrections, on both sides', NEIGHBOURS);
 
   report.section('messages and hook input');
   const write = await runHook(HOOK, bashInput(`echo "A=1" > ${ENV}`), env);
@@ -472,15 +523,18 @@ async function main() {
       compare(result, DENY, ENV_FILE) || (seconds < BIG_INPUT_SECONDS ? '' : `took ${seconds.toFixed(1)} s`));
   }
 
-  report.section(`decision table (${FIXTURE})`);
-  const cases = loadFixture(FIXTURE);
-  const toInput = (c) => (c.command !== undefined ? bashInput(c.command) : { tool_name: c.tool, tool_input: { file_path: c.path } });
-  const results = await runAll(cases, (c) => runHook(HOOK, toInput(c), env));
-  cases.forEach((c, k) => {
-    const problem = compare(results[k], c.expect, c.rule);
-    report.check(`${JSON.stringify(c.command !== undefined ? c.command : `${c.tool} ${c.path}`)} → ${c.expect}`, problem, true);
-  });
-  console.log(`  ${cases.length} cases run`);
+  const toInput = (c) => (c.command !== undefined ? bashInput(c.command, c.cwd) : { tool_name: c.tool, tool_input: c.input || { file_path: c.path } });
+  const shown = (c) => (c.command !== undefined ? c.command : `${c.tool} ${c.path || JSON.stringify(c.input)}`);
+  for (const fixture of [FIXTURE, REGRESSIONS]) {
+    report.section(`decision table (${fixture})`);
+    const cases = loadFixture(fixture);
+    const results = await runAll(cases, (c) => runHook(HOOK, toInput(c), env));
+    cases.forEach((c, k) => {
+      const problem = compare(results[k], c.expect, c.rule);
+      report.check(`${JSON.stringify(shown(c))} → ${c.expect}`, problem, true);
+    });
+    console.log(`  ${cases.length} cases run`);
+  }
 
   fs.rmSync(home, { recursive: true, force: true });
   report.finish();
