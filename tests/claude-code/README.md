@@ -30,6 +30,8 @@ This test suite verifies that skills are loaded correctly and Claude follows the
 
 The name after `--test` is a file name inside `tests/claude-code/`, not a path.
 A name that is not found fails the run.
+Give `--test` once, with one name that is not empty. The runner stops before
+any test runs when `--test` appears a second time or when the name is empty.
 
 ### Run with verbose output:
 ```bash

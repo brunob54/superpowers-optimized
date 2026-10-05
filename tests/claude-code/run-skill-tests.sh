@@ -29,6 +29,14 @@ SPECIFIC_TEST=""
 TIMEOUT=300  # Default 5 minute timeout per test
 RUN_INTEGRATION=false
 
+# stop_with_usage_error <message>: print the message and a pointer to --help,
+# then stop with exit code 1 before any test runs.
+stop_with_usage_error() {
+    echo "$1"
+    echo "Use --help for usage information"
+    exit 1
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --verbose|-v)
@@ -36,6 +44,17 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --test|-t)
+            # One test name only. A second --test would replace the first
+            # name, and the first test would never run. SPECIFIC_TEST is not
+            # empty only after an earlier --test, because an empty name stops
+            # the run below.
+            if [ -n "$SPECIFIC_TEST" ]; then
+                stop_with_usage_error "ERROR: the option --test appears more than once. Give one test name only."
+            fi
+            # An empty name would run the default list in place of a named test.
+            if [ -z "$2" ]; then
+                stop_with_usage_error "ERROR: the option --test has an empty test name."
+            fi
             SPECIFIC_TEST="$2"
             shift 2
             ;;
@@ -69,9 +88,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "Unknown option: $1"
-            echo "Use --help for usage information"
-            exit 1
+            stop_with_usage_error "Unknown option: $1"
             ;;
     esac
 done
