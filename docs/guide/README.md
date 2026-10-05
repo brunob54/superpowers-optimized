@@ -515,7 +515,9 @@ conversation is no longer useful — it only takes up memory that the first
 batch needs, spending the context budget before Task 1 even begins.
 
 `/clear` is safe *because of the memory system* (§6). Every gate writes its
-outcome to files before asking you anything: the spec and plan are committed,
+outcome to files before asking you anything: the spec and plan are saved as
+files (when you use a worktree, the worktree skill moves an uncommitted spec
+and plan into the worktree and commits them on the feature branch),
 `state.md` carries position and decisions, and the next session reads them
 back automatically at startup. The conversation is disposable; the files are
 the state. You never lose work by clearing — you only shed noise.

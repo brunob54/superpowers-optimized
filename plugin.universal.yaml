@@ -4,7 +4,7 @@
 
 meta:
   name: superpowers-orchestrator
-  version: "7.61.0"
+  version: "7.62.0"
   description: "Workflow skills and hooks for Claude Code and Codex"
   author: "Jesse Vincent, forked by brunob54"
   homepage: "https://github.com/brunob54/superpowers-orchestrator"

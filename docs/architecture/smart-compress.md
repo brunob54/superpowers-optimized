@@ -380,9 +380,13 @@ PreToolUse/Bash hooks (before the command, before the permission check):
 Claude Code checks the permission rules, asks the user when needed, and
 runs the command.
 
-PostToolUse/Bash hook (after a command that ended with success):
+PostToolUse/Bash hooks (after a command that ended with success; Claude Code
+runs the two hooks in parallel):
 
   3. bash-compress-hook.js         →  May REPLACE the output Claude receives
+  4. track-edits.js                →  never changes the output; adds a git
+                                      exclude entry for a session-log.md
+                                      written by a redirect
 ```
 
 If a safety hook, a permission rule or the user blocks a command, the command does not run and the compressor never sees it.
