@@ -614,8 +614,8 @@ test('T23b: a scratch file that does not exist is matched through its parent fol
 
 console.log('\nA Bash call is not an edit');
 
-// track-edits.js also runs after the Bash tool, to keep a workspace file that a
-// command created out of `git status` (tests/codex/test-git-exclude-hooks.js).
+// track-edits.js also runs after the Bash tool, to keep a session log that a
+// command wrote out of `git status` (tests/codex/test-git-exclude-hooks.js).
 // The stop hook counts the lines of the edit log, and it reads the save marker.
 // A Bash call must change neither: the save command of the skill writes the
 // marker itself when it runs, and a command is not an edit of a file.

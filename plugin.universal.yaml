@@ -50,7 +50,7 @@ hooks:
   # --- PostToolUse ---
 
   # Claude Code only: track file edits; after Bash, only the git exclude
-  # entry of a workspace file that the command names
+  # entry of session-log.md, and only when the command redirects into it
   - event: PostToolUse
     matcher: "Edit|Write|Bash"
     command: "node {PLUGIN_ROOT}/hooks/track-edits.js"

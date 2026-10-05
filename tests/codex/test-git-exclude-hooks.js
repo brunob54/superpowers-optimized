@@ -418,13 +418,71 @@ test('outside a git repository nothing is written besides the artifact', () => {
   assert.deepStrictEqual(fs.readdirSync(dir), [STATE_FILE]);
 });
 
+// ── Letter case: a tracked file whose name differs only in letter case ───────
+//
+// On a file system that ignores letter case (the default on macOS and on
+// Windows), `session-log.md` and `SESSION-LOG.md` are one file. When the
+// project tracks that file, no route may give it an entry: the entry would
+// hide the file with no message if the user untracks it later. On a file
+// system that keeps letter case apart, the two names are two files, and the
+// untracked one gets its entry.
+
+console.log('\ntrack-edits.js: a tracked file with another letter case');
+
+const FOLDS_LETTER_CASE = (() => {
+  fs.writeFileSync(path.join(WORK_ROOT, 'Case-Probe'), '');
+  return fs.existsSync(path.join(WORK_ROOT, 'case-probe'));
+})();
+
+/** After `act` on a repository that tracks `trackedName`: no entry where the two names are one file. */
+function assertTrackedSpellingDecides(trackedName, name, act) {
+  const repo = makeRepo();
+  commitFile(repo, trackedName, FILE_TEXT);
+  const excludeBefore = excludeContent(repo);
+  act(repo);
+  if (FOLDS_LETTER_CASE) {
+    assert.strictEqual(excludeContent(repo), excludeBefore, `the tracked ${trackedName} got an entry`);
+  } else {
+    assert.ok(isIgnored(repo, name), `the untracked ${name} is a second file and got no entry`);
+  }
+}
+
+test('after a Write of state.md, a tracked STATE.md gets no entry where letter case is ignored', () => {
+  assertTrackedSpellingDecides('STATE.md', STATE_FILE, repo => writeWithTool(repo, STATE_FILE, repo));
+});
+
+test('after a Write of session-log.md, a tracked SESSION-LOG.md gets no entry where letter case is ignored', () => {
+  assertTrackedSpellingDecides('SESSION-LOG.md', SESSION_LOG_FILE, repo => writeWithTool(repo, SESSION_LOG_FILE, repo));
+});
+
+// The hook follows git: with this setting git reads the two names as two
+// files (the default on a file system that keeps letter case apart).
+test('with core.ignorecase set to false, a tracked STATE.md does not stop the entry of state.md', () => {
+  const repo = makeRepo();
+  git(repo, 'config', 'core.ignorecase', 'false');
+  commitFile(repo, 'STATE.md', FILE_TEXT);
+  writeWithTool(repo, STATE_FILE, repo);
+  assert.ok(excludeContent(repo).endsWith(`/${STATE_FILE}\n`), `no entry: ${excludeContent(repo)}`);
+});
+
+test('with core.ignorecase set to false, a tracked state.md still gets no entry', () => {
+  const repo = makeRepo();
+  git(repo, 'config', 'core.ignorecase', 'false');
+  commitFile(repo, STATE_FILE, FILE_TEXT);
+  const excludeBefore = excludeContent(repo);
+  writeWithTool(repo, STATE_FILE, repo);
+  assert.strictEqual(excludeContent(repo), excludeBefore);
+});
+
 // ── track-edits.js after a Bash call ─────────────────────────────────────────
 //
-// The Bash tool can create a workspace file: the save command of the
-// context-management skill appends to session-log.md with `cat >>`. The hook
-// reads the text of the command. For each workspace file name in that text, it
-// looks for the file in the `cwd` of the hook input and in the project folder,
-// and it gives an existing file the same entry as after a Write of that file.
+// The save command of the context-management skill creates session-log.md
+// through the Bash tool: `cat >> session-log.md <<'…'`. After a Bash call the
+// hook gives an entry to one file only: a session-log.md that the command
+// redirects output into (`>` or `>>`), and that exists in a folder that the
+// folder rule accepts. A command that only names a workspace file writes
+// nothing: the file can be a document of the user's project, and an entry
+// would leave it out of `git add -A` and of the commit with no message.
 
 console.log('\ntrack-edits.js after a Bash call');
 
@@ -434,15 +492,16 @@ const HERE_DOCUMENT_OPENER = '<<';
 const SCRATCHPAD_FIELD = 'scratchpad_dir';
 // A file of the user's project whose name is not a workspace file name.
 const PROJECT_DOCUMENT = 'design.md';
+const APPEND_TO_SESSION_LOG = `printf x >> ${SESSION_LOG_FILE}`;
 
-/** Run track-edits with the input that Claude Code gives it after a Bash call. */
+/** The input that Claude Code gives the hook after a Bash call. */
+function bashInput(toolInput, cwd) {
+  return { tool_name: BASH_TOOL, tool_input: toolInput, cwd, session_id: TEST_SESSION };
+}
+
+/** Run track-edits after a Bash call that ended in the folder `cwd`. */
 function afterBash(cwd, toolInput, projectDir) {
-  return runHook(
-    TRACK_EDITS,
-    cwd,
-    { tool_name: BASH_TOOL, tool_input: toolInput, cwd, session_id: TEST_SESSION },
-    projectDir
-  );
+  return runHook(TRACK_EDITS, cwd, bashInput(toolInput, cwd), projectDir);
 }
 
 /** The save command of the skill: its one bash block that opens a here-document. */
@@ -462,19 +521,50 @@ function saveWithBash(cwd, projectDir) {
   return afterBash(cwd, { command }, projectDir);
 }
 
-/** A workspace file in `folder` that no tool call announced to the hook. */
+/** A file in `folder` that no tool call announced to the hook. */
 function writeArtifact(folder, name = SESSION_LOG_FILE) {
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, name), FILE_TEXT);
 }
 
-/** Run the hook after a Bash call and check that it changed neither the exclude file nor `git status`. */
-function assertBashChangesNothing(repo, toolInput, projectDir, cwd = repo) {
+/** Run the hook with `input` and check that it changed neither the exclude file nor `git status`. */
+function assertHookChangesNothing(repo, input, projectDir, processCwd = repo) {
   const excludeBefore = excludeContent(repo);
   const statusBefore = status(repo);
-  assert.strictEqual(afterBash(cwd, toolInput, projectDir), EMPTY_HOOK_OUTPUT);
+  assert.strictEqual(runHook(TRACK_EDITS, processCwd, input, projectDir), EMPTY_HOOK_OUTPUT);
   assert.strictEqual(excludeContent(repo), excludeBefore);
   assert.strictEqual(status(repo), statusBefore);
+}
+
+/** The same check for a Bash call that ended in the top folder of `repo`. */
+function assertBashChangesNothing(repo, toolInput, projectDir) {
+  assertHookChangesNothing(repo, bashInput(toolInput, repo), projectDir);
+}
+
+/** A new repository whose top folder holds the untracked files `names`. */
+function makeRepoWith(...names) {
+  const repo = makeRepo();
+  for (const name of names) writeArtifact(repo, name);
+  return repo;
+}
+
+const sharedRepos = new Map();
+
+/**
+ * One repository for all the tests that expect no change: its top folder holds
+ * the untracked file `name`. This saves the creation of about 90 repositories.
+ * When one of these tests fails, the hook has changed the shared repository,
+ * and the tests after it can fail too.
+ */
+function sharedRepoWith(name) {
+  if (!sharedRepos.has(name)) sharedRepos.set(name, makeRepoWith(name));
+  return sharedRepos.get(name);
+}
+
+/** The command in one line, for a test label. */
+function labelOf(command) {
+  const text = JSON.stringify(command);
+  return text.length > 90 ? `${text.slice(0, 87)}..."` : text;
 }
 
 test('hooks.json runs track-edits.js after Bash, Edit and Write', () => {
@@ -484,6 +574,8 @@ test('hooks.json runs track-edits.js after Bash, Edit and Write', () => {
   assert.deepStrictEqual(entries[0].matcher.split('|').sort(), [BASH_TOOL, EDIT_TOOL, WRITE_TOOL]);
   assert.strictEqual(entries[0].hooks.length, 1, 'Another hook would run after Bash too');
 });
+
+// ── The save command of the skill ────────────────────────────────────────────
 
 test('the save command of the skill gives session-log.md its entry and prints nothing', () => {
   const repo = makeRepo();
@@ -510,25 +602,222 @@ test('a session log that the project tracks gets no entry after a save', () => {
   assert.strictEqual(status(repo), ` M ${SESSION_LOG_FILE}\n`);
 });
 
-for (const name of WORKSPACE_FILES) {
-  test(`a Bash command that names ${name} gives the existing file its entry`, () => {
-    const repo = makeRepo();
-    writeArtifact(repo, name);
-    assert.strictEqual(afterBash(repo, { command: `printf x >> ${name}` }, repo), EMPTY_HOOK_OUTPUT);
-    assert.strictEqual(status(repo), '');
-    assert.ok(isIgnored(repo, name), `${name} is not ignored`);
-  });
-}
+test('after a save, a tracked SESSION-LOG.md gets no entry where letter case is ignored', () => {
+  assertTrackedSpellingDecides('SESSION-LOG.md', SESSION_LOG_FILE, repo => saveWithBash(repo, repo));
+});
 
-test('a Bash command that names two workspace files gives each one its entry', () => {
-  const repo = makeRepo();
-  writeArtifact(repo, STATE_FILE);
-  writeArtifact(repo, SESSION_LOG_FILE);
-  afterBash(repo, { command: `cat ${STATE_FILE} ${SESSION_LOG_FILE}` }, repo);
+test('a save gives the entry also when the hook input holds no session id', () => {
+  const repo = makeRepoWith(SESSION_LOG_FILE);
+  const { session_id: _unused, ...input } = bashInput({ command: skillSaveCommand() }, repo);
+  assert.strictEqual(runHook(TRACK_EDITS, repo, input, repo), EMPTY_HOOK_OUTPUT);
   assert.strictEqual(status(repo), '');
 });
 
-// The same three folder cases as for a Write: the folder rule is not changed.
+// ── Every form of a redirect into session-log.md gives the entry ─────────────
+
+const LONG_TEXT = 'x'.repeat(300);
+const REDIRECT_COMMANDS = [
+  APPEND_TO_SESSION_LOG,
+  'printf x >>session-log.md',
+  'printf x > session-log.md',
+  'printf x >session-log.md',
+  'printf x >| session-log.md',
+  'printf x >>\tsession-log.md',
+  'printf x >> "session-log.md"',
+  "printf x >> 'session-log.md'",
+  'printf x >> ./session-log.md',
+  'printf x 1>> session-log.md',
+  'printf x 2>>session-log.md',
+  'printf x &>> session-log.md',
+  'printf x >>session-log.md&& ls',
+  'LC_ALL=C cat >> session-log.md',
+  // The line goes on after a backslash at its end.
+  'printf x \\\n>> session-log.md',
+  // The redirect stands after the here-document operator, on the same line.
+  "cat <<'EOF' >> session-log.md\nbody\nEOF",
+  // The redirect stands on the second line, and no here-document comes first.
+  'cd .\nprintf x >> session-log.md',
+  // The redirect stands after more than 200 characters.
+  `printf '%s' "${LONG_TEXT}" >> session-log.md`,
+  'wc -l README.md >> session-log.md',
+  // The command holds a redirect into another file first.
+  'printf x > notes.txt; printf y >> session-log.md',
+  // `<<<` gives the next word to the command as input; no body follows it.
+  'cat <<< text >> session-log.md',
+  'cat <<< text\nprintf x >> session-log.md',
+  'echo "it\'s done" >> session-log.md',
+  'echo \'say "hi"\' >> session-log.md',
+  "echo it\\'s >> session-log.md",
+  'true && printf x >> session-log.md; ls',
+  '(printf x) >> session-log.md',
+  '{ printf x; } >> session-log.md',
+  'echo a#b >> session-log.md',
+];
+
+for (const command of REDIRECT_COMMANDS) {
+  test(`the redirect in ${labelOf(command)} gives session-log.md its entry`, () => {
+    const repo = makeRepoWith(SESSION_LOG_FILE);
+    assert.strictEqual(afterBash(repo, { command }, repo), EMPTY_HOOK_OUTPUT);
+    assert.strictEqual(status(repo), '');
+    assert.ok(excludeContent(repo).endsWith(SESSION_LOG_ENTRY), `no entry: ${excludeContent(repo)}`);
+  });
+}
+
+// ── A command that only names a workspace file writes nothing ────────────────
+//
+// Each command ran while an untracked file with that name lay in the top
+// folder. Before this rule, each one hid the file from `git status`.
+
+const MENTION_COMMANDS = [
+  name => `grep -rn "${name}" docs/`,
+  name => `cat docs/app-${name}`,
+  name => `git commit -m "docs: describe ${name}"`,
+  name => `echo "the file ${name} is new"`,
+  name => `cat > notes.txt <<'EOF'\n${name}\nEOF`,
+  name => `git restore --staged ${name}`,
+  name => `git rm --cached ${name}`,
+  name => `cat ${name}`,
+  name => `wc -l ${name}`,
+  name => `wc -l < ${name}`,
+  name => `grep -i hook ${name} | tail -20`,
+  name => `ls ${name} > /dev/null`,
+  // Not a redirect: the hook does not know the options of `tee`.
+  name => `printf x | tee -a ${name}`,
+];
+
+for (const name of [STATE_FILE, KNOWN_ISSUES_FILE, SESSION_LOG_FILE]) {
+  for (const commandOf of MENTION_COMMANDS) {
+    const command = commandOf(name);
+    test(`the command ${labelOf(command)} leaves an untracked ${name} in git status`, () => {
+      const repo = sharedRepoWith(name);
+      assertBashChangesNothing(repo, { command }, repo);
+      assert.strictEqual(status(repo), untrackedLine(name));
+    });
+  }
+}
+
+// After a Bash call only session-log.md can get an entry: the skills write the
+// other three workspace files with the Write tool.
+for (const name of WORKSPACE_FILES.filter(file => file !== SESSION_LOG_FILE)) {
+  test(`a redirect into ${name} writes no entry after a Bash call`, () => {
+    const repo = sharedRepoWith(name);
+    assertBashChangesNothing(repo, { command: `printf x >> ${name}` }, repo);
+  });
+}
+
+// The text `>> session-log.md` is in the command, but the shell does not read
+// it as a redirect into that file.
+const NOT_A_REDIRECT_COMMANDS = [
+  // The body of a here-document.
+  "cat > notes.txt <<'EOF'\ncat >> session-log.md\nEOF",
+  'cat > notes.txt <<EOF\nprintf x >> session-log.md\nEOF',
+  "cat > notes.txt <<-'EOF'\n\tprintf x >> session-log.md\n\tEOF",
+  "cat <<'EOF'\nprintf x >> session-log.md\nEOF",
+  // The body of a here-document inside double quotes: the form of a commit
+  // message. The second and the third message hold double quotes themselves.
+  'git commit -m "$(cat <<\'EOF\'\nfix: the command cat >> session-log.md is seen\nEOF\n)"',
+  'git commit -m "$(cat <<\'EOF\'\nfix: the "save" command, then cat >> session-log.md\nEOF\n)"',
+  'git commit -m "$(cat <<\'EOF\'\nfix: a 5" disk >> session-log.md\nEOF\n)"',
+  // A text in quotes, and a character after a backslash.
+  'git commit -m "the command cat >> session-log.md leaves the file visible"',
+  "echo '>> session-log.md'",
+  'grep -n ">> session-log.md" README.md',
+  'cat <<< ">> session-log.md"',
+  'echo \\>\\> session-log.md',
+  'echo "a \\" >> session-log.md"',
+  // A comment.
+  '# next step: cat >> session-log.md\nls',
+  'ls # >> session-log.md',
+  // Another file.
+  'printf x >> session-log.md.bak',
+  'printf x >> my-session-log.md',
+  'printf x >> session-log.mdx',
+  'printf x >> SESSION-LOG.md',
+  'printf x >> Session-Log.md',
+  'printf x >> session-log',
+  'printf x > /dev/null; cat session-log.md',
+  'printf x 2>&1 | grep session-log.md',
+  // No target on the same line.
+  'printf x >>\nsession-log.md',
+  // An input redirect.
+  'cat < session-log.md',
+];
+
+for (const command of NOT_A_REDIRECT_COMMANDS) {
+  test(`the command ${labelOf(command)} is no redirect into session-log.md and changes nothing`, () => {
+    const repo = sharedRepoWith(SESSION_LOG_FILE);
+    assertBashChangesNothing(repo, { command }, repo);
+  });
+}
+
+// Accepted limits. The hook cannot know the value of a variable, so it cannot
+// know which file such a command wrote: it writes nothing. It reads a command
+// only up to the end of the first line that holds `<<`, so a redirect on a
+// later line is not seen; the reader does not test whether the `<<` opens a
+// here-document. In each case the file stays visible until the next save in
+// the form of the skill.
+const UNREADABLE_REDIRECT_COMMANDS = [
+  'printf x >> "$DIR/session-log.md"',
+  'printf x >> $DIR/session-log.md',
+  'printf x >> "${PWD}/session-log.md"',
+  'printf x >> $(pwd)/session-log.md',
+  'printf x >> `pwd`/session-log.md',
+  'printf x >> ~/session-log.md',
+  // Read as plain paths, these three would name the file of this folder.
+  'printf x >> $DIR/../session-log.md',
+  'printf x >> `pwd`/../session-log.md',
+  'printf x >> ~/../session-log.md',
+  'printf x >> session-log.m\\d',
+  "cat > notes.txt <<'EOF'\nbody\nEOF\nprintf x >> session-log.md",
+  'echo "a << b"\nprintf x >> session-log.md',
+  'echo $((1<<2))\nprintf x >> session-log.md',
+  'printf x >& session-log.md',
+];
+
+for (const command of UNREADABLE_REDIRECT_COMMANDS) {
+  test(`limit: the redirect in ${labelOf(command)} is not read, and nothing changes`, () => {
+    const repo = sharedRepoWith(SESSION_LOG_FILE);
+    assertBashChangesNothing(repo, { command }, repo);
+  });
+}
+
+test('a Bash command that names no workspace file changes nothing, also when such a file exists', () => {
+  const repo = sharedRepoWith(SESSION_LOG_FILE);
+  assertBashChangesNothing(repo, { command: NO_ARTIFACT_COMMAND }, repo);
+});
+
+test('a redirect into a file that is not a workspace file changes nothing', () => {
+  const repo = makeRepoWith(PROJECT_DOCUMENT);
+  assertBashChangesNothing(repo, { command: `printf x >> ${PROJECT_DOCUMENT}` }, repo);
+});
+
+// ── The state of the file decides ────────────────────────────────────────────
+
+test('a redirect into a session log that does not exist changes nothing', () => {
+  const repo = makeRepo();
+  assertBashChangesNothing(repo, { command: APPEND_TO_SESSION_LOG }, repo);
+  assert.ok(!fs.existsSync(path.join(repo, SESSION_LOG_FILE)), 'the hook created the file');
+});
+
+// An entry for a folder would hide every file in it.
+test('a folder with the name session-log.md gets no entry, and its files stay in git status', () => {
+  const repo = makeRepo();
+  writeArtifact(path.join(repo, SESSION_LOG_FILE), PROJECT_DOCUMENT);
+  assertBashChangesNothing(repo, { command: APPEND_TO_SESSION_LOG }, repo);
+  assert.strictEqual(status(repo), untrackedLine(path.join(SESSION_LOG_FILE, PROJECT_DOCUMENT)));
+});
+
+// The Write route gives a symbolic link with this name its entry too.
+test('a session log that is a symbolic link to a file gets its entry', () => {
+  const repo = makeRepo();
+  commitFile(repo, PROJECT_DOCUMENT, FILE_TEXT);
+  fs.symlinkSync(PROJECT_DOCUMENT, path.join(repo, SESSION_LOG_FILE));
+  afterBash(repo, { command: APPEND_TO_SESSION_LOG }, repo);
+  assert.strictEqual(status(repo), '');
+});
+
+// ── The folder rule is the rule of the Write route ───────────────────────────
+
 test('a save in the project folder of the session gets an entry when that folder is a subfolder', () => {
   const repo = makeRepo();
   const packageFolder = path.join(repo, PACKAGE_FOLDER);
@@ -560,16 +849,36 @@ test('a save in a subfolder that is not the project folder gets no entry', () =>
   assert.strictEqual(status(repo), untrackedLine(path.join(DOCS_FOLDER, SESSION_LOG_FILE)));
 });
 
-// The command ran in a subfolder and named the file of the project folder by a
-// path. The `cwd` of the hook input holds no such file; the project folder does.
-test('a Bash command in a subfolder that names the file of the project folder gives that file its entry', () => {
-  const repo = makeRepo();
+// The command names the file in the subfolder. The file in the top folder has
+// the same name, but the command did not write it: both stay visible.
+test('a redirect into docs/session-log.md gives no entry, also not to a session log in the top folder', () => {
+  const repo = makeRepoWith(SESSION_LOG_FILE);
+  writeArtifact(path.join(repo, DOCS_FOLDER));
+  assertBashChangesNothing(repo, { command: `printf x >> ${DOCS_FOLDER}/${SESSION_LOG_FILE}` }, repo);
+});
+
+// The same state after `cd docs`: the hook input names the subfolder as `cwd`,
+// and the project folder holds a session log that the command did not write.
+test('a redirect in a subfolder gives no entry to the session log of the project folder', () => {
+  const repo = makeRepoWith(SESSION_LOG_FILE);
   const docsFolder = path.join(repo, DOCS_FOLDER);
   fs.mkdirSync(docsFolder);
-  writeArtifact(repo);
-  afterBash(docsFolder, { command: `printf x >> ../${SESSION_LOG_FILE}` }, repo);
-  assert.strictEqual(status(repo), '');
+  // The hook process starts in the project folder, as Claude Code starts it.
+  assertHookChangesNothing(repo, bashInput({ command: APPEND_TO_SESSION_LOG }, docsFolder), repo);
 });
+
+for (const [label, targetOf] of [
+  ['a relative path', () => `../${SESSION_LOG_FILE}`],
+  ['an absolute path in double quotes', repo => `"${path.join(repo, SESSION_LOG_FILE)}"`],
+]) {
+  test(`a redirect in a subfolder that names the session log of the top folder by ${label} gives the entry`, () => {
+    const repo = makeRepoWith(SESSION_LOG_FILE);
+    const docsFolder = path.join(repo, DOCS_FOLDER);
+    fs.mkdirSync(docsFolder);
+    afterBash(docsFolder, { command: `printf x >> ${targetOf(repo)}` }, repo);
+    assert.strictEqual(status(repo), '');
+  });
+}
 
 for (const [label, projectDirOf] of [
   ['the session started in the worktree', worktree => worktree],
@@ -586,124 +895,87 @@ for (const [label, projectDirOf] of [
   });
 }
 
-test('a Bash command that names no workspace file changes nothing, also when such a file exists', () => {
-  const repo = makeRepo();
+// A linked worktree shares the exclude file of the main checkout: an entry
+// written for the worktree would hide the user's document in both.
+test('a command in a linked worktree that names state.md hides it in neither work tree', () => {
+  const repo = makeRepoWith(STATE_FILE);
+  const worktree = `${repo}-linked`;
+  git(repo, 'worktree', 'add', '-q', worktree);
+  writeArtifact(worktree, STATE_FILE);
+  assert.strictEqual(afterBash(worktree, { command: `grep -c x ${STATE_FILE}` }, repo), EMPTY_HOOK_OUTPUT);
+  assert.strictEqual(status(repo), untrackedLine(STATE_FILE));
+  assert.strictEqual(status(worktree), untrackedLine(STATE_FILE));
+});
+
+// ── The session scratchpad ───────────────────────────────────────────────────
+//
+// A repository inside the session scratchpad (the folder for throwaway files
+// that the hook input names in `scratchpad_dir`) is a test fixture. The hook
+// leaves its `git status` as the commands left it, after a Write and after
+// Bash. A fixture repository in any other folder is a project for the hook.
+
+/** A new repository in `repo` (a folder that exists) with an untracked session log. */
+function makeFixture(repo) {
+  git(repo, 'init', '-q');
   writeArtifact(repo);
-  assertBashChangesNothing(repo, { command: NO_ARTIFACT_COMMAND }, repo);
-});
-
-test('a Bash command that names a workspace file that does not exist changes nothing', () => {
-  const repo = makeRepo();
-  assertBashChangesNothing(repo, { command: `cat ${SESSION_LOG_FILE}` }, repo);
-  assert.ok(!fs.existsSync(path.join(repo, SESSION_LOG_FILE)), 'the hook created the file');
-});
-
-// An entry for a folder would hide every file in it.
-test('a folder with the name of a workspace file gets no entry, and its files stay in git status', () => {
-  const repo = makeRepo();
-  writeArtifact(path.join(repo, STATE_FILE), PROJECT_DOCUMENT);
-  assertBashChangesNothing(repo, { command: `ls ${STATE_FILE}` }, repo);
-  assert.strictEqual(status(repo), untrackedLine(path.join(STATE_FILE, PROJECT_DOCUMENT)));
-});
-
-// Decision: the entry depends on the state of the file, not on what the
-// command does with it. An existing, untracked workspace file in an accepted
-// folder gets its entry after any command that names it, as it does after a
-// Write or an Edit of the same file. A file that an older plugin version left
-// visible is hidden in this way by the `grep` that the skill runs before a save.
-test('a Bash command that only reads an existing workspace file gives it the entry that a Write gives', () => {
-  const afterWrite = makeRepo();
-  writeWithTool(afterWrite, SESSION_LOG_FILE, afterWrite);
-  const afterRead = makeRepo();
-  writeArtifact(afterRead);
-  afterBash(afterRead, { command: `grep -i hook ${SESSION_LOG_FILE} | tail -20` }, afterRead);
-  assert.strictEqual(excludeContent(afterRead), excludeContent(afterWrite));
-  assert.strictEqual(status(afterRead), '');
-});
-
-// The command must hold the full file name with the same letter case; the
-// Write route compares the file name in the same way.
-for (const command of [
-  'cat SESSION-LOG.md',
-  'cat Session-Log.MD',
-  'cat session-log',
-  'cat session-log.txt',
-  'cat session log.md',
-  'cat session-log.m',
-]) {
-  test(`the command "${command}" does not name session-log.md and changes nothing`, () => {
-    const repo = makeRepo();
-    writeArtifact(repo);
-    assertBashChangesNothing(repo, { command }, repo);
-  });
+  return repo;
 }
 
-test('a Bash command that names a file that is not a workspace file changes nothing', () => {
-  const repo = makeRepo();
-  writeArtifact(repo, PROJECT_DOCUMENT);
-  assertBashChangesNothing(repo, { command: `printf x >> ${PROJECT_DOCUMENT}` }, repo);
+const SESSION_LOG_TOOL_INPUTS = [
+  [WRITE_TOOL, repo => ({ file_path: path.join(repo, SESSION_LOG_FILE), content: FILE_TEXT })],
+  [BASH_TOOL, () => ({ command: APPEND_TO_SESSION_LOG })],
+];
+
+for (const [toolName, toolInputOf] of SESSION_LOG_TOOL_INPUTS) {
+  for (const [label, repoOf] of [
+    ['inside the scratchpad', scratchpadDir => path.join(scratchpadDir, 'fixture')],
+    ['that is the scratchpad folder', scratchpadDir => scratchpadDir],
+  ]) {
+    test(`a session log in a repository ${label} gets no entry after ${toolName}`, () => {
+      const scratchpadDir = newFolder('scratchpad');
+      const repo = repoOf(scratchpadDir);
+      fs.mkdirSync(repo, { recursive: true });
+      makeFixture(repo);
+      const input = { ...bashInput(toolInputOf(repo), repo), tool_name: toolName, [SCRATCHPAD_FIELD]: scratchpadDir };
+      assertHookChangesNothing(repo, input, repo);
+      assert.strictEqual(status(repo), untrackedLine(SESSION_LOG_FILE));
+    });
+  }
+}
+
+test('in a repository outside the scratchpad, a command that names state.md changes nothing and a save gives the entry', () => {
+  const scratchpadDir = newFolder('scratchpad');
+  const repo = makeRepoWith(STATE_FILE, SESSION_LOG_FILE);
+  const inputOf = command => ({ ...bashInput({ command }, repo), [SCRATCHPAD_FIELD]: scratchpadDir });
+  assertHookChangesNothing(repo, inputOf(`cat ${STATE_FILE}`), repo);
+  runHook(TRACK_EDITS, repo, inputOf(APPEND_TO_SESSION_LOG), repo);
+  assert.strictEqual(status(repo), untrackedLine(STATE_FILE));
 });
 
-// Values that the documented input of a Bash call never holds. None may make
-// the hook fail, and none may be read as a command that names the file.
+// ── Input that the documented Bash call never holds ──────────────────────────
+
+// None may make the hook fail, and none may be read as a redirect.
 for (const [label, toolInput] of [
   ['no tool input', undefined],
   ['a tool input without a command', {}],
   ['a null command', { command: null }],
   ['a number as command', { command: 42 }],
-  ['a list as command', { command: [SESSION_LOG_FILE] }],
-  ['an object as command', { command: { text: SESSION_LOG_FILE } }],
+  ['a list as command', { command: [APPEND_TO_SESSION_LOG] }],
+  ['an object as command', { command: { text: APPEND_TO_SESSION_LOG } }],
 ]) {
   test(`a Bash input with ${label} changes nothing and does not fail`, () => {
-    const repo = makeRepo();
-    writeArtifact(repo);
+    const repo = sharedRepoWith(SESSION_LOG_FILE);
     assertBashChangesNothing(repo, toolInput, repo);
   });
 }
 
-test('a Bash input without cwd uses the project folder only', () => {
-  const repo = makeRepo();
-  writeArtifact(repo);
-  const output = runHook(
-    TRACK_EDITS,
-    repo,
-    { tool_name: BASH_TOOL, tool_input: { command: `cat ${SESSION_LOG_FILE}` }, session_id: TEST_SESSION },
-    repo
-  );
-  assert.strictEqual(output, EMPTY_HOOK_OUTPUT);
-  assert.strictEqual(status(repo), '');
-});
-
-test('a Bash input without cwd and without a project folder changes nothing', () => {
-  const repo = makeRepo();
-  writeArtifact(repo);
-  const output = runHook(
-    TRACK_EDITS,
-    repo,
-    { tool_name: BASH_TOOL, tool_input: { command: `cat ${SESSION_LOG_FILE}` }, session_id: TEST_SESSION }
-  );
-  assert.strictEqual(output, EMPTY_HOOK_OUTPUT);
-  assert.strictEqual(status(repo), untrackedLine(SESSION_LOG_FILE));
-});
-
-// A repository inside the session scratchpad (the folder for throwaway files
-// that the hook input names in `scratchpad_dir`) is a test fixture. The hook
-// leaves its `git status` as the commands left it, after a Write and after Bash.
-for (const [toolName, toolInputOf] of [
-  [WRITE_TOOL, repo => ({ file_path: path.join(repo, SESSION_LOG_FILE), content: FILE_TEXT })],
-  [BASH_TOOL, () => ({ command: `printf x >> ${SESSION_LOG_FILE}` })],
-]) {
-  test(`a session log in a repository inside the scratchpad gets no entry after ${toolName}`, () => {
-    const scratchpadDir = newFolder('scratchpad');
-    const repo = path.join(scratchpadDir, 'fixture');
-    fs.mkdirSync(repo);
-    git(repo, 'init', '-q');
-    writeArtifact(repo);
-    const excludeBefore = excludeContent(repo);
-    const input = { tool_name: toolName, tool_input: toolInputOf(repo), cwd: repo, session_id: TEST_SESSION, [SCRATCHPAD_FIELD]: scratchpadDir };
-    assert.strictEqual(runHook(TRACK_EDITS, repo, input, repo), EMPTY_HOOK_OUTPUT);
-    assert.strictEqual(excludeContent(repo), excludeBefore);
-    assert.strictEqual(status(repo), untrackedLine(SESSION_LOG_FILE));
+// Without a folder the hook cannot know which file a relative path means. The
+// hook process starts in the repository, so a path resolved against the
+// folder of the process would find the file.
+for (const [label, cwd] of [['no cwd', undefined], ['an empty cwd', ''], ['a number as cwd', 7]]) {
+  test(`a Bash input with ${label} changes nothing and does not fail`, () => {
+    const repo = sharedRepoWith(SESSION_LOG_FILE);
+    assertHookChangesNothing(repo, bashInput({ command: APPEND_TO_SESSION_LOG }, cwd), repo);
   });
 }
 
