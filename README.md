@@ -25,7 +25,7 @@ This repository is a fork of [obra/superpowers](https://github.com/obra/superpow
 
 ## What this repo adds
 
-The six main additions beyond the REPOZY v6.6.1 baseline — full guide with usage, details, and motivations in [docs/FORK-IMPROVEMENTS.md](docs/FORK-IMPROVEMENTS.md):
+The skills and workflow modes that this fork adds to the REPOZY v6.6.1 baseline. [docs/FORK-IMPROVEMENTS.md](docs/FORK-IMPROVEMENTS.md) explains the first five with usage and motivation; [RELEASE-NOTES.md](RELEASE-NOTES.md) has the details of every release:
 
 - **SDD Batched Autonomous Mode (v6.7.0)** — execute a plan in resumable batches of N tasks, ending each batch at a fixed task cap (the requested count, else the session default (`SUPERPOWERS_BATCH_TASK_CAP`, else 3)) with a `state.md` handoff; say "implement the next 3 tasks", then after `/clear`: "resume the plan". [Details](docs/FORK-IMPROVEMENTS.md#1-sdd-batched-autonomous-mode-v670)
 - **SDD Token-Optimized Review Flow (v6.8.0)** — port of upstream obra v6.0.0: one two-verdict task reviewer, file-based handoffs under `.superpowers/sdd/`, explicit per-dispatch model selection; automatic whenever subagent-driven-development executes a plan (~2x faster, ~50–60% fewer tokens per upstream measurement). [Details](docs/FORK-IMPROVEMENTS.md#2-sdd-token-optimized-review-flow-v680)
@@ -33,6 +33,10 @@ The six main additions beyond the REPOZY v6.6.1 baseline — full guide with usa
 - **multi-code-review (v6.10.0)** — N independent whole-branch code review rounds with rotating lenses (correctness/spec alignment, adversarial red-team, security, test quality) and fixes applied between rounds, with a sidecar audit log; since v7.4.0 each round can dispatch M identical reviewers in parallel (`M=<m>`, 1–5, default 1); automatic at subagent-driven-development's final review gate, which asks you for N and M, or direct: `/multi-code-review [BASE] [N|N=<n>] [M=<m>]`. [Details](docs/FORK-IMPROVEMENTS.md#4-multi-code-review--n-round-independent-whole-branch-code-review-v6100)
 - **orchestrating-development (v6.14.0)** — fully autonomous spec-to-merge-gate pipeline: from an approved design spec, runs plan writing, N plan-review rounds, batched implementation, and N code-review rounds via fresh-context controller subagents, stopping only on major errors and ending before merge/PR; one interactive Phase 0 collects review counts, batch cap, and branch/permission confirmations, then say "orchestrate development of docs/superpowers-orchestrator/<date>-<slug>/specs/<slug>-design.md". [Details](docs/FORK-IMPROVEMENTS.md#5-orchestrating-development--autonomous-spec-to-merge-gate-pipeline-v6140)
 - **researching-prior-art (v7.2.0)** — prior-art research gate for technology decisions: when a design decision would add or change a dependency, depend on version-sensitive external API behavior, or select a hosted service, brainstorming asks how many read-only research subagents to dispatch; findings are verified, merged into one evidence report, cached under `docs/research/`, and recorded in the spec's "Prior art and alternatives" section. Details in [RELEASE-NOTES.md](RELEASE-NOTES.md).
+- **handoff (v7.20.0)** — `/handoff [slug]` writes a continuation prompt for a fresh session into `tmp/docs/<date>-handoff-<slug>.md`.
+- **pickup (v7.23.0)** — `/pickup [handoff path]` resumes the newest or a named handoff, or an orchestration run that stopped before its end.
+- **worklog (v7.52.0)** — `/worklog [new|update|close] [<slug>]` keeps one tracking document per piece of multi-part work, at `docs/worklogs/<slug>.md`.
+- **dashboard (v7.56.0)** — `/superpowers-orchestrator:dashboard refresh` publishes the repository's status (unfinished runs, branches, work logs, open items, releases) on a private claude.ai Artifact page; `sync` copies the edits you approve from the page back into the Markdown files.
 
 ## Inherited from the parent projects
 
