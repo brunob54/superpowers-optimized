@@ -1,0 +1,29 @@
+test_case_01 (test_demo.DemoTest.test_case_01) ... skipped 'no database'
+test_case_02 (test_demo.DemoTest.test_case_02) ... skipped 'no database'
+test_case_03 (test_demo.DemoTest.test_case_03) ... skipped 'no database'
+test_case_04 (test_demo.DemoTest.test_case_04) ... skipped 'no database'
+test_case_05 (test_demo.DemoTest.test_case_05) ... skipped 'no database'
+test_case_06 (test_demo.DemoTest.test_case_06) ... skipped 'no database'
+test_case_07 (test_demo.DemoTest.test_case_07) ... skipped 'no database'
+test_case_08 (test_demo.DemoTest.test_case_08) ... skipped 'no database'
+test_case_09 (test_demo.DemoTest.test_case_09) ... skipped 'no database'
+test_case_10 (test_demo.DemoTest.test_case_10) ... skipped 'no database'
+test_case_11 (test_demo.DemoTest.test_case_11) ... skipped 'no database'
+test_case_12 (test_demo.DemoTest.test_case_12) ... skipped 'no database'
+test_case_13 (test_demo.DemoTest.test_case_13) ... skipped 'no database'
+test_case_14 (test_demo.DemoTest.test_case_14) ... skipped 'no database'
+test_case_15 (test_demo.DemoTest.test_case_15) ... skipped 'no database'
+test_case_16 (test_demo.DemoTest.test_case_16) ... skipped 'no database'
+test_case_17 (test_demo.DemoTest.test_case_17) ... skipped 'no database'
+test_case_18 (test_demo.DemoTest.test_case_18) ... skipped 'no database'
+test_case_19 (test_demo.DemoTest.test_case_19) ... skipped 'no database'
+test_case_20 (test_demo.DemoTest.test_case_20) ... skipped 'no database'
+test_case_21 (test_demo.DemoTest.test_case_21) ... skipped 'no database'
+test_case_22 (test_demo.DemoTest.test_case_22) ... skipped 'no database'
+test_case_23 (test_demo.DemoTest.test_case_23) ... skipped 'no database'
+test_case_24 (test_demo.DemoTest.test_case_24) ... skipped 'no database'
+
+----------------------------------------------------------------------
+Ran 24 tests in 0.000s
+
+OK (skipped=24)

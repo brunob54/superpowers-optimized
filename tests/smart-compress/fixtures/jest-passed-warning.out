@@ -1,0 +1,32 @@
+PASS jest-notice/s17.test.js
+PASS jest-notice/s19.test.js
+(node:56895) [DEP_DEMO] DeprecationWarning: old_call() is replaced by new_call()
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS jest-notice/s1.test.js
+PASS jest-notice/s9.test.js
+PASS jest-notice/s14.test.js
+PASS jest-notice/s21.test.js
+PASS jest-notice/s23.test.js
+PASS jest-notice/s20.test.js
+PASS jest-notice/s18.test.js
+PASS jest-notice/s22.test.js
+PASS jest-notice/s16.test.js
+PASS jest-notice/s10.test.js
+PASS jest-notice/s7.test.js
+PASS jest-notice/s24.test.js
+PASS jest-notice/s12.test.js
+PASS jest-notice/s5.test.js
+PASS jest-notice/s11.test.js
+PASS jest-notice/s6.test.js
+PASS jest-notice/s13.test.js
+PASS jest-notice/s8.test.js
+PASS jest-notice/s2.test.js
+PASS jest-notice/s4.test.js
+PASS jest-notice/s3.test.js
+PASS jest-notice/s15.test.js
+
+Test Suites: 24 passed, 24 total
+Tests:       24 passed, 24 total
+Snapshots:   0 total
+Time:        0.374 s
+Ran all test suites.

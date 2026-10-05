@@ -207,7 +207,7 @@ test('Commit reminder suppressed when all session edits are committed (git clean
     fs.writeFileSync(editLog, lines, 'utf8');
 
     const { evaluatePayload } = loadHookWithHome(homeDir);
-    // cwdDir is a temp dir with no git repo → getUncommittedCount returns 0 → no commit reminder
+    // The logged files lie in no git repository → no file has an uncommitted change → no commit reminder
     const result = evaluatePayload({ cwd: cwdDir, session_id: TEST_SESSION_ID });
 
     // May block for TDD reminder (source files, no tests), but must NOT mention "Commit reminder"
@@ -694,14 +694,15 @@ test('The commit reminder tells the assistant to ask when a project rule require
     `Expected the approval sentence in the commit reminder, got: ${result.reason}`);
 });
 
+/** The commit scenario plus one source edit: two reminders are due. */
+function arrangeCommitAndTdd(context) {
+  REMINDER_SCENARIOS.find(s => s.name === 'commit').arrange(context);
+  fs.appendFileSync(path.join(context.logDir, 'edit-log.txt'),
+    editLogLine(TEST_SESSION_ID, 'src/index.js'), 'utf8');
+}
+
 test('Names are trimmed and case-insensitive, unknown names are ignored, other reminders stay', () => {
-  // The commit scenario plus one source edit makes two reminders due.
-  const arrange = (context) => {
-    REMINDER_SCENARIOS.find(s => s.name === 'commit').arrange(context);
-    fs.appendFileSync(path.join(context.logDir, 'edit-log.txt'),
-      editLogLine(TEST_SESSION_ID, 'src/index.js'), 'utf8');
-  };
-  const result = withRemindersOff(' Commit ,unknown ', () => evaluateStop(arrange));
+  const result = withRemindersOff(' Commit ,unknown ', () => evaluateStop(arrangeCommitAndTdd));
   const reason = result.reason || '';
   assert.ok(!reason.includes('Commit reminder'),
     `Expected no commit reminder, got: ${reason}`);
@@ -827,13 +828,18 @@ function commitAll(repoDir, timeMs = Date.now()) {
 
 /**
  * Make repoDir a repository whose only commit is one hour old and holds the
- * source file. Returns the full path of the source file.
+ * named files. Returns the full paths of the files, in the order of the names.
  */
-function repoWithCommittedSource(repoDir, name = SOURCE_NAME) {
+function repoWithCommittedFiles(repoDir, names) {
   initRepo(repoDir);
-  const file = writeRepoFile(repoDir, name);
+  const files = names.map(name => writeRepoFile(repoDir, name));
   commitAll(repoDir, Date.now() - FIRST_COMMIT_AGE_MS);
-  return file;
+  return files;
+}
+
+/** The same with one source file. Returns the full path of the source file. */
+function repoWithCommittedSource(repoDir, name = SOURCE_NAME) {
+  return repoWithCommittedFiles(repoDir, [name])[0];
 }
 
 function recordEdits(logDir, files) {
@@ -1136,10 +1142,500 @@ test('The check of a restored file does not rewrite the index of the repository'
   }, () => assert.ok(indexBefore.equals(fs.readFileSync(indexFile)), 'Expected the index file to be unchanged')));
 });
 
-test('The commit reminder states the number of files that git reports', () => {
-  const result = evaluateStop(REMINDER_SCENARIOS.find(s => s.name === 'commit').arrange);
-  assert.ok((result.reason || '').includes('Commit reminder: 6 files with uncommitted changes'),
-    `Expected a count of 6 files, got: ${result.reason}`);
+// ── Commit reminder counts the files of this session only ────────────────────
+// Reported by a code review: the reminder counted every line of `git status`
+// of the repository. A session that had committed all of its own files was
+// blocked because of 5 unfinished files of the user. The reminder now asks git
+// about each file that the edit log of the session names, and counts the files
+// for which git reports a change. The files of these tests are text files, so
+// no other reminder is due and "no commit reminder" means "no block".
+
+console.log('\nCommit reminder counts the files of this session only');
+
+function scenarioNamed(name) {
+  return REMINDER_SCENARIOS.find(scenario => scenario.name === name);
+}
+
+const COMMIT_SCENARIO = scenarioNamed('commit');
+// The reminder is due from this number of files.
+const COMMIT_THRESHOLD = 5;
+
+/** The names `<prefix>1.txt` to `<prefix><count>.txt`. */
+function numberedNames(prefix, count) {
+  return Array.from({ length: count }, (_, index) => `${prefix}${index + 1}.txt`);
+}
+
+/**
+ * Make repoDir a repository whose only commit holds sessionCount files for
+ * the session and otherCount files that the edit log will not name.
+ */
+function repoWithSessionAndOtherFiles(repoDir, sessionCount, otherCount = 0) {
+  const files = repoWithCommittedFiles(repoDir,
+    [...numberedNames('session', sessionCount), ...numberedNames('other', otherCount)]);
+  return { sessionFiles: files.slice(0, sessionCount), otherFiles: files.slice(sessionCount) };
+}
+
+function modifyFiles(files) {
+  for (const file of files) fs.writeFileSync(file, EDITED_TEXT, 'utf8');
+}
+
+/** Write new files, which git does not track, below repoDir. Returns the full paths. */
+function writeNewFiles(repoDir, names) {
+  return names.map(name => writeRepoFile(repoDir, name, EDITED_TEXT));
+}
+
+function assertCommitReminder(result, count) {
+  const expected = `Commit reminder: ${count} files with uncommitted changes, all edited in this session.`;
+  assert.ok((result.reason || '').includes(expected),
+    `Expected "${expected}", got: ${JSON.stringify(result)}`);
+}
+
+test('The commit reminder states the number of session files with uncommitted changes', () => {
+  assertCommitReminder(evaluateStop(COMMIT_SCENARIO.arrange), 6);
+});
+
+test('The session committed its 5 files and the user has 5 modified files: no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles, otherFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD, COMMIT_THRESHOLD);
+    modifyFiles(sessionFiles);
+    commitAll(cwdDir);
+    modifyFiles(otherFiles);
+    recordEdits(logDir, sessionFiles);
+  }));
+});
+
+test('The session committed its 5 files and the user has 5 new files that git does not track: no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD);
+    modifyFiles(sessionFiles);
+    commitAll(cwdDir);
+    writeNewFiles(cwdDir, numberedNames('user-new', COMMIT_THRESHOLD));
+    recordEdits(logDir, sessionFiles);
+  }));
+});
+
+// `git status` prints one line for a whole new folder, so a count of status
+// lines saw one file here and gave no reminder.
+test('6 new session files in one new folder are counted as 6 files', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithSessionAndOtherFiles(cwdDir, 1);
+    recordEdits(logDir, writeNewFiles(cwdDir, numberedNames(path.join('new-folder', 'new'), 6)));
+  }), 6);
+});
+
+test('New session files are counted when the git configuration of the user hides untracked files', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithSessionAndOtherFiles(cwdDir, 1);
+    git(cwdDir, ['config', 'status.showUntrackedFiles', 'no']);
+    recordEdits(logDir, writeNewFiles(cwdDir, numberedNames('new', 6)));
+  }), 6);
+});
+
+// Accepted limit: a file that was changed only through the Bash tool is not in
+// the edit log, so it is not counted. Here 2 logged files and 4 files that the
+// log does not name are changed: `git status` prints 6 lines, the count is 2.
+test('5 logged files of which 3 are committed, and 4 changed files that the log does not name: no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles, otherFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD, 4);
+    modifyFiles(sessionFiles.slice(0, 3));
+    commitAll(cwdDir);
+    modifyFiles([...sessionFiles.slice(3), ...otherFiles]);
+    recordEdits(logDir, sessionFiles);
+  }));
+});
+
+test('7 logged files of which 2 are committed, and 4 changed files that the log does not name: the count is 5', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles, otherFiles } = repoWithSessionAndOtherFiles(cwdDir, 7, 4);
+    modifyFiles(sessionFiles.slice(0, 2));
+    commitAll(cwdDir);
+    modifyFiles([...sessionFiles.slice(2), ...otherFiles]);
+    recordEdits(logDir, sessionFiles);
+  }), COMMIT_THRESHOLD);
+});
+
+test('Session files in a repository that is not the session folder are counted', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(path.join(cwdDir, 'nested-repo'), COMMIT_THRESHOLD);
+    modifyFiles(sessionFiles);
+    recordEdits(logDir, sessionFiles);
+  }), COMMIT_THRESHOLD);
+});
+
+test('Session files that git ignores are not counted: they cannot be committed', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    initRepo(cwdDir);
+    writeRepoFile(cwdDir, '.gitignore', 'ignored-folder/\n');
+    commitAll(cwdDir, Date.now() - FIRST_COMMIT_AGE_MS);
+    recordEdits(logDir, writeNewFiles(cwdDir, numberedNames(path.join('ignored-folder', 'new'), COMMIT_THRESHOLD)));
+  }));
+});
+
+test('New files inside a subagent worktree folder are not counted', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithSessionAndOtherFiles(cwdDir, 1);
+    const worktreeName = path.join('.claude', 'worktrees', path.basename(AGENT_WORKTREE));
+    recordEdits(logDir, writeNewFiles(cwdDir, numberedNames(path.join(worktreeName, 'new'), 6)));
+  }));
+});
+
+test('A file name with a space and a file name with a letter outside ASCII are counted', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const tracked = repoWithCommittedFiles(cwdDir, ['my notes.txt', ...numberedNames('session', 3)]);
+    modifyFiles(tracked);
+    recordEdits(logDir, [...tracked, ...writeNewFiles(cwdDir, ['café.txt'])]);
+  }), COMMIT_THRESHOLD);
+});
+
+test('A tracked session file that was deleted after the edit is counted: the deletion is not committed', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD);
+    modifyFiles(sessionFiles);
+    fs.rmSync(sessionFiles[0]);
+    recordEdits(logDir, sessionFiles);
+  }), COMMIT_THRESHOLD);
+});
+
+test('A new session file that was deleted again is not counted', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD - 1);
+    modifyFiles(sessionFiles);
+    const [newFile] = writeNewFiles(cwdDir, ['new.txt']);
+    fs.rmSync(newFile);
+    recordEdits(logDir, [...sessionFiles, newFile]);
+  }));
+});
+
+// git reads `[id]` in a file name as a pattern that matches `i.txt` and `d.txt`.
+test('A committed session file whose name holds pattern characters is not counted for the files that the pattern matches', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const [patternFile, ...others] = repoWithCommittedFiles(cwdDir,
+      ['[id].txt', 'i.txt', 'd.txt', ...numberedNames('session', COMMIT_THRESHOLD - 1)]);
+    modifyFiles(others);
+    recordEdits(logDir, [patternFile, ...others.slice(2)]);
+  }));
+});
+
+// On a file system that ignores letter case (the default on macOS and
+// Windows), git reports nothing for a name in another case than it stores.
+// The hook asks the file system for the stored name first. On a file system
+// that respects letter case, the recorded name is a file that does not exist.
+test('A modified session file whose record differs in letter case from the tracked name is counted', () => {
+  let ignoresCase;
+  const result = evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD);
+    modifyFiles(sessionFiles);
+    const recorded = path.join(cwdDir, path.basename(sessionFiles[0]).toUpperCase());
+    ignoresCase = fs.existsSync(recorded);
+    recordEdits(logDir, [recorded, ...sessionFiles.slice(1)]);
+  });
+  if (ignoresCase) assertCommitReminder(result, COMMIT_THRESHOLD);
+  else assertNoReminder(result);
+});
+
+// A symbolic link to the folder gives every file a second path.
+test('A file that the log names under two paths is counted once', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD - 1);
+    modifyFiles(sessionFiles);
+    const linkToFolder = path.join(cwdDir, 'same-folder');
+    fs.symlinkSync(cwdDir, linkToFolder);
+    recordEdits(logDir,
+      [...sessionFiles, ...sessionFiles.map(file => path.join(linkToFolder, path.basename(file)))]);
+  }));
+});
+
+// Reported by a reviewer: the session edits 5 tracked files and then renames
+// or deletes their folder. The logged paths no longer exist, but `git status`
+// shows 5 changes that are not committed. The hook asks git from the nearest
+// folder that still exists.
+const OLD_FOLDER = path.join('src', 'old');
+const FOLDER_CHANGES = [
+  ['renamed with git mv', repoDir => git(repoDir, ['mv', OLD_FOLDER, path.join('src', 'new')])],
+  ['renamed without git', repoDir => fs.renameSync(path.join(repoDir, OLD_FOLDER), path.join(repoDir, 'src', 'new'))],
+  ['deleted', repoDir => fs.rmSync(path.join(repoDir, OLD_FOLDER), { recursive: true })],
+  ['deleted together with its parent folder', repoDir => fs.rmSync(path.join(repoDir, 'src'), { recursive: true })],
+];
+
+for (const [label, changeFolder] of FOLDER_CHANGES) {
+  test(`5 tracked session files whose folder was ${label} after the edit are counted`, () => {
+    assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+      const files = repoWithCommittedFiles(cwdDir, numberedNames(path.join(OLD_FOLDER, 'session'), COMMIT_THRESHOLD));
+      modifyFiles(files);
+      changeFolder(cwdDir);
+      recordEdits(logDir, files);
+    }), COMMIT_THRESHOLD);
+  });
+}
+
+test('Session files that never existed, in a folder that never existed, are not counted', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    repoWithSessionAndOtherFiles(cwdDir, 1);
+    recordEdits(logDir, numberedNames(path.join(cwdDir, 'never', 'was', 'new'), COMMIT_THRESHOLD));
+  }));
+});
+
+test('A file in a deleted folder that the log names under two paths is counted once', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const files = repoWithCommittedFiles(cwdDir, numberedNames(path.join(OLD_FOLDER, 'session'), COMMIT_THRESHOLD - 1));
+    const linkToFolder = path.join(cwdDir, 'same-folder');
+    fs.symlinkSync(cwdDir, linkToFolder);
+    fs.rmSync(path.join(cwdDir, OLD_FOLDER), { recursive: true });
+    recordEdits(logDir,
+      [...files, ...files.map(file => path.join(linkToFolder, path.relative(cwdDir, file)))]);
+  }));
+});
+
+// git fails in a folder that is not a repository. A failed git command is no
+// proof of a change.
+test('5 existing session files in a folder that is not a git repository: no reminder', () => {
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) =>
+    recordEdits(logDir, writeNewFiles(cwdDir, numberedNames('new', COMMIT_THRESHOLD)))));
+});
+
+// The test process runs in another folder than the session folder of the payload.
+test('A record with a relative path is resolved against the session folder', () => {
+  assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD);
+    modifyFiles(sessionFiles);
+    recordEdits(logDir, sessionFiles.map(file => path.relative(cwdDir, file)));
+  }), COMMIT_THRESHOLD);
+});
+
+// Reported by two reviewers: each git call has a time limit of 5 seconds, and
+// the count had no limit of its own. With a git that hangs, 6 logged files
+// blocked the stop for 30 seconds. The fake git of this test answers its first
+// calls (the first two after one second each) and hangs on every later call.
+const SLOW_GIT_CALLS = 2;
+const ANSWERED_GIT_CALLS = COMMIT_THRESHOLD;
+const LOGGED_FILES_FOR_SLOW_GIT = 9;
+// The whole count may take 5 seconds. The test states the value itself, so
+// that a longer limit in the hook fails the test. The margin is the time
+// that the hook may need outside its git calls.
+const COUNT_TIME_LIMIT_MS = 5000;
+const TIME_LIMIT_MARGIN_MS = 1000;
+
+/** The full path of the git program that the test process runs. */
+function realGitPath() {
+  const found = process.env.PATH.split(path.delimiter)
+    .map(folder => path.join(folder, 'git'))
+    .find(candidate => fs.existsSync(candidate));
+  assert.ok(found, 'Expected a program named git in PATH');
+  return found;
+}
+
+/** Write a program named `git` into binDir that counts its calls in a file. */
+function writeFakeGit(binDir) {
+  const callsFile = path.join(binDir, 'calls');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, 'git'), [
+    '#!/bin/sh',
+    `echo call >> '${callsFile}'`,
+    `calls=$(wc -l < '${callsFile}')`,
+    `if [ "$calls" -le ${SLOW_GIT_CALLS} ]; then sleep 1; fi`,
+    `if [ "$calls" -le ${ANSWERED_GIT_CALLS} ]; then exec '${realGitPath()}' "$@"; fi`,
+    'exec sleep 60',
+    '',
+  ].join('\n'), { mode: 0o755 });
+}
+
+test('With a git that hangs, the count stops at its time limit and uses the files counted so far', () => {
+  if (process.platform === 'win32') {
+    console.log('    (not run on Windows: the fake git is a shell script)');
+    return;
+  }
+  const pathBefore = process.env.PATH;
+  const allowedMs = COUNT_TIME_LIMIT_MS + TIME_LIMIT_MARGIN_MS;
+  let startMs;
+  let elapsedMs;
+  try {
+    assertCommitReminder(evaluateStop(({ logDir, cwdDir }) => {
+      const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, LOGGED_FILES_FOR_SLOW_GIT);
+      modifyFiles(sessionFiles);
+      recordEdits(logDir, sessionFiles);
+      const binDir = path.join(path.dirname(logDir), 'fake-bin');
+      writeFakeGit(binDir);
+      process.env.PATH = binDir + path.delimiter + pathBefore;
+      startMs = Date.now();
+    }, () => { elapsedMs = Date.now() - startMs; }), ANSWERED_GIT_CALLS);
+  } finally {
+    process.env.PATH = pathBefore;
+  }
+  assert.ok(elapsedMs < allowedMs, `Expected the stop to take less than ${allowedMs} ms, it took ${elapsedMs} ms`);
+});
+
+// See the test of the restored file above: a new modification time makes a
+// plain `git status` write the index again.
+test('The count of 5 session files does not rewrite the index of the repository', () => {
+  let indexFile;
+  let indexBefore;
+  assertNoReminder(evaluateStop(({ logDir, cwdDir }) => {
+    const { sessionFiles } = repoWithSessionAndOtherFiles(cwdDir, COMMIT_THRESHOLD);
+    for (const file of sessionFiles) setFileAge(file, EDIT_AGE_MINUTES * MINUTE_MS);
+    recordEdits(logDir, sessionFiles);
+    indexFile = path.join(cwdDir, '.git', 'index');
+    indexBefore = fs.readFileSync(indexFile);
+  }, () => assert.ok(indexBefore.equals(fs.readFileSync(indexFile)), 'Expected the index file to be unchanged')));
+});
+
+// ── No commit reminder while a subagent is still running ─────────────────────
+// Seen in a real session: six stops were blocked with a commit reminder for
+// files that subagents were still editing. Claude Code lists the unfinished
+// background work of the session in the field `background_tasks` of the stop
+// payload. The entries below copy a payload that was recorded with Claude
+// Code 2.1.289.
+
+console.log('\nNo commit reminder while a subagent is still running');
+
+const RUNNING_SUBAGENT = {
+  id: 'af50c1d6fb184d121',
+  type: 'subagent',
+  status: 'running',
+  description: 'Write file and sleep task',
+  agent_type: 'general-purpose',
+};
+const RUNNING_SHELL_COMMAND = {
+  id: 'bwexoicz6',
+  type: 'shell',
+  status: 'running',
+  description: 'Wait for 40 seconds',
+  command: 'sleep 40',
+};
+
+/** Evaluate a stop for which `arrange` makes reminders due, with the given field value. */
+function evaluateStopWithBackgroundTasks(arrange, backgroundTasks) {
+  return evaluateStop(context => {
+    arrange(context);
+    return { background_tasks: backgroundTasks };
+  });
+}
+
+const TASKS_THAT_POSTPONE_THE_REMINDER = [
+  ['a running subagent', [RUNNING_SUBAGENT]],
+  ['a running subagent after a running shell command', [RUNNING_SHELL_COMMAND, RUNNING_SUBAGENT]],
+  ['a running subagent after an entry that is null', [null, RUNNING_SUBAGENT]],
+];
+
+for (const [label, backgroundTasks] of TASKS_THAT_POSTPONE_THE_REMINDER) {
+  test(`With ${label}, the commit scenario gives no reminder`, () => {
+    assertNoReminder(evaluateStopWithBackgroundTasks(COMMIT_SCENARIO.arrange, backgroundTasks));
+  });
+}
+
+// A running subagent must remove the commit reminder and nothing else: not
+// another reminder that is due alone, and no line of a block that holds
+// every reminder.
+const OTHER_SCENARIOS = REMINDER_SCENARIOS.filter(scenario => scenario !== COMMIT_SCENARIO);
+const SESSION_SUMMARY = 'Session summary:';
+const OTHER_BLOCK_TEXTS = [...OTHER_SCENARIOS.map(scenario => scenario.text), SESSION_SUMMARY];
+
+for (const scenario of OTHER_SCENARIOS) {
+  test(`A running subagent does not remove the "${scenario.name}" reminder that is due alone`, () => {
+    const reason = evaluateStopWithBackgroundTasks(scenario.arrange, [RUNNING_SUBAGENT]).reason || '';
+    assert.ok(reason.includes(scenario.text), `Expected "${scenario.text}", got: ${reason}`);
+  });
+}
+
+/**
+ * Make every reminder of the hook due at one stop, with the session summary
+ * line. The two scenarios that write only files run first, because the
+ * commit scenario writes the edit log again.
+ */
+function arrangeEveryReminder(context) {
+  scenarioNamed('state-md').arrange(context);
+  scenarioNamed('session-log-size').arrange(context);
+  COMMIT_SCENARIO.arrange(context);
+  // Two source edits later than state.md, with no test edit, and one skill file.
+  fs.appendFileSync(path.join(context.logDir, 'edit-log.txt'),
+    ['src/a.js', 'src/b.js', SIGNIFICANT_FILE].map(file => editLogLine(TEST_SESSION_ID, file)).join(''), 'utf8');
+  fs.writeFileSync(context.hook.statsFile(TEST_SESSION_ID), JSON.stringify({
+    skillInvocations: { 'superpowers-orchestrator:executing-plans': 1 },
+    totalSkillCalls: 1,
+  }), 'utf8');
+}
+
+function assertBlockTexts(reason, expectedTexts, missingTexts = []) {
+  for (const text of expectedTexts) assert.ok(reason.includes(text), `Expected "${text}", got: ${reason}`);
+  for (const text of missingTexts) assert.ok(!reason.includes(text), `Expected no "${text}", got: ${reason}`);
+}
+
+test('Without a running subagent, the scenario with every reminder gives every reminder', () => {
+  assertBlockTexts(evaluateStop(arrangeEveryReminder).reason || '', [COMMIT_SCENARIO.text, ...OTHER_BLOCK_TEXTS]);
+});
+
+test('A running subagent removes the commit reminder and no other line of the block', () => {
+  assertBlockTexts(evaluateStopWithBackgroundTasks(arrangeEveryReminder, [RUNNING_SUBAGENT]).reason || '',
+    OTHER_BLOCK_TEXTS, [COMMIT_SCENARIO.text]);
+});
+
+test('With the commit reminder switched off, a running subagent removes no line of the block', () => {
+  const result = withRemindersOff(COMMIT_SCENARIO.name,
+    () => evaluateStopWithBackgroundTasks(arrangeEveryReminder, [RUNNING_SUBAGENT]));
+  assertBlockTexts(result.reason || '', OTHER_BLOCK_TEXTS, [COMMIT_SCENARIO.text]);
+});
+
+test('The reminder is postponed, not removed: the next stop without a running subagent gives it', () => {
+  assertCommitReminder(evaluateStop(context => {
+    COMMIT_SCENARIO.arrange(context);
+    assertNoReminder(context.stop(TEST_SESSION_ID, { background_tasks: [RUNNING_SUBAGENT] }));
+    return { background_tasks: [] };
+  }), 6);
+});
+
+// The documentation of Claude Code does not list the status values, so every other value
+// must leave the reminder as it is without the field.
+const VALUES_THAT_KEEP_THE_REMINDER = [
+  ...['completed', 'failed', 'pending', 'RUNNING', ''].map(status =>
+    [`a subagent with the status "${status}"`, [{ ...RUNNING_SUBAGENT, status }]]),
+  ['a subagent without a status', [{ id: RUNNING_SUBAGENT.id, type: RUNNING_SUBAGENT.type }]],
+  ['a running task that is not a subagent', [RUNNING_SHELL_COMMAND]],
+  ['an entry without a type', [{ status: 'running' }]],
+  ['entries that are not objects', [null, 'subagent', 7]],
+  ['one task object instead of a list', RUNNING_SUBAGENT],
+  ['a text instead of a list', 'running'],
+  ['a number instead of a list', 1],
+  ['null', null],
+];
+
+for (const [label, backgroundTasks] of VALUES_THAT_KEEP_THE_REMINDER) {
+  test(`With ${label} in background_tasks, the commit reminder is given`, () => {
+    assertCommitReminder(evaluateStopWithBackgroundTasks(COMMIT_SCENARIO.arrange, backgroundTasks), 6);
+  });
+}
+
+// The tests above call the function that evaluates a payload. This test runs
+// the hook as Claude Code runs it, so it also covers the code that reads the
+// payload: JSON on standard input, the result on standard output. The payload
+// comes from a file, because /dev/stdin does not exist in Git Bash on Windows.
+function runHookAsProcess(homeDir, payload) {
+  const payloadFile = path.join(homeDir, 'payload.json');
+  fs.writeFileSync(payloadFile, JSON.stringify(payload), 'utf8');
+  const payloadInput = fs.openSync(payloadFile, 'r');
+  try {
+    const result = spawnSync(process.execPath, [HOOK_MODULE_PATH], {
+      stdio: [payloadInput, 'pipe', 'pipe'],
+      encoding: 'utf8',
+      env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir },
+    });
+    assert.strictEqual(result.status, 0, `The hook ended with status ${result.status}: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  } finally {
+    fs.closeSync(payloadInput);
+  }
+}
+
+test('Run as a process, the hook reads background_tasks from the payload on standard input', () => {
+  const { homeDir, cwdDir, logDir } = makeTempDirs();
+  try {
+    COMMIT_SCENARIO.arrange({ logDir, cwdDir });
+    const payload = { cwd: cwdDir, session_id: TEST_SESSION_ID };
+    assertNoReminder(runHookAsProcess(homeDir, { ...payload, background_tasks: [RUNNING_SUBAGENT] }));
+    // The same payload without the field blocks, so the empty result above
+    // comes from the field.
+    assertCommitReminder(runHookAsProcess(homeDir, payload), 6);
+  } finally {
+    cleanup(homeDir, cwdDir);
+  }
 });
 
 // ── checkSessionLogSize hard cap ─────────────────────────────────────────────

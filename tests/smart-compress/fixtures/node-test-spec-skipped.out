@@ -1,0 +1,36 @@
+
+> skip@1.0.0 test
+> node --test
+
+﹣ case 1 (0.324292ms) # SKIP
+﹣ case 2 (0.044667ms) # SKIP
+﹣ case 3 (0.041709ms) # SKIP
+﹣ case 4 (0.289375ms) # SKIP
+﹣ case 5 (0.056084ms) # SKIP
+﹣ case 6 (0.032ms) # SKIP
+﹣ case 7 (0.0315ms) # SKIP
+﹣ case 8 (0.026042ms) # SKIP
+﹣ case 9 (0.037375ms) # SKIP
+﹣ case 10 (0.079625ms) # SKIP
+﹣ case 11 (0.035208ms) # SKIP
+﹣ case 12 (0.028709ms) # SKIP
+﹣ case 13 (0.033292ms) # SKIP
+﹣ case 14 (0.021833ms) # SKIP
+﹣ case 15 (0.027083ms) # SKIP
+﹣ case 16 (0.031375ms) # SKIP
+﹣ case 17 (0.015292ms) # SKIP
+﹣ case 18 (0.023709ms) # SKIP
+﹣ case 19 (0.040208ms) # SKIP
+﹣ case 20 (0.024083ms) # SKIP
+﹣ case 21 (0.014ms) # SKIP
+﹣ case 22 (0.012792ms) # SKIP
+﹣ case 23 (0.011708ms) # SKIP
+﹣ case 24 (0.011792ms) # SKIP
+ℹ tests 24
+ℹ suites 0
+ℹ pass 0
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 24
+ℹ todo 0
+ℹ duration_ms 31.547458

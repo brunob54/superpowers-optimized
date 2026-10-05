@@ -1,0 +1,31 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.1.1, pluggy-1.6.0 -- /work/py/venv/bin/python3.14
+rootdir: /work/py/skip
+collecting ... collected 24 items
+
+test_a.py::test_case_1 SKIPPED (no database)                             [  4%]
+test_a.py::test_case_2 SKIPPED (no database)                             [  8%]
+test_a.py::test_case_3 SKIPPED (no database)                             [ 12%]
+test_a.py::test_case_4 SKIPPED (no database)                             [ 16%]
+test_a.py::test_case_5 SKIPPED (no database)                             [ 20%]
+test_a.py::test_case_6 SKIPPED (no database)                             [ 25%]
+test_a.py::test_case_7 SKIPPED (no database)                             [ 29%]
+test_a.py::test_case_8 SKIPPED (no database)                             [ 33%]
+test_a.py::test_case_9 SKIPPED (no database)                             [ 37%]
+test_a.py::test_case_10 SKIPPED (no database)                            [ 41%]
+test_a.py::test_case_11 SKIPPED (no database)                            [ 45%]
+test_a.py::test_case_12 SKIPPED (no database)                            [ 50%]
+test_a.py::test_case_13 SKIPPED (no database)                            [ 54%]
+test_a.py::test_case_14 SKIPPED (no database)                            [ 58%]
+test_a.py::test_case_15 SKIPPED (no database)                            [ 62%]
+test_a.py::test_case_16 SKIPPED (no database)                            [ 66%]
+test_a.py::test_case_17 SKIPPED (no database)                            [ 70%]
+test_a.py::test_case_18 SKIPPED (no database)                            [ 75%]
+test_a.py::test_case_19 SKIPPED (no database)                            [ 79%]
+test_a.py::test_case_20 SKIPPED (no database)                            [ 83%]
+test_a.py::test_case_21 SKIPPED (no database)                            [ 87%]
+test_a.py::test_case_22 SKIPPED (no database)                            [ 91%]
+test_a.py::test_case_23 SKIPPED (no database)                            [ 95%]
+test_a.py::test_case_24 SKIPPED (no database)                            [100%]
+
+============================= 24 skipped in 0.01s ==============================

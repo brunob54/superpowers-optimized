@@ -1,0 +1,51 @@
+
+/work/js/eslint-demo/src/file1.js
+  1:7  warning  'a1' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b1' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c1' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd1' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file2.js
+  1:7  warning  'a2' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b2' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c2' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd2' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file3.js
+  1:7  warning  'a3' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b3' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c3' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd3' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file4.js
+  1:7  warning  'a4' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b4' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c4' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd4' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file5.js
+  1:7  warning  'a5' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b5' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c5' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd5' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file6.js
+  1:7  warning  'a6' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b6' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c6' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd6' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file7.js
+  1:7  warning  'a7' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b7' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c7' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd7' is assigned a value but never used  no-unused-vars
+
+/work/js/eslint-demo/src/file8.js
+  1:7  warning  'a8' is assigned a value but never used  no-unused-vars
+  2:7  warning  'b8' is assigned a value but never used  no-unused-vars
+  3:7  warning  'c8' is assigned a value but never used  no-unused-vars
+  4:7  warning  'd8' is assigned a value but never used  no-unused-vars
+
+✖ 32 problems (0 errors, 32 warnings)
+

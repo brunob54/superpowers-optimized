@@ -13,7 +13,7 @@
  * blocked. The field can only remove a block, never add one, so a platform
  * or version that does not send it behaves as before.
  *
- * Input:  stdin JSON with { session_id, cwd, stop_hook_active, ... }
+ * Input:  stdin JSON with { session_id, cwd, stop_hook_active, background_tasks, ... }
  * Output: stdout JSON with decision/reason continuation payload (only when
  * actionable reminders exist), or {} to let Claude stop normally.
  * Uses decision+reason rather than hookSpecificOutput for broader version compat.
@@ -304,30 +304,20 @@ function formatStatsSummary(stats) {
 
 const GIT_TIMEOUT_MS = 5000;
 const GIT_STATUS = ['status', '--porcelain'];
+// With this option `git status` lists a new file even when the configuration
+// of the user hides untracked files, and it lists each file of a new folder
+// instead of one line for the folder.
+const ALL_UNTRACKED_FILES = '--untracked-files=all';
 
 /**
  * Run one git command in `cwd`. Return its standard output without the
- * surrounding white space, or null when git failed or could not be started.
+ * surrounding white space, or null when git failed, could not be started, or
+ * did not end within `timeoutMs` milliseconds.
  */
-function gitStdout(args, cwd) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS });
+function gitStdout(args, cwd, timeoutMs = GIT_TIMEOUT_MS) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: timeoutMs });
   if (result.status !== 0 || result.error) return null;
   return (result.stdout || '').trim();
-}
-
-/**
- * Generate contextual reminders based on edit history and session stats.
- * Returns array of reminder strings.
- */
-function getUncommittedCount(cwd) {
-  try {
-    const stdout = gitStdout(GIT_STATUS, cwd || process.cwd());
-    if (stdout === null) return 0;
-    const lines = stdout.split('\n').filter(l => l.trim().length > 0);
-    return lines.length;
-  } catch {
-    return 0;
-  }
 }
 
 // Options for a git command that only reads and that names one file: git
@@ -335,6 +325,34 @@ function getUncommittedCount(cwd) {
 // command of the user, and the characters `*`, `?` and `[` in the file name
 // have no special meaning.
 const GIT_READ_ONE_FILE = ['--no-optional-locks', '--literal-pathspecs'];
+
+/**
+ * Return the nearest folder that exists: `folder` itself, or the first
+ * folder above it that exists.
+ */
+function nearestExistingFolder(folder) {
+  let existing = folder;
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) {
+    existing = path.dirname(existing);
+  }
+  return existing;
+}
+
+/**
+ * Return a function that runs one read-only git command about one file.
+ * `realPath` is the full path of the file with every symbolic link resolved.
+ * git runs in the folder of the file, so the repository of the file decides,
+ * not the session folder. When that folder no longer exists (it was renamed
+ * or deleted), git runs in the nearest folder that exists and gets the rest
+ * of the path, with `/` as the separator on every platform. The file is
+ * always the one path of the command: a `git status` with no path would
+ * report the whole repository. Each call may take `timeoutMs` milliseconds.
+ */
+function gitReaderForFile(realPath, timeoutMs = GIT_TIMEOUT_MS) {
+  const folder = nearestExistingFolder(path.dirname(realPath));
+  const pathFromFolder = path.relative(folder, realPath).split(path.sep).join('/');
+  return (...args) => gitStdout([...GIT_READ_ONE_FILE, ...args, '--', pathFromFolder], folder, timeoutMs);
+}
 
 const SECOND_MS = 1000;
 
@@ -369,15 +387,12 @@ function isBackAtCommittedState(filePath, firstEditTimeMs, cwd) {
   } catch {
     return false;
   }
-  const gitForFile = (...args) => gitStdout(
-    [...GIT_READ_ONE_FILE, ...args, '--', path.basename(realPath)],
-    path.dirname(realPath)
-  );
+  const gitForFile = gitReaderForFile(realPath);
   // --ignored lists a file that git ignores, and --untracked-files=all lists
   // a new file even when the configuration of the user hides untracked files.
   // `ls-files` prints the name only when git tracks it; null (git failed)
   // and the empty text both mean "no proof".
-  return gitForFile(...GIT_STATUS, '--ignored', '--untracked-files=all') === '' &&
+  return gitForFile(...GIT_STATUS, '--ignored', ALL_UNTRACKED_FILES) === '' &&
     Boolean(gitForFile('ls-files')) &&
     gitForFile('log', '--all', '--reflog', '-1', '--format=%H',
       `--since=${Math.floor(firstEditTimeMs / SECOND_MS)}`) === '';
@@ -410,7 +425,92 @@ function formatFileList(filePaths, cwd) {
   return names.join(', ') + (rest > 0 ? ` and ${rest} more` : '');
 }
 
-function generateReminders(edits, cwd, sessionId) {
+/**
+ * Return the full path of a logged file as the file system stores it: every
+ * symbolic link is resolved, and on a file system that ignores letter case
+ * the path has the stored letter case (git reports nothing for a name in
+ * another letter case). A file that no longer exists is resolved through the
+ * nearest folder above it that exists, and the rest of the path is added
+ * unchanged, so that git can still report a file that was deleted, or whose
+ * folder was renamed or deleted. The result is null only when the path
+ * cannot be resolved at all (for example a drive that does not exist).
+ */
+function storedPath(filePath, cwd) {
+  let resolved;
+  try {
+    resolved = path.resolve(cwd, filePath);
+  } catch {
+    return null;
+  }
+  let existing = resolved;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(existing), path.relative(existing, resolved));
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return null;
+      existing = parent;
+    }
+  }
+}
+
+// The whole count of the commit reminder may take this long. Each git call
+// has its own limit of GIT_TIMEOUT_MS, so without a limit for the whole count
+// a git that hangs would block the stop for that time once per logged file
+// (measured: 30 seconds for 6 files).
+const COMMIT_COUNT_TIME_LIMIT_MS = GIT_TIMEOUT_MS;
+
+/**
+ * Count the files of `editedPaths` for which git reports a change that is not
+ * committed: a modified, staged, deleted or new file. One `git status` runs
+ * per file, so a changed file that the session did not edit is never counted,
+ * and an empty list runs no git command. A file is counted once, also when
+ * the list names it under two paths. Not counted: a file that git ignores
+ * (it cannot be committed), a file outside a git repository, and a file for
+ * which git fails. When COMMIT_COUNT_TIME_LIMIT_MS is used up, the count
+ * stops, and the result is the number of files counted until then.
+ */
+function countFilesWithUncommittedChanges(editedPaths, cwd) {
+  const storedPaths = new Set(editedPaths.map(filePath => storedPath(filePath, cwd)).filter(Boolean));
+  const deadlineMs = Date.now() + COMMIT_COUNT_TIME_LIMIT_MS;
+  let count = 0;
+  for (const file of storedPaths) {
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs <= 0) break;
+    if (gitReaderForFile(file, remainingMs)(...GIT_STATUS, ALL_UNTRACKED_FILES)) count += 1;
+  }
+  return count;
+}
+
+const SUBAGENT_TASK_TYPE = 'subagent';
+const RUNNING_TASK_STATUS = 'running';
+
+/**
+ * Return true when the stop payload lists a subagent that is still running.
+ * `backgroundTasks` is the field `background_tasks` of the Stop hook input.
+ * The hooks reference of Claude Code describes this field under "Stop
+ * input": the list of the unfinished background work of the session, each
+ * entry with a `type` (for example `subagent`) and a `status`. It does not
+ * list the values of `status`. Measured: a payload recorded with Claude Code
+ * 2.1.289 held `{ "type": "subagent", "status": "running", ... }` for a
+ * subagent that was still working. When the field is absent (an older Claude
+ * Code, another platform), is not a list, or holds entries of another shape,
+ * the result is false, and the hook behaves as it does without the field.
+ */
+function hasRunningSubagent(backgroundTasks) {
+  return Array.isArray(backgroundTasks) && backgroundTasks.some(task =>
+    Boolean(task) && task.type === SUBAGENT_TASK_TYPE && task.status === RUNNING_TASK_STATUS);
+}
+
+// The commit reminder is due from this number of files.
+const COMMIT_REMINDER_MIN_FILES = 5;
+
+/**
+ * Generate contextual reminders based on edit history and session stats.
+ * `backgroundTasks` is the field `background_tasks` of the stop payload.
+ * Returns array of reminder strings.
+ */
+function generateReminders(edits, cwd, sessionId, backgroundTasks) {
   const reminders = [];
 
   // Session stats summary (always include if available)
@@ -442,13 +542,27 @@ function generateReminders(edits, cwd, sessionId) {
     }
   }
 
-  // Commit reminder: check actual uncommitted changes via git, not just session edits.
-  // Using edit-log count was wrong — it fired even after a commit was made mid-session.
-  if (isReminderOn(REMINDER.COMMIT) && editedPaths.length >= 5) {
-    const uncommittedCount = getUncommittedCount(cwd);
-    if (uncommittedCount >= 5) {
+  // Commit reminder: counts the files that this session edited and that git
+  // still reports as changed. The edit log alone is not enough (the reminder
+  // would stay after a commit), and `git status` of the whole repository is
+  // not enough either (it counts unfinished files of the user, and a model
+  // that follows the reminder would commit them).
+  // Accepted limit: a file that was changed only through the Bash tool is not
+  // in the edit log, so it is not counted.
+  // While a subagent is still running, the reminder is postponed: the files
+  // that the subagent edits are in the edit log of this session, and they are
+  // not ready for a commit. The next stop without a running subagent gives
+  // the reminder, when the edits are still inside the 30-minute window. Only
+  // this reminder is postponed. git runs only when the reminder can be due.
+  if (
+    isReminderOn(REMINDER.COMMIT) &&
+    editedPaths.length >= COMMIT_REMINDER_MIN_FILES &&
+    !hasRunningSubagent(backgroundTasks)
+  ) {
+    const uncommittedCount = countFilesWithUncommittedChanges(editedPaths, cwd);
+    if (uncommittedCount >= COMMIT_REMINDER_MIN_FILES) {
       reminders.push(
-        `Commit reminder: ${uncommittedCount} files with uncommitted changes. ` +
+        `Commit reminder: ${uncommittedCount} files with uncommitted changes, all edited in this session. ` +
         `Consider committing incremental progress to avoid losing work. ` +
         `If a project rule (for example in CLAUDE.md or AGENTS.md) requires the user's approval ` +
         `before a commit, do not commit: tell the user about the uncommitted changes and wait.`
@@ -581,7 +695,7 @@ function evaluatePayload(data) {
   // reminder that the model cannot clear (the TDD reminder) repeats.
   if (data.stop_hook_active === true || !shouldFire(sessionId)) return {};
 
-  const reminders = generateReminders(edits, cwd, sessionId);
+  const reminders = generateReminders(edits, cwd, sessionId, data.background_tasks);
 
   // Decision-log reminder: significant files modified since the last [saved] entry.
   // Using "since last saved" (not "last 30 min") means long sessions with multiple

@@ -1,0 +1,33 @@
+
+ RUN  v5.0.3 /work/js/vitest-skip
+
+ ↓ s3.test.mjs > suite 3 > case 3.1
+ ↓ s3.test.mjs > suite 3 > case 3.2
+ ↓ s3.test.mjs > suite 3 > case 3.3
+ ↓ s3.test.mjs > suite 3 > case 3.4
+ ↓ s5.test.mjs > suite 5 > case 5.1
+ ↓ s5.test.mjs > suite 5 > case 5.2
+ ↓ s5.test.mjs > suite 5 > case 5.3
+ ↓ s5.test.mjs > suite 5 > case 5.4
+ ↓ s4.test.mjs > suite 4 > case 4.1
+ ↓ s4.test.mjs > suite 4 > case 4.2
+ ↓ s4.test.mjs > suite 4 > case 4.3
+ ↓ s4.test.mjs > suite 4 > case 4.4
+ ↓ s6.test.mjs > suite 6 > case 6.1
+ ↓ s6.test.mjs > suite 6 > case 6.2
+ ↓ s6.test.mjs > suite 6 > case 6.3
+ ↓ s6.test.mjs > suite 6 > case 6.4
+ ↓ s2.test.mjs > suite 2 > case 2.1
+ ↓ s2.test.mjs > suite 2 > case 2.2
+ ↓ s2.test.mjs > suite 2 > case 2.3
+ ↓ s2.test.mjs > suite 2 > case 2.4
+ ↓ s1.test.mjs > suite 1 > case 1.1
+ ↓ s1.test.mjs > suite 1 > case 1.2
+ ↓ s1.test.mjs > suite 1 > case 1.3
+ ↓ s1.test.mjs > suite 1 > case 1.4
+
+ Test Files  6 skipped (6)
+      Tests  24 skipped (24)
+   Start at  16:17:07
+   Duration  65ms (transform 58%, import 31%, worker 11%)
+

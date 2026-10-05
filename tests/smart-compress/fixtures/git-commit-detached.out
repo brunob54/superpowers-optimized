@@ -1,0 +1,8 @@
+[detached HEAD 9d368eb] Commit on a detached HEAD
+ 6 files changed, 6 insertions(+)
+ create mode 100644 src-file-with-a-long-name-detached-1.txt
+ create mode 100644 src-file-with-a-long-name-detached-2.txt
+ create mode 100644 src-file-with-a-long-name-detached-3.txt
+ create mode 100644 src-file-with-a-long-name-detached-4.txt
+ create mode 100644 src-file-with-a-long-name-detached-5.txt
+ create mode 100644 src-file-with-a-long-name-detached-6.txt
