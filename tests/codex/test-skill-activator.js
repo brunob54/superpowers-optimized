@@ -1081,9 +1081,9 @@ test('an empty cwd falls back to the working folder: the recall comes from that 
 // Runs the hook as Claude Code does after Claude has run `cd`: the payload's
 // cwd and the folder of the hook process are `cwd`, and CLAUDE_PROJECT_DIR is
 // `projectDir`, the folder where the session started.
-function runHookWithProjectDir(projectDir, cwd) {
+function runHookWithProjectDir(projectDir, cwd, sessionId = uniqueSessionId()) {
   const env = { ...process.env, [PROJECT_DIR_VARIABLE]: projectDir };
-  return runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd }, { cwd, env });
+  return runHook({ prompt: RECALL_PROMPT, session_id: sessionId, cwd }, { cwd, env });
 }
 
 test('a cwd in a sub-folder of CLAUDE_PROJECT_DIR: the recall comes from CLAUDE_PROJECT_DIR', () => withRecallProject((dir) => {
@@ -1099,42 +1099,50 @@ test('a cwd that differs from CLAUDE_PROJECT_DIR: the recall comes from cwd when
   assertHintAndRecall(runHookWithProjectDir(emptyProjectDir, dir));
 })));
 
-// The recall files of a second folder, for example the top folder of a git
-// worktree that Claude entered. Each file holds one entry that matches
-// RECALL_PROMPT and that RECALL_PROJECT_FILES does not hold. The session-log
-// entry has the same date-only heading as the entry of the project root and
-// another text: the two entries are different entries.
-const CWD_SAVED_GOAL = 'Goal: keep the release tag when the deploy script crashes';
-const CWD_ISSUE_HEADING = '## Deploy script drops the release tag after a crash';
-const CWD_ONLY_FILES = {
-  'known-issues.md': `${CWD_ISSUE_HEADING}\n\n**Symptom:** the release tag is lost when the deploy script crashes.\n`,
-  'session-log.md': `${SAVED_HEADING}\n${CWD_SAVED_GOAL}\n`,
-};
-
-// Runs the hook with RECALL_PROJECT_FILES in the CLAUDE_PROJECT_DIR folder and
-// `cwdFiles` in the cwd folder. Each recall block must hold the entry of the
-// project root once, then the entry that only cwd holds, once. Each entry is
-// found by a text that only this entry holds.
-function assertRecallFromBothFolders(cwdFiles) {
-  withRecallProject(projectDir => withProjectFiles(cwdFiles, (cwd) => {
-    const output = runHookWithProjectDir(projectDir, cwd);
-    for (const [tag, texts] of [['session-memory-recall', [SAVED_GOAL, CWD_SAVED_GOAL]], ['known-issues-recall', [KNOWN_ISSUE_HEADING, CWD_ISSUE_HEADING]]]) {
-      const block = recallBlockOf(output, tag);
-      const counts = texts.map(text => block.split(text).length - 1);
-      assert.deepStrictEqual(counts, [1, 1], `Expected each of ${texts.join(' | ')} once in <${tag}>, got: ${block}`);
-      assert.ok(block.indexOf(texts[0]) < block.indexOf(texts[1]), `Expected the entry of the project root first in <${tag}>, got: ${block}`);
-    }
-  }));
-}
-
-test('a cwd that holds entries which CLAUDE_PROJECT_DIR lacks: both recalls appear, the project root first', () => {
-  assertRecallFromBothFolders(CWD_ONLY_FILES);
+// Recall files in which every entry matches RECALL_PROMPT equally well, so a
+// newer entry ranks first. All entries have the same date-only heading; each
+// one holds the text `[entry <label>]`, which no other entry holds. A label
+// given for both folders makes the same entry in both.
+const recallFilesOf = labels => ({
+  'session-log.md': labels.map(label => `${SAVED_HEADING}\n${SAVED_GOAL} [entry ${label}]\n`).join('\n'),
+  'known-issues.md': labels.map(label => `${KNOWN_ISSUE_HEADING} [entry ${label}]\n\n**Symptom:** the deploy script crashes.\n`).join('\n'),
 });
 
-test('an entry that the files of CLAUDE_PROJECT_DIR and of cwd both hold is shown once', () => {
-  const bothEntries = {};
-  Object.keys(CWD_ONLY_FILES).forEach((name) => { bothEntries[name] = `${RECALL_PROJECT_FILES[name]}\n${CWD_ONLY_FILES[name]}`; });
-  assertRecallFromBothFolders(bothEntries);
+// Sends RECALL_PROMPT `answers` times in one session, with the entries
+// `rootLabels` in the CLAUDE_PROJECT_DIR folder and the entries `cwdLabels` in
+// the cwd folder, for example the top folder of a git worktree that Claude
+// entered. Returns, for each answer, the labels of the entries of each recall
+// block, in the order of the block.
+function recalledLabels(rootLabels, cwdLabels, answers = 1) {
+  const sessionId = uniqueSessionId();
+  return withProjectFiles(recallFilesOf(rootLabels), projectDir => withProjectFiles(recallFilesOf(cwdLabels), cwd => Array.from({ length: answers }, () => {
+    const output = runHookWithProjectDir(projectDir, cwd, sessionId);
+    const labelsIn = tag => [...recallBlockOf(output, tag).matchAll(/\[entry ([^\]]+)\]/g)].map(match => match[1]);
+    return { memory: labelsIn('session-memory-recall'), knownIssues: labelsIn('known-issues-recall') };
+  })));
+}
+
+// The same labels expected in both recall blocks.
+const inBothBlocks = labels => ({ memory: labels, knownIssues: labels });
+
+// A recall block holds at most MAX_MEMORY_ENTRIES entries in all, the entries
+// of cwd first: before CLAUDE_PROJECT_DIR was read, the hook read only cwd, so
+// its output stays the same when cwd holds enough matches.
+test('a cwd that holds entries which CLAUDE_PROJECT_DIR lacks: both recalls appear, cwd first', () => {
+  assert.deepStrictEqual(recalledLabels(['root-1'], ['cwd-1']), [inBothBlocks(['cwd-1', 'root-1'])]);
+});
+
+test('both folders hold 2 matching entries: each recall block holds the 2 entries of cwd only; the next answer does not show the entries of CLAUDE_PROJECT_DIR in their place', () => {
+  assert.deepStrictEqual(recalledLabels(['root-1', 'root-2'], ['cwd-1', 'cwd-2'], 2), [inBothBlocks(['cwd-2', 'cwd-1']), inBothBlocks([])]);
+});
+
+test('cwd holds 1 matching entry and CLAUDE_PROJECT_DIR 2: the cwd entry, then the better entry of CLAUDE_PROJECT_DIR', () => {
+  assert.deepStrictEqual(recalledLabels(['root-1', 'root-2'], ['cwd-1']), [inBothBlocks(['cwd-1', 'root-2'])]);
+});
+
+// The cwd file holds one entry twice, as a save command run twice writes it.
+test('an entry that CLAUDE_PROJECT_DIR holds once and cwd twice is shown once; the next place goes to another entry', () => {
+  assert.deepStrictEqual(recalledLabels(['shared', 'root-1'], ['shared', 'shared']), [inBothBlocks(['shared', 'root-1'])]);
 });
 
 test('the Codex adapter skips agent messages too', () => withRecallProject((dir) => {

@@ -52,7 +52,7 @@ const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 const CONFIDENCE_THRESHOLD = 2;
 
 // ── Memory recall constants ───────────────────────────────────────────────────
-const MAX_MEMORY_ENTRIES = 2;    // Never inject more than 2 matched entries per file
+const MAX_MEMORY_ENTRIES = 2;    // Never inject more than 2 matched entries
 const MIN_KEYWORD_LENGTH = 4;   // Skip tokens shorter than this
 const MAX_ENTRY_CHARS = 1500;   // Truncate oversized entries (~250 words / ~375 tokens)
 
@@ -102,8 +102,10 @@ const RECALL_STATE_PREFIX = 'sp-recall-';
 // context-management skill appends to session-log.md in the current folder,
 // so an entry saved after Claude entered a git worktree is in the file of the
 // worktree (hooks/track-edits.js accepts the top folder of a worktree for it).
-// The hook therefore reads both files in the project root and also in `cwd`
-// when it is another folder. Codex does not set the variable.
+// The hook therefore reads both files in `cwd` first, then in the project root
+// when it is another folder; the entries of the two folders share the
+// MAX_MEMORY_ENTRIES places of one recall block. Codex does not set the
+// variable.
 const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
 
 // Common English words that produce noisy false-positive matches
@@ -472,8 +474,9 @@ function entryKey(entry) {
 }
 
 /**
- * Runs one recall search in each folder, in the given order, and keeps the
- * first copy of an entry that several folders hold.
+ * Runs one recall search in each folder, in the given order, keeps the first
+ * copy of an entry that several folders hold, and returns at most
+ * MAX_MEMORY_ENTRIES entries in all.
  */
 function searchFolders(search, folders, keywords) {
   const seen = new Set();
@@ -482,7 +485,7 @@ function searchFolders(search, folders, keywords) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  });
+  }).slice(0, MAX_MEMORY_ENTRIES);
 }
 
 /**
@@ -498,8 +501,10 @@ function evaluatePrompt(data) {
   if (!prompt || isMicroTask(prompt) || isAgentMessage(prompt)) return {};
 
   const cwd = typeof data.cwd === 'string' && data.cwd ? data.cwd : process.cwd();
-  // The project root first, then cwd when it is another folder.
-  const recallFolders = [...new Set([process.env[PROJECT_DIR_VARIABLE] || cwd, cwd])];
+  // cwd first, then the project root when it is another folder: up to version
+  // 7.64.0 the hook read only cwd, so its recall stays the same when cwd holds
+  // enough matches.
+  const recallFolders = [...new Set([cwd, process.env[PROJECT_DIR_VARIABLE] || cwd])];
   const sessionId = typeof data.session_id === 'string' ? data.session_id : null;
 
   // Run all pipelines independently. The two recall searches keep their own
