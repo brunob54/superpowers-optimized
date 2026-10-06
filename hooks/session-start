@@ -19,6 +19,11 @@ WHATS_NEW_MAX=1200
 # stopped the check of the other path until the cache interval ended.
 CLONE_CACHE_NAME="update-check-clone.cache"
 MARKETPLACE_CACHE_NAME="update-check.cache"
+# The word that the marketplace path writes to its cache file after a version
+# request that failed. An empty file is not a record of a failed request: up
+# to version 7.64.0, the clone path created the file of the marketplace path,
+# empty, with touch.
+UPDATE_CHECK_FAILED="failed"
 
 # ── Update check ──────────────────────────────────────────────────────────────
 # Two paths depending on install type:
@@ -74,6 +79,19 @@ is_auto_update_enabled() {
     return 0
 }
 
+# cache_is_recent <file> <interval in seconds>: succeeds when <file> exists
+# and its modification time lies inside the last <interval> seconds. A
+# modification time in the future (a clock that was set back) gives a
+# negative age, which counts as old: otherwise the check would stay silent
+# until that future time plus the interval.
+cache_is_recent() {
+    [ -f "$1" ] || return 1
+    local file_mtime
+    file_mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0)
+    local cache_age=$(( $(date +%s) - file_mtime ))
+    [ "$cache_age" -ge 0 ] && [ "$cache_age" -lt "$2" ]
+}
+
 check_for_updates() {
     local cache_dir="${HOME}/.claude/hooks-logs"
     local cache_file
@@ -102,13 +120,8 @@ check_for_updates() {
         [ "$(git -C "${PLUGIN_ROOT}" symbolic-ref -q HEAD 2>/dev/null)" = "refs/heads/main" ] || return
 
         # Check cache freshness — skip fetch if cache is recent
-        if [ -f "$cache_file" ]; then
-            local file_mtime
-            file_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || echo 0)
-            local cache_age=$(( $(date +%s) - file_mtime ))
-            if [ "$cache_age" -lt "$cache_ttl" ]; then
-                return
-            fi
+        if cache_is_recent "$cache_file" "$cache_ttl"; then
+            return
         fi
 
         # Update cache timestamp before the fetch, so that every check is
@@ -220,34 +233,29 @@ ${whats_new}</important-reminder>"
         # Check cache freshness (skip remote fetch if cache is recent).
         # Cache stores the last-seen remote version string so we can still
         # surface a notification even when the fetch is skipped. A recent
-        # cache that is empty records a request that failed: it is not
-        # repeated, and it gives no notification.
+        # cache that holds UPDATE_CHECK_FAILED records a request that failed:
+        # it is not repeated, and it gives no notification. A recent cache
+        # that is empty counts as no cache.
         local cached_remote=""
-        local cache_fresh=0
-        if [ -f "$cache_file" ]; then
-            local file_mtime
-            file_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || echo 0)
-            local cache_age=$(( $(date +%s) - file_mtime ))
-            if [ "$cache_age" -lt "$cache_ttl" ]; then
-                cache_fresh=1
-                cached_remote=$(cat "$cache_file" 2>/dev/null || echo "")
-            fi
+        if cache_is_recent "$cache_file" "$cache_ttl"; then
+            cached_remote=$(cat "$cache_file" 2>/dev/null || echo "")
         fi
 
-        # Fetch remote version if cache is stale or missing
+        # Fetch remote version if cache is stale, missing or empty
         local remote_version="$cached_remote"
-        if [ "$cache_fresh" -eq 0 ]; then
+        if [ -z "$cached_remote" ]; then
             remote_version=$(curl -sf --max-time 3 \
                 "https://raw.githubusercontent.com/brunob54/superpowers-orchestrator/refs/heads/main/.claude-plugin/plugin.json" \
                 2>/dev/null \
                 | grep '"version"' | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "")
-            # Cache the result, also when it is empty, so that a request that
-            # failed (no network) is not repeated at every session start.
+            # Cache the result, also for a request that failed (no network),
+            # so that it is not repeated at every session start.
             mkdir -p "$cache_dir"
-            printf '%s' "$remote_version" > "$cache_file"
+            printf '%s' "${remote_version:-$UPDATE_CHECK_FAILED}" > "$cache_file"
         fi
 
         [ -z "$remote_version" ] && return
+        [ "$remote_version" = "$UPDATE_CHECK_FAILED" ] && return
         [ "$remote_version" = "$local_version" ] && return
 
         # Semver comparison: is remote > local?

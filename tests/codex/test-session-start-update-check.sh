@@ -41,6 +41,15 @@
 #   9. A clone of the plugin and a marketplace install on one HOME, in both
 #      orders: the check of one path does not stop the check of the other
 #      path inside the cache interval, because each path has its own cache.
+#  10. A marketplace install whose HOME holds a recent, empty
+#      update-check.cache (findings C2 and A5 of the review of 7d174ca..de39a39):
+#      the clone path of older versions created that file with touch. An
+#      empty file is no record of a failed request: the hook asks the remote
+#      version and announces it.
+#  11. A cache whose modification time is in the future (a clock that was set
+#      back; finding A4 of the same review), on both paths: the negative age
+#      counts as old, so the marketplace install asks again after a failed
+#      request, and the clone is fetched and fast-forwarded.
 #
 # No network: every remote is a local bare repository, and a stand-in for
 # curl, first on PATH, answers the version request of the marketplace path.
@@ -76,6 +85,10 @@ AVAILABLE_NOTICE_END="is available**"
 # HOME: one for a marketplace install and one for a clone of the plugin.
 MARKETPLACE_CACHE=".claude/hooks-logs/update-check.cache"
 CLONE_CACHE=".claude/hooks-logs/update-check-clone.cache"
+# Modification times for a cache, in the format of "touch -t": one older than
+# the cache interval of 24 hours, and one in the future.
+PAST_STAMP="202001010000"
+FUTURE_STAMP="209901010000"
 
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
@@ -250,14 +263,24 @@ marketplace_fixture() {
   install_from_marketplace
 }
 
-# expire_cache <cache>: gives the update-check cache <cache> (relative to the
-# HOME of the case) a modification time older than the cache interval of 24
-# hours, as if the last check had run long ago. It creates the cache, empty,
-# when the hook wrote none.
-expire_cache() {
+# touch_cache <cache> [<stamp>]: gives the update-check cache <cache>
+# (relative to the HOME of the case) the modification time <stamp> (in the
+# format of "touch -t"), or the current time when <stamp> is not given. It
+# creates the cache, empty, when the hook wrote none.
+touch_cache() {
   local cache="${F}/home/$1"
+  local stamp=()
+  if [ -n "${2:-}" ]; then
+    stamp=(-t "$2")
+  fi
   mkdir -p "$(dirname "$cache")"
-  touch -t 202001010000 "$cache"
+  touch ${stamp[@]+"${stamp[@]}"} "$cache"
+}
+
+# expire_cache <cache>: gives the update-check cache <cache> a modification
+# time older than the cache interval, as if the last check had run long ago.
+expire_cache() {
+  touch_cache "$1" "$PAST_STAMP"
 }
 
 # checked_out_ref: prints the full reference name of the branch that
@@ -447,6 +470,30 @@ install_from_marketplace
 run_hook
 assert_marketplace_notice "one HOME, the marketplace install checks first"
 assert_clone_updated "one HOME, the clone checks inside 24 hours after the marketplace install" "$clone_plugin"
+
+# ── Case 10: an empty cache file left by the clone path of older versions ──
+# Up to version 7.64.0 the clone path created update-check.cache, the cache
+# of the marketplace path, with touch. That empty file must not stop the
+# request of the marketplace path for 24 hours.
+marketplace_fixture empty-cache-marketplace
+touch_cache "$MARKETPLACE_CACHE"
+run_hook
+assert_marketplace_notice "a recent, empty cache file left by an older clone path"
+
+# ── Case 11: a cache whose modification time is in the future ──────────────
+# A negative age must count as old, or the check stays silent until the
+# future date plus 24 hours. The first run records a failed request.
+marketplace_fixture future-cache-marketplace
+CURL_OFFLINE=1
+run_hook
+CURL_OFFLINE=0
+touch_cache "$MARKETPLACE_CACHE" "$FUTURE_STAMP"
+run_hook
+assert_marketplace_notice "a failed request whose cache time is in the future, network again"
+
+clone_fixture future-cache-clone
+touch_cache "$CLONE_CACHE" "$FUTURE_STAMP"
+assert_clone_updated "a clone whose cache time is in the future"
 
 echo "  ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]
