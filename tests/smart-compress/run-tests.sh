@@ -474,6 +474,55 @@ assert_contains     "real git status: the compressed text keeps the changed file
 assert_not_contains "real git status: hint lines are removed"                     "$text" '(use "git'
 assert_contains     "real git status: has [compressed] marker"                    "$text" "[compressed:"
 
+# `git status -v` prints the staged diff after the status text; `-vv` prints
+# the unstaged diff too. A context line of a diff can look like a blank line
+# or like a hint line: the changed files hold two empty lines in a row, a line
+# `(use "git x")` and the line "no changes added to commit". The rule may
+# compress the status text, but the lines of the diff pass unchanged.
+VERBOSE_REPO="$WORK/verbose-repo"
+mkdir "$VERBOSE_REPO"
+verbose_git() { (cd "$VERBOSE_REPO" && LC_ALL=C git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false "$@" 2>&1); }
+# Print the text of a changed file; $1 is its third line. The two empty lines
+# come first, so they follow the hunk header directly.
+verbose_text() { printf '\n\n%s\n(use "git x")\nno changes added to commit\ndelta\n' "$1"; }
+# Print the diff part of a git status output: from the first line
+# "diff --git" to the end
+diff_part() { printf '%s\n' "$1" | sed -n '/^diff --git /,$p'; }
+# The expected text of a check: the diff part of the git status output $1.
+# When the diff part does not hold the context lines named above, print a
+# line that no check expects, so that a check cannot pass without them.
+expected_diff() {
+  local part
+  part=$(diff_part "$1")
+  case "$part" in
+    *$'\n \n \n'*$'\n (use "git x")\n no changes added to commit\n'*) printf '%s\n' "$part" ;;
+    *) echo "the diff of the fixture does not hold the context lines of the check" ;;
+  esac
+}
+# Print the diff part of the text that replaces the output of `git status $1`,
+# without the marker line at its end
+compressed_diff() { diff_part "$(compressed_text "$(run_hook "git status $1" "$2" "verbose-$$-$RANDOM")")" | sed '$d'; }
+verbose_git -c init.defaultBranch=main init -q .
+verbose_text gamma > "$VERBOSE_REPO/staged.txt"
+verbose_text gamma > "$VERBOSE_REPO/unstaged.txt"
+verbose_git add . > /dev/null
+verbose_git commit -q -m first > /dev/null
+verbose_text GAMMA > "$VERBOSE_REPO/staged.txt"
+verbose_git add staged.txt > /dev/null
+verbose_text GAMMA > "$VERBOSE_REPO/unstaged.txt"
+for flag in -v -vv; do
+  real_status=$(verbose_git status "$flag")
+  assert "real git status $flag: the lines of the diff pass unchanged" \
+    "$(compressed_diff "$flag" "$real_status")" "$(expected_diff "$real_status")"
+done
+# Without a staged change, git prints the summary hint "no changes added to
+# commit (use ...)" after the diff of `-vv`, as the last line of the output.
+# The rule removes that line and no line of the diff.
+verbose_git commit -q -m second > /dev/null
+real_status=$(verbose_git status -vv)
+assert "real git status -vv without a staged change: the summary hint after the diff is removed, the lines of the diff pass unchanged" \
+  "$(compressed_diff -vv "$real_status")" "$(expected_diff "$(printf '%s\n' "$real_status" | sed '$d')")"
+
 # A response that the hook cannot prove safe to replace stays as it is
 untouched() { run_hook "${3:-git status}" "${2:-$STATUS_OUT}" "untouched-$$-$RANDOM" "$1"; }
 
