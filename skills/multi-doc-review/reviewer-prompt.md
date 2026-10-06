@@ -47,7 +47,10 @@ Agent tool (general-purpose):
       other agents also use). Use no fixed network port and no shared
       database. Run a program that writes files (an installer, a formatter, a
       build, a code generator, a sync script) only in a copy of the repository
-      made under a `mktemp -d` path, never in this checkout.
+      made under a `mktemp -d` path, never in this checkout. Run that program
+      with the HOME environment variable set to another folder that
+      `mktemp -d` printed: such a program can also write files under HOME,
+      and HOME is the same folder for every agent and for the user.
 
     ### Harness claims
 

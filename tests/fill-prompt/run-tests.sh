@@ -38,8 +38,9 @@ FAILURE_HEADING='## Previous attempt failed'
 FAILURE_HEADING_LINE_ERE='^## Previous attempt failed$'
 # Item 15: the shared-checkout rule is one bullet inside the prompt block of
 # the reviewer template, so the filled prompt carries it. The bullet wraps
-# across lines, so the check reads the filled file folded.
-SHARED_CHECKOUT_BULLET='- Other agents may work in this checkout at the same time. Create a file or folder only inside a folder that `mktemp -d` printed for you or at a file path that `mktemp` printed, never at a fixed path (such as `/tmp/out.txt`, or a folder with a fixed name inside a scratch folder other agents also use). Use no fixed network port and no shared database. Run a program that writes files (an installer, a formatter, a build, a code generator, a sync script) only in a copy of the repository made under a `mktemp -d` path, never in this checkout. A focused test (Tests below) follows these rules too.'
+# across lines, so the check reads the filled file folded. The sentence about
+# HOME was added in the review round of items 14-17 (finding A3).
+SHARED_CHECKOUT_BULLET='- Other agents may work in this checkout at the same time. Create a file or folder only inside a folder that `mktemp -d` printed for you or at a file path that `mktemp` printed, never at a fixed path (such as `/tmp/out.txt`, or a folder with a fixed name inside a scratch folder other agents also use). Use no fixed network port and no shared database. Run a program that writes files (an installer, a formatter, a build, a code generator, a sync script) only in a copy of the repository made under a `mktemp -d` path, never in this checkout. Run that program with the HOME environment variable set to another folder that `mktemp -d` printed: such a program can also write files under HOME, and HOME is the same folder for every agent and for the user. A focused test (Tests below) follows these rules too.'
 
 PASS=0
 FAIL=0
