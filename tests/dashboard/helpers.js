@@ -51,16 +51,16 @@ function eq(desc, actual, expected) {
 function finish() {
   finished = true;
   console.log(`  ${passed} passed, ${failed} failed`);
-  process.exitCode = failed ? 1 : 0;
 }
 
-// A test file that ends without calling finish() (an early return, or an
-// awaited promise that never settles) fails: Node uses the exit code that an
-// 'exit' listener sets.
+// The exit code is set here, when the process ends. A test file fails when it
+// ends without calling finish() (an early return, an awaited promise that
+// never settles, a process.exit() call), or when it recorded a failed check,
+// also a check after finish(). Node uses the exit code that an 'exit' listener
+// sets, also after process.exit(0).
 process.on('exit', () => {
-  if (finished) return;
-  console.log('  FAIL: finish() was never called');
-  process.exitCode = 1;
+  if (!finished) console.log('  FAIL: finish() was never called');
+  if (!finished || failed) process.exitCode = 1;
 });
 
 // Runs git in <dir>; throws on failure. <date> sets both commit dates.
