@@ -1138,32 +1138,40 @@ bold "\n9. TOKEN SAVINGS MEASUREMENT"
 
 bold "\n  Measuring real token savings on live commands:\n"
 
+# Run the hook on the live output of one command. The size of the output
+# depends on the state of the checkout (a clean tree gives a short
+# `git status`), so the token figures are INFO lines, not checks. The check is
+# a property that holds for every output: the hook ran without error, and it
+# changed nothing or replaced the output with a shorter text that ends with
+# the marker line.
 measure() {
   local desc="$1" cmd="$2"
-  local raw compressed raw_tok comp_tok saved
+  local raw result verdict compressed raw_tok comp_tok saved
 
   raw=$(bash -c "$cmd" 2>&1)
   raw_tok=$(( ${#raw} / 4 ))
+  result=$(run_hook "$cmd" "$raw" "measure-$$-$RANDOM")
+
+  # Empty when the hook output is not JSON, for example after a failed run
+  verdict=$(MEASURE_RAW="$raw" hook_value "$result" '
+    !updated ? "ok"
+    : updated.stdout.length >= process.env.MEASURE_RAW.length ? "replacement not shorter than the output"
+    : !/\n\[compressed: \d+->\d+ lines \| [\w-]+\]$/.test(updated.stdout) ? "replacement without the marker line"
+    : "ok"' 2>/dev/null)
+  assert "$desc: the hook ran without error; a replacement is shorter and has the marker" \
+    "${verdict:-hook output is not JSON: $result}" "ok"
 
   # The text Claude receives: the replacement, or the raw output when the hook
   # replaced nothing
-  compressed=$(compressed_text "$(run_hook "$cmd" "$raw" "measure-$$-$RANDOM")")
+  compressed=$(compressed_text "$result" 2>/dev/null)
   [ -n "$compressed" ] || compressed="$raw"
   comp_tok=$(( ${#compressed} / 4 ))
 
-  if [ "${#raw}" -le 200 ]; then
-    printf "  %-38s output too short (%d chars) — correctly skipped\n" "$desc" "${#raw}"
-    ((PASS++))
-    green "  PASS: $desc (below threshold)"
-  elif [ "$comp_tok" -lt "$raw_tok" ]; then
+  if [ "$comp_tok" -lt "$raw_tok" ]; then
     saved=$(( (raw_tok - comp_tok) * 100 / raw_tok ))
-    printf "  %-38s ~%d tok → ~%d tok  (%d%% saved)\n" "$desc" "$raw_tok" "$comp_tok" "$saved"
-    ((PASS++))
-    green "  PASS: $desc achieves ${saved}% token savings"
+    printf "  INFO: %-38s ~%d tok → ~%d tok  (%d%% saved)\n" "$desc" "$raw_tok" "$comp_tok" "$saved"
   else
-    printf "  %-38s ~%d tok → ~%d tok  (no compression)\n" "$desc" "$raw_tok" "$comp_tok"
-    ((PASS++))
-    green "  PASS: $desc correctly passed through (rule returned null)"
+    printf "  INFO: %-38s ~%d tok  (not compressed)\n" "$desc" "$raw_tok"
   fi
 }
 
