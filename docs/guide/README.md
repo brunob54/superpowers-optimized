@@ -1263,7 +1263,7 @@ entry is injected at most once per session, and messages you did not type
 The prompt hook reads both files in the current folder and also in the
 session's project folder (the folder named by the environment variable
 `CLAUDE_PROJECT_DIR`), so a `cd` into a sub-folder does not stop the recall
-(since v7.65.0); the current folder's entries come first, and each recall
+(since v7.65.0). The current folder's entries come first, and each recall
 block keeps its limit of 2 entries.
 Because of the once-per-session rule, an entry injected before a compaction
 is not injected again after it in the same session; after a compaction the
