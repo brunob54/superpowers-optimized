@@ -95,6 +95,14 @@ const AGENT_MESSAGE_OPENINGS = [
 // session-log entries after a compaction).
 const RECALL_STATE_PREFIX = 'sp-recall-';
 
+// Claude Code sets this environment variable for every hook: the project root
+// where the session started, which holds session-log.md and known-issues.md.
+// It keeps its value when Claude runs `cd` or enters a git worktree; the `cwd`
+// field of the hook input names the new folder. hooks/track-edits.js keeps
+// both files untracked, so a git worktree does not hold them. Codex does not
+// set the variable.
+const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
+
 // Common English words that produce noisy false-positive matches
 const STOP_WORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -473,6 +481,7 @@ function evaluatePrompt(data) {
   if (!prompt || isMicroTask(prompt) || isAgentMessage(prompt)) return {};
 
   const cwd = typeof data.cwd === 'string' && data.cwd ? data.cwd : process.cwd();
+  const projectDir = process.env[PROJECT_DIR_VARIABLE] || cwd;
   const sessionId = typeof data.session_id === 'string' ? data.session_id : null;
 
   // Run all pipelines independently. The two recall searches keep their own
@@ -482,8 +491,8 @@ function evaluatePrompt(data) {
   const keywords = extractKeywords(prompt);
   const shown = readShownKeys(sessionId);
   const isNew = entry => !shown.has(entryKey(entry));
-  const memoryEntries = searchSessionLog(cwd, keywords).filter(isNew);
-  const knownIssueEntries = searchKnownIssues(cwd, keywords).filter(isNew);
+  const memoryEntries = searchSessionLog(projectDir, keywords).filter(isNew);
+  const knownIssueEntries = searchKnownIssues(projectDir, keywords).filter(isNew);
 
   const recalled = [...memoryEntries, ...knownIssueEntries];
   if (recalled.length > 0) {

@@ -19,6 +19,18 @@
 const assert = require('assert');
 
 const { evaluatePayload } = require('../../hooks/codex/user-prompt-submit-adapter');
+// The variable name that Claude Code documents for hooks. The test writes it
+// here and does not take it from the hook, so that a wrong name in the hook
+// fails the checks below.
+const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
+
+// When CLAUDE_PROJECT_DIR is set, the hook reads the recall files from the
+// folder that it names, not from the payload's cwd. A caller of this file may
+// have the variable in its environment, so it is removed here, once: the hook
+// function called in this process and every hook process started from it
+// (a child process inherits this environment) then read the payload's cwd.
+// A check that needs the variable sets it for its own hook process.
+delete process.env[PROJECT_DIR_VARIABLE];
 
 let passed = 0;
 let failed = 0;
@@ -1064,6 +1076,26 @@ test('a recall record that cannot be read or written does not break the hook', (
 test('an empty cwd falls back to the working folder: the recall comes from that folder', () => withRecallProject((dir) => {
   assertHintAndRecall(runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd: '' }, { cwd: dir }));
 }));
+
+// Runs the hook as Claude Code does after Claude has run `cd`: the payload's
+// cwd and the folder of the hook process are `cwd`, and CLAUDE_PROJECT_DIR is
+// `projectDir`, the folder where the session started.
+function runHookWithProjectDir(projectDir, cwd) {
+  const env = { ...process.env, [PROJECT_DIR_VARIABLE]: projectDir };
+  return runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd }, { cwd, env });
+}
+
+test('a cwd in a sub-folder of CLAUDE_PROJECT_DIR: the recall comes from CLAUDE_PROJECT_DIR', () => withRecallProject((dir) => {
+  const subFolder = path.join(dir, 'src', 'deep');
+  fs.mkdirSync(subFolder, { recursive: true });
+  assertHintAndRecall(runHookWithProjectDir(dir, subFolder));
+}));
+
+test('CLAUDE_PROJECT_DIR wins over cwd: no recall when only cwd holds the recall files', () => withRecallProject((dir) => withProjectFiles({}, (emptyProjectDir) => {
+  const context = contextOf(runHookWithProjectDir(emptyProjectDir, dir));
+  assert.ok(context.includes('<user-prompt-submit-hook>'), `The skill hint is missing: ${context}`);
+  assert.ok(!context.includes('<known-issues-recall>') && !context.includes('<session-memory-recall>'), `The recall came from cwd: ${context}`);
+})));
 
 test('the Codex adapter skips agent messages too', () => withRecallProject((dir) => {
   const output = runActivator({ prompt: AGENT_MESSAGES['a task notification'], session_id: uniqueSessionId(), cwd: dir });
