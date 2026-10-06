@@ -13,6 +13,12 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 nl=$'\n'
 # Longest release summary injected by the update notice, in characters.
 WHATS_NEW_MAX=1200
+# Cache files of the update check under ~/.claude/hooks-logs, one for each
+# path of the check (see below). A clone of the plugin and a marketplace
+# install can share one HOME; with one shared file, the check of one path
+# stopped the check of the other path until the cache interval ended.
+CLONE_CACHE_NAME="update-check-clone.cache"
+MARKETPLACE_CACHE_NAME="update-check.cache"
 
 # ── Update check ──────────────────────────────────────────────────────────────
 # Two paths depending on install type:
@@ -32,7 +38,8 @@ WHATS_NEW_MAX=1200
 #   version against the remote plugin.json on GitHub. If an update is available,
 #   tell the user to run /plugin update superpowers-orchestrator.
 #
-# Both paths: cached for 24h to avoid network access on every session start.
+# Both paths: cached for 24h, also after a failed check, to avoid network
+#   access on every session start. Each path has its own cache file.
 # Both paths: fail silently — never block session startup.
 # Both paths: respect SUPERPOWERS_AUTO_UPDATE env var and update.conf opt-out.
 
@@ -69,7 +76,7 @@ is_auto_update_enabled() {
 
 check_for_updates() {
     local cache_dir="${HOME}/.claude/hooks-logs"
-    local cache_file="${cache_dir}/update-check.cache"
+    local cache_file
     local cache_ttl=86400  # 24 hours in seconds
 
     is_auto_update_enabled || return
@@ -85,6 +92,7 @@ check_for_updates() {
     # there. No path is compared, so symbolic links and Windows path forms
     # cannot make the test wrong.
     if [ "$(git -C "${PLUGIN_ROOT}" rev-parse --is-inside-work-tree --show-prefix 2>/dev/null)" = "true" ]; then
+        cache_file="${cache_dir}/${CLONE_CACHE_NAME}"
 
         # The fast-forward below moves whatever is checked out. Only branch main
         # may follow origin/main: a clone with another branch checked out, or
@@ -103,6 +111,12 @@ check_for_updates() {
             fi
         fi
 
+        # Update cache timestamp before the fetch, so that every check is
+        # cached, whatever its result: a fetch that fails (no network) is not
+        # run again before the cache interval ends.
+        mkdir -p "$cache_dir"
+        touch "$cache_file"
+
         # Fetch origin with timeout (3s on Linux/macOS, best-effort without timeout command)
         local fetch_ok=0
         if command -v timeout > /dev/null 2>&1; then
@@ -120,10 +134,6 @@ check_for_updates() {
         local_head=$(git -C "${PLUGIN_ROOT}" rev-parse HEAD 2>/dev/null || echo "")
         remote_head=$(git -C "${PLUGIN_ROOT}" rev-parse origin/main 2>/dev/null || echo "")
         [ -n "$local_head" ] && [ -n "$remote_head" ] || return
-
-        # Update cache timestamp (we checked, regardless of whether there's an update)
-        mkdir -p "$cache_dir"
-        touch "$cache_file"
 
         [ "$local_head" = "$remote_head" ] && return
 
@@ -190,6 +200,7 @@ ${whats_new}</important-reminder>"
         # ── Path B: marketplace install (Claude Code / Cursor) ────────────────
         # Not a clone of the plugin — compare local version against the remote plugin.json via curl.
         # Tell the user to run /plugin update if a newer version is available.
+        cache_file="${cache_dir}/${MARKETPLACE_CACHE_NAME}"
 
         # Read local version — prefer installed_plugins.json (authoritative: reflects the
         # currently active installed version even if this hook is running from an older
@@ -208,29 +219,32 @@ ${whats_new}</important-reminder>"
 
         # Check cache freshness (skip remote fetch if cache is recent).
         # Cache stores the last-seen remote version string so we can still
-        # surface a notification even when the fetch is skipped.
+        # surface a notification even when the fetch is skipped. A recent
+        # cache that is empty records a request that failed: it is not
+        # repeated, and it gives no notification.
         local cached_remote=""
+        local cache_fresh=0
         if [ -f "$cache_file" ]; then
             local file_mtime
             file_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || echo 0)
             local cache_age=$(( $(date +%s) - file_mtime ))
             if [ "$cache_age" -lt "$cache_ttl" ]; then
+                cache_fresh=1
                 cached_remote=$(cat "$cache_file" 2>/dev/null || echo "")
             fi
         fi
 
         # Fetch remote version if cache is stale or missing
         local remote_version="$cached_remote"
-        if [ -z "$remote_version" ]; then
+        if [ "$cache_fresh" -eq 0 ]; then
             remote_version=$(curl -sf --max-time 3 \
                 "https://raw.githubusercontent.com/brunob54/superpowers-orchestrator/refs/heads/main/.claude-plugin/plugin.json" \
                 2>/dev/null \
                 | grep '"version"' | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "")
-            # Cache the result (even if empty, to avoid hammering GitHub on no-internet)
-            if [ -n "$remote_version" ]; then
-                mkdir -p "$cache_dir"
-                printf '%s' "$remote_version" > "$cache_file"
-            fi
+            # Cache the result, also when it is empty, so that a request that
+            # failed (no network) is not repeated at every session start.
+            mkdir -p "$cache_dir"
+            printf '%s' "$remote_version" > "$cache_file"
         fi
 
         [ -z "$remote_version" ] && return
