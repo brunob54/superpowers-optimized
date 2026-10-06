@@ -636,8 +636,9 @@ code has been revised since, so a re-pass is meaningful):
       slower. The M reviewers of a round share one working tree and run
       at the same time: a reviewer must not run any command that writes
       to the checkout or binds a shared resource (a fixed port, a fixed
-      temporary path, a shared test database) — read-only inspection
-      only; anything that must run is run once by the controller. The
+      temporary path, a shared test database). The template states this
+      rule in the Subagent Rules bullet that begins "Other agents may
+      work in this checkout". The
       pointer adds exactly one instruction the template does not carry —
       do not read any other file in that directory — which is the one
       sanctioned exception to the template's "Nothing else may be added

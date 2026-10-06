@@ -36,6 +36,10 @@ FAILURE_HEADING='## Previous attempt failed'
 # failure text is not a finding), so both checks are anchored to a whole
 # line instead of matching the text anywhere.
 FAILURE_HEADING_LINE_ERE='^## Previous attempt failed$'
+# Item 15: the shared-checkout rule is one bullet inside the prompt block of
+# the reviewer template, so the filled prompt carries it. The bullet wraps
+# across lines, so the check reads the filled file folded.
+SHARED_CHECKOUT_BULLET='- Other agents may work in this checkout at the same time. Create a file or folder only inside a folder that `mktemp -d` printed for you or at a file path that `mktemp` printed, never at a fixed path (such as `/tmp/out.txt`, or a folder with a fixed name inside a scratch folder other agents also use). Use no fixed network port and no shared database. Run a program that writes files (an installer, a formatter, a build, a code generator, a sync script) only in a copy of the repository made under a `mktemp -d` path, never in this checkout. A focused test (Tests below) follows these rules too.'
 
 PASS=0
 FAIL=0
@@ -79,6 +83,15 @@ assert_file_has_line() { # desc file exact-line (whole-line match, fixed string)
   if grep -qxF -- "$3" "$2"; then ok "$1"; else bad "$1 (no line exactly: $3)"; fi
 }
 line_count() { grep -c '' "$1" | tr -d ' '; }
+# Join the lines of file $1 into one line — each line trimmed of leading and
+# trailing blanks, lines separated by one space — so that a sentence that the
+# text wraps across a line break still matches as one fixed string.
+fold_file() { # file
+  awk '{ line = $0; sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line); if (NR > 1) printf " "; printf "%s", line } END { print "" }' "$1"
+}
+assert_folded_contains() { # desc file needle (fixed string, matched across line breaks)
+  if fold_file "$2" | grep -qF -- "$3"; then ok "$1"; else bad "$1 (missing: $3)"; fi
+}
 # The dedented LAST line of a template's prompt body: the line just above the
 # closing fence of the template's first fenced block — the first line that is
 # exactly three backticks after the `prompt: |` line — with its leading
@@ -197,6 +210,7 @@ assert_file_contains "reviewer template: plan line filled" "$WORK/reviewer.md" "
 assert_file_contains "reviewer template: carried block filled" "$WORK/reviewer.md" '## Carried Findings'
 assert_file_contains "reviewer template: lens name filled into the lens heading" "$WORK/reviewer.md" '**Correctness & spec alignment.** Lens text with $ signs'
 assert_file_not_matches "reviewer template: no residual placeholder" "$WORK/reviewer.md" "$PLACEHOLDER_ERE"
+assert_folded_contains "reviewer template: the filled prompt holds the shared-checkout bullet" "$WORK/reviewer.md" "$SHARED_CHECKOUT_BULLET"
 # Round 4 [M1]: the whole body reached the output — a fenced example inside
 # the body taken as the closing fence would cut everything below it.
 REVIEWER_LAST_BODY_LINE="$(last_body_line "$REVIEWER_TEMPLATE")"

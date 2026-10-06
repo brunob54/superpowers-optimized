@@ -411,8 +411,8 @@ invocation, or the resumed range above for a resume):
    The M reviewers of a round share one working tree and run at the same
    time: a reviewer must not run any command that writes to the checkout
    or binds a shared resource (a fixed port, a fixed temporary path, a
-   shared test database) — read-only inspection only; anything that must
-   run is run once by the controller.
+   shared test database). The template states this rule in the Subagent
+   Rules bullet that begins "Other agents may work in this checkout".
 2. **Validate each report and consolidate:** a report is usable when a
    line whose surrounding whitespace (a trailing `\r` of a message using
    CRLF line endings included) is removed starts with the marker
