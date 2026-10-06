@@ -154,8 +154,20 @@ h.check('the fixture: with log.showSignature, git log prints more than the forma
 const signedRuns = h.scan(s, { refs: 'local' });
 h.eq('log.showSignature changes neither the last commit date nor the time of a run',
   signedRuns.map((run) => [run.lastCommitDate, run.lastCommitTime]), [['2026-01-09', signedTime]]);
-// gitRaw is the helper under every other git helper of the module.
-const onelineCode = `process.stdout.write(require(${JSON.stringify(h.GIT_RUNS)}).gitRaw(['log', '--oneline', 'feature/signed']).raw)`;
-h.eq('log.showSignature adds no line to the output of git log --oneline (gitRaw)', h.node(s, ['-e', onelineCode]).out.trim().split('\n').length, 2);
+// gitRaw is the helper under every other git helper of the module. The
+// trimmed output of gitRaw(['log', '--oneline', <ref>]), run inside <dir>.
+const gitRawOneline = (dir, ref) => h.node(dir, ['-e', `process.stdout.write(require(${JSON.stringify(h.GIT_RUNS)}).gitRaw(['log', '--oneline', process.argv[1]]).raw)`, ref]).out.trim();
+h.eq('log.showSignature adds no line to the output of git log --oneline (gitRaw)', gitRawOneline(s, 'feature/signed').split('\n').length, 2);
+
+// The repository setting color.diff=always colors the commit names that
+// "git log --oneline" prints, and it wins over color.ui=never. The output of
+// gitRaw must hold no escape byte: it must be the output of git without the
+// setting.
+const ESC = '\u001b';
+const plainOneline = h.git(n, 'log', '--oneline', 'trunk');
+h.git(n, 'config', 'color.diff', 'always');
+h.check('the fixture: with color.diff=always, git log --oneline prints an escape byte',
+  h.git(n, '-c', 'color.ui=never', 'log', '--oneline', 'trunk').includes(ESC));
+h.eq('color.diff=always puts no escape byte into git log --oneline (gitRaw)', gitRawOneline(n, 'trunk'), plainOneline);
 
 h.finish();
