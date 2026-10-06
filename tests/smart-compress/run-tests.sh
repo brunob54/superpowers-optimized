@@ -1213,11 +1213,69 @@ assert "plugin.universal.yaml: bash-compress-hook is declared on PostToolUse onl
 result=$(node -e "
   // Verify hooks.json is still valid JSON with correct structure
   const h = JSON.parse(require('fs').readFileSync('hooks/hooks.json','utf8'));
-  const required = ['SessionStart','UserPromptSubmit','PostToolUse','Stop','SubagentStop','PreToolUse'];
+  const required = ['SessionStart','UserPromptSubmit','PostToolUse','Stop','PreToolUse'];
   const ok = required.every(k => h.hooks[k]);
   console.log(ok ? 'ok' : 'missing-keys');
 ")
 assert "hooks.json: all original hook sections still present" "$result" "ok"
+
+# README.md states the number of Claude Code hooks in three places. Each of
+# these numbers must equal the number of commands that hooks/hooks.json starts.
+HOOK_COMMAND_COUNT=$(node -e "
+  const h = JSON.parse(require('fs').readFileSync('hooks/hooks.json','utf8')).hooks;
+  console.log(Object.values(h).flat().reduce((n, entry) => n + entry.hooks.length, 0));
+")
+for pattern in 'The [0-9]+ lifecycle hooks' 'full [0-9]+-hook lifecycle' 'hooks/ — [0-9]+ hooks \(JS\)'; do
+  assert "README.md: '$pattern' gives the number of commands in hooks/hooks.json ($HOOK_COMMAND_COUNT)" \
+    "$(grep -oE -- "$pattern" README.md | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')" "$HOOK_COMMAND_COUNT "
+done
+
+# The subagent guard (a SubagentStop hook) was removed. No hook configuration
+# file may start it, its file may not come back, and no hook, skill or reader
+# document may still name it. The reader documents include the Codex install
+# guide and the Codex platform page: their feature tables listed the guard.
+HOOK_CONFIG_FILES=(hooks/hooks.json hooks/codex-hooks.json hooks/hooks-cursor.json plugin.universal.yaml)
+GUARD_FREE_PATHS=(hooks skills README.md docs/FORK-IMPROVEMENTS.md .codex/INSTALL.md docs/platforms/codex.md)
+# Phrases that name the removed guard, in lower case, one on each line.
+GUARD_PHRASES='subagent guard
+guard interaction
+skill-leakage
+leakage guard'
+# Print the name of each tracked file under the paths after $1 whose folded
+# text holds one of the phrases in $1 (one phrase on each line, in lower case;
+# the text matches in any case). Folded text: each line without its leading
+# and trailing blanks, and the lines joined with one space, so that a phrase
+# that wraps across two lines is found too.
+files_naming() { # phrases path...
+  local phrases="$1"
+  shift
+  git ls-files -z -- "$@" | xargs -0 awk '
+    FNR == 1 { if (NR > 1) print ""; printf "%s\t", FILENAME; sep = "" }
+    { line = $0; sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line); printf "%s%s", sep, line; sep = " " }
+    END { if (NR > 0) print "" }' |
+    phrases="$phrases" awk '
+      BEGIN { n = split(ENVIRON["phrases"], p, "\n") }
+      {
+        tab = index($0, "\t"); text = tolower(substr($0, tab + 1))
+        for (i = 1; i <= n; i++) if (p[i] != "" && index(text, p[i])) { print substr($0, 1, tab - 1); next }
+      }'
+}
+assert "no hook configuration file names subagent-guard.js" \
+  "$(grep -lF 'subagent-guard.js' "${HOOK_CONFIG_FILES[@]}" | tr '\n' ' ')" ""
+assert "hooks/subagent-guard.js does not exist" \
+  "$([ -e hooks/subagent-guard.js ] && echo exists || echo absent)" "absent"
+assert "no file in ${GUARD_FREE_PATHS[*]} names subagent-guard" \
+  "$(git grep -l subagent-guard -- "${GUARD_FREE_PATHS[@]}" | tr '\n' ' ')" ""
+# The same files may not name the guard in words either, also not in a phrase
+# that wraps across two lines.
+assert "no file in ${GUARD_FREE_PATHS[*]} names the subagent guard, a Guard Interaction section, skill-leakage blocking or a leakage guard (folded text)" \
+  "$(files_naming "$GUARD_PHRASES" "${GUARD_FREE_PATHS[@]}" | tr '\n' ' ')" ""
+# No skill names the SubagentStop event. Before the removal, only the files of
+# the guard named it, so a skill sentence that names it now describes the
+# removed guard. README.md and the two Codex documents still name the event in
+# true sentences about what Codex does not provide; they are not searched here.
+assert "no file in skills/ names SubagentStop (folded text)" \
+  "$(files_naming 'subagentstop' skills | tr '\n' ' ')" ""
 
 assert "hooks/bash-optimizer.js does not exist" "$([ -e hooks/bash-optimizer.js ] && echo exists || echo absent)" "absent"
 

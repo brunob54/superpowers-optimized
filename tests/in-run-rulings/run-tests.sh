@@ -711,13 +711,6 @@ for frag in 'not a debate' 'never pass conversation history' \
   assert_in_range "fork fragment '$frag'" \
     "$ORCH_SKILL" "$frag" "$FORK_LINE" "$FORK_END" fragment
 done
-# M7: this multi-word free-text fragment used to run through the unfolded,
-# per-physical-line helper; it already wraps across a line, and a further
-# reflow could move the wrap without changing the wording. Route it through
-# the folded helper instead.
-assert_in_range_folded "fork fragment 'action verb followed by a skill name'" \
-  "$ORCH_SKILL" 'action verb followed by a skill name' \
-  "$FORK_LINE" "$FORK_END"
 # M6: the bare 'general-purpose' fragment above was short enough that a
 # rewrite to the opposite meaning ("never dispatch a general-purpose
 # subagent") still contains it, and the word recurs several times in this
@@ -792,24 +785,24 @@ done
 # stops with.
 assert_in_range_folded "a design ruling needs at least two usable fork returns" \
   "$ORCH_SKILL" 'needs at least **two usable reviewer returns** of the round' "$FORK_LINE" "$FORK_END"
-GUARD_LINE="$(first_line_of "$ORCH_SKILL" '## Guard Interaction')"
+MARKER_LINE="$(first_line_of "$ORCH_SKILL" '## Report Marker')"
 TEMPLATES_LINE="$(first_line_of "$ORCH_SKILL" '## Prompt Templates')"
-# The sentence this branch adds to Guard Interaction: the forks open their
+# The sentence this branch adds to Report Marker: the forks open their
 # return with the nested-reviewer marker, and a return without it is a lost
 # return, never a reason to drop the marker instruction. Both fragments are
 # folded, because both cross a line wrap.
-assert_in_range_folded "Guard Interaction states that forks open with the reviewer marker" \
+assert_in_range_folded "Report Marker states that forks open with the reviewer marker" \
   "$ORCH_SKILL" 'Forks dispatched under `## In-run rulings` open their return with that same `<!-- multi-review report -->` marker' \
-  "$GUARD_LINE" "$TEMPLATES_LINE"
-assert_in_range_folded "Guard Interaction makes a markerless fork return a lost return" \
+  "$MARKER_LINE" "$TEMPLATES_LINE"
+assert_in_range_folded "Report Marker makes a markerless fork return a lost return" \
   "$ORCH_SKILL" 'a fork return without it is a lost return under that section' \
-  "$GUARD_LINE" "$TEMPLATES_LINE"
+  "$MARKER_LINE" "$TEMPLATES_LINE"
 # Unchanged-wording regression pin only: the marker itself predates this
 # branch and occurs in the section's nested-reviewer sentence too, so this
 # assertion cannot fail when the fork sentence above is deleted. It guards
 # the marker's spelling, nothing else.
-assert_in_range "Guard Interaction still spells the nested-reviewer marker exactly" \
-  "$ORCH_SKILL" '<!-- multi-review report -->' "$GUARD_LINE" "$TEMPLATES_LINE" exact
+assert_in_range "Report Marker still spells the nested-reviewer marker exactly" \
+  "$ORCH_SKILL" '<!-- multi-review report -->' "$MARKER_LINE" "$TEMPLATES_LINE" exact
 
 # The fork prompt states the same negative diff flags as the read exception.
 assert_in_range "fork prompt mandates the negative diff flags" \
@@ -2189,28 +2182,28 @@ assert_in_range_folded "resume reads the escalated Re-dispatch value as starting
 
 for frag in 'escalated' 'fork review unavailable'; do
   assert_in_range "stop policy fragment '$frag'" \
-    "$ORCH_SKILL" "$frag" "$RULINGS_END" "$GUARD_LINE" fragment
+    "$ORCH_SKILL" "$frag" "$RULINGS_END" "$MARKER_LINE" fragment
 done
 # The bare word 'escalated' above is a weak spelling check only: a rewrite
 # that kept the word but negated the rule (e.g. "never stops on an open item
 # escalated by the predicate") would still pass it. Pin the sentence itself.
 assert_in_range_folded "stop policy states an escalated open item stops the run" \
   "$ORCH_SKILL" 'an open item escalated by the predicate of `## In-run rulings` — the' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 # M16: the bare 'fork review unavailable' fragment above is a weak spelling
 # check only, the same way the bare 'escalated' fragment was: a rewrite that
 # kept the phrase but inverted the rule (e.g. requiring MORE than two usable
 # returns to stop) would still pass it. Pin the sentence's own trigger.
 assert_in_range_folded "fork review unavailable stop triggers on fewer than two usable reviewer returns" \
   "$ORCH_SKILL" '`fork review unavailable` (fewer than two usable reviewer returns for a design item)' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 # A `stopped` commit can be made over a deliberately dirty tree, so its staging
 # is stated once, in the stop policy, and both `stopped` commit sites point at
 # it. Without the rule a sweeping stage commits the blocked task's unreviewed
 # work.
 assert_in_range "stop policy states the stopped commit's staging rule" \
   "$ORCH_SKILL" '**Every `stopped` commit stages by explicit path.**' \
-  "$RULINGS_END" "$GUARD_LINE" exact
+  "$RULINGS_END" "$MARKER_LINE" exact
 # The prohibition itself, carrying its verb and all three commands. A bare
 # presence pin cannot tell a prohibition from a recommendation — text telling
 # the orchestrator to USE `git add -A` would satisfy one just as well — and
@@ -2219,37 +2212,37 @@ assert_in_range "stop policy states the stopped commit's staging rule" \
 # sentence wraps between `git add -A` and `and never`, so it is folded.
 assert_in_range_folded "stop policy forbids the three sweeping stage commands" \
   "$ORCH_SKILL" 'Never `git add -A` and never `git add .`, and never `git commit -a`.' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 # The three bare pins stay as additional, weaker checks on the spelling of
 # each command.
 for pin in 'git add -A' 'git add .' 'git commit -a'; do
   assert_in_range "stop policy names '$pin' for a stopped commit" \
-    "$ORCH_SKILL" "$pin" "$RULINGS_END" "$GUARD_LINE" exact
+    "$ORCH_SKILL" "$pin" "$RULINGS_END" "$MARKER_LINE" exact
 done
 # The commit command constrains its paths too, stated once here and referenced
 # from Resume step 3: staging by explicit path leaves a bare `git commit -m ...`
 # free to commit whatever an interrupted implementer had already staged.
 assert_in_range_folded "stop policy makes the commit itself name the staged paths" \
   "$ORCH_SKILL" '**The commit itself names the same explicit paths**, `git commit -m "…" -- <the staged paths>`' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 assert_in_range_folded "stop policy gives the reason: a bare commit commits the whole index" \
   "$ORCH_SKILL" 'a bare `git commit -m …` commits the WHOLE index' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 assert_in_range_folded "the commit-path rule covers the ruling follow-up commit too" \
   "$ORCH_SKILL" 'the `ruling <n> follow-up` commit of Resume step 3, and Resume step 3'"'"'s own recovery commit' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 assert_in_range_folded "stop policy names the only file a stopped commit stages" \
   "$ORCH_SKILL" 'The only file it stages is the orchestration log; name it on the command line.' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 # Phase 0 step 3 makes `state.md` an ignored path, so naming it on the command
 # line makes `git add` refuse and the whole `stopped` commit fail — at the one
 # moment an escalated item must reach the user.
 assert_in_range_folded "stop policy forbids staging state.md in a stopped commit" \
   "$ORCH_SKILL" '**`state.md` is never staged by a `stopped` commit**' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 assert_in_range_folded "stop policy gives the reason: Phase 0 makes state.md an ignored path" \
   "$ORCH_SKILL" 'makes it an ignored path in every orchestrated run' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 # Both `stopped` commit sites refer to that one rule.
 assert_in_range_folded "the Resume rebuild path stages its stopped commit by explicit path" \
   "$ORCH_SKILL" "staging by explicit path under the Major-Error Stop Policy's rule" \
@@ -2262,7 +2255,7 @@ assert_in_range_folded "the escalated-return stop stages its stopped commit by e
 # permitted text by backtick formatting alone, rather than by whether the
 # stop is still listed at all.
 assert_absent_in_range_folded_nobacktick "stop policy no longer lists a pre-flight plan conflict as a stop by itself" \
-  "$ORCH_SKILL" 'pre-flight plan conflict' "$RULINGS_END" "$GUARD_LINE" fragment
+  "$ORCH_SKILL" 'pre-flight plan conflict' "$RULINGS_END" "$MARKER_LINE" fragment
 # This branch also removes an unconditional `batch-controller BLOCKED` stop
 # (replaced by the Phase 3 discriminator classification) and a
 # `code-review unresolved or user-decision items` stop (replaced by routing
@@ -2273,7 +2266,7 @@ assert_absent_in_range_folded_nobacktick "stop policy no longer lists a pre-flig
 # formatting alone, rather than by the unconditional-versus-conditional
 # distinction each check is named for.
 assert_absent_in_range_folded_nobacktick "stop policy no longer lists code-review unresolved or user-decision items as a stop by itself" \
-  "$ORCH_SKILL" 'code-review unresolved' "$RULINGS_END" "$GUARD_LINE" fragment
+  "$ORCH_SKILL" 'code-review unresolved' "$RULINGS_END" "$MARKER_LINE" fragment
 # The trailing semicolon was only the separator of the old semicolon-joined
 # stop list; a resurrection in the file's current backticked style, or as the
 # list's last item, would carry no semicolon and still pass. Match fragment
@@ -2286,7 +2279,7 @@ assert_absent_in_range_folded_nobacktick "stop policy no longer lists code-revie
 # qualifier, and fail only on an occurrence that does not.
 assert_absent_unless_qualified_in_range_folded "stop policy no longer lists an unconditional batch-controller BLOCKED stop" \
   "$ORCH_SKILL" 'batch-controller BLOCKED' ' that the Phase 3 discriminator classifies as a controller failure' \
-  "$RULINGS_END" "$GUARD_LINE" fragment
+  "$RULINGS_END" "$MARKER_LINE" fragment
 # The positive counterpart of the check above: the batch-controller `BLOCKED`
 # stop that IS still listed carries its qualifying condition — the clause
 # naming that the Phase 3 discriminator classifies it as a controller
@@ -2295,7 +2288,7 @@ assert_absent_unless_qualified_in_range_folded "stop policy no longer lists an u
 # present at all.
 assert_in_range_folded "stop policy's batch-controller BLOCKED entry carries its Phase 3 discriminator condition" \
   "$ORCH_SKILL" 'a batch-controller `BLOCKED` that the Phase 3 discriminator classifies as a controller failure' \
-  "$RULINGS_END" "$GUARD_LINE"
+  "$RULINGS_END" "$MARKER_LINE"
 
 bold "7. multi-code-review attribution and self-sufficient lines (R8.1, R8.2)"
 MCR_LOG_FORMAT_LINE="$(first_line_of "$MCR_SKILL" '## Review Log Format')"
@@ -2584,7 +2577,7 @@ assert_in_range_folded "row 65: the canonical dispositions name the withheld-fin
 # defect of row 65 again.
 assert_in_range_folded "row 65: the Error Handling section writes the withheld-finding reason in the listed words" \
   "$MCR_SKILL" "records every id reported back that way as $MCR_WITHHELD_REASON (blocking) in the round entry" \
-  "$MCR_ERROR_HANDLING_LINE" "$(first_line_of "$MCR_SKILL" '## Guard Interaction')"
+  "$MCR_ERROR_HANDLING_LINE" "$(first_line_of "$MCR_SKILL" '## Report Marker')"
 # The loop verifies an `(amended by ruling <n>)` marker against the ruling
 # record before granting the clause decided-wording authority — the same rule
 # the orchestrator states under "The ruling record" (section 4).
@@ -3082,7 +3075,7 @@ assert_in_range_folded "decided wording is quoted on a decided line or a rejecte
 # report now offers only options that pass the orchestrator's own
 # answer-line self-check.
 STOP_POLICY_LINE="$RULINGS_END"
-STOP_POLICY_END="$GUARD_LINE"
+STOP_POLICY_END="$MARKER_LINE"
 assert_in_range "the STOPPED template's Resume: line carries an answer slot per open id" \
   "$ORCH_SKILL" 'Resume: Resume orchestration for docs/superpowers-orchestrator/<date>-<slug>/plans/<slug>.md [<id>]: <answer>; [<id>]: <answer>' \
   "$LOG_FORMAT_LINE" "$STATE_LINE" exact

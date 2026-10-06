@@ -53,7 +53,6 @@ run_test "session-start (update check only in a clone of the plugin)" "${SCRIPT_
 run_test "check-no-superpowers-defaults-setting" "${SCRIPT_DIR}/test-check-no-superpowers-defaults-setting.sh" bash
 run_test "claude-code work folder" "${SCRIPT_DIR}/test-claude-code-workdir.sh" bash
 run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activator.js"
-run_test "subagent-guard (SubagentStop)" "${SCRIPT_DIR}/test-subagent-guard.js"
 run_test "block-dangerous-commands (PreToolUse Bash)" "${SCRIPT_DIR}/test-block-dangerous-commands.js"
 run_test "protect-secrets (PreToolUse Read, Edit, Write, Grep, Bash)" "${SCRIPT_DIR}/test-protect-secrets.js"
 run_test "track-edits and context-engine (git ignore entries)" "${SCRIPT_DIR}/test-git-exclude-hooks.js"
@@ -61,6 +60,7 @@ run_test "context-engine (file names in the snapshot)" "${SCRIPT_DIR}/test-conte
 run_test "save marker (track-edits, stop-reminders, context-management save command)" "${SCRIPT_DIR}/test-track-edits.js"
 run_test "version files (every place states one version)" "${SCRIPT_DIR}/test-version-files.js"
 run_test "script line ends (every #! file checks out with LF)" "${SCRIPT_DIR}/test-script-line-ends.js"
+run_test "using-superpowers (fresh project gate checks for a git repository)" "${SCRIPT_DIR}/test-fresh-project-gate.sh" bash
 
 echo "=================================================="
 echo " Results: ${PASS} suites passed, ${FAIL} suites failed"

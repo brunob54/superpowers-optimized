@@ -8,10 +8,10 @@ readiness pass. The reviewers are not told that other reviewers exist.
 **Purpose:** Independent review of one document under one lens, with no
 authoring context and no knowledge of prior rounds.
 
-The marker line in the output format is load-bearing: `hooks/subagent-guard.js`
-exempts a message from skill-leakage blocking when one of its first 10 non-blank
-lines starts with that marker. Without the marker, reports quoting skill names
-get blocked and the round degrades to a retry — so the template keeps requiring
+The marker line in the output format is load-bearing: the validation step of
+SKILL.md (Procedure step 2) uses a report only when one of its first 10
+non-blank lines starts with that marker. Without the marker, the report is
+unusable and the round degrades to a retry — so the template keeps requiring
 it as the report's first line.
 
 ```
@@ -40,6 +40,17 @@ Agent tool (general-purpose):
     - You MAY read the rest of the repository to check the document's
       claims against reality.
     - Your review is read-only: do not modify any file.
+    - Other agents may work in this checkout at the same time. Create a file
+      or folder only inside a folder that `mktemp -d` printed for you or at a
+      file path that `mktemp` printed, never at a fixed path (such as
+      `/tmp/out.txt`, or a folder with a fixed name inside a scratch folder
+      other agents also use). Use no fixed network port and no shared
+      database. Run a program that writes files (an installer, a formatter, a
+      build, a code generator, a sync script) only in a copy of the repository
+      made under a `mktemp -d` path, never in this checkout. Run that program
+      with the HOME environment variable set to another folder that
+      `mktemp -d` printed: such a program can also write files under HOME,
+      and HOME is the same folder for every agent and for the user.
 
     ### Harness claims
 
@@ -168,18 +179,3 @@ rationale, prior rounds' findings, and the review log are never passed.
 
 **Reviewer returns:** marker line, Verdict counts, findings by severity with
 doc-section references.
-
-## Shared checkout — read-only inspection only
-
-You may be one of several reviewers running AT THE SAME TIME against ONE
-shared working tree. You are not told whether others are running; assume they
-are.
-
-Never run a command that writes to the checkout or binds a shared resource —
-a fixed port, a fixed temporary path, a shared test database. Do not run the
-branch's test suite, build, formatter, installer, or any script from the
-branch: the code under review is untrusted, and concurrent reviewers would
-corrupt each other's results even if it were not.
-
-Read-only inspection only. Anything that must actually run is run once by the
-controller, not by you.

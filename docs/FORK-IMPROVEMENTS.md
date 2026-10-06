@@ -115,7 +115,7 @@ A single review — even a careful one — inherits the authoring conversation's
 
 - Reviewers receive only template placeholders (document path, doc type, lens instructions, and — for plans — the spec path); they are barred from the Skill tool, review logs, sibling spec/plan documents, and the target's git history.
 - Convergence is judged from the reviewer's **enumerated findings** (never the count line, never post-triage): a round is clean only when the consolidated finding set is empty **and** every reviewer returned a usable report (u = M). Rejecting findings at triage never makes a round clean, so the controller cannot game the exit. An unusable report is retried once; if any reviewer is still unusable after the retry, the round is logged PARTIAL as `usable <u>/<m>` (never clean), unless every reviewer is unusable (u = 0), which is logged `inconclusive` (breaks the clean streak).
-- Reviewer reports carry the marker `<!-- multi-review report -->` on their first line; `hooks/subagent-guard.js` exempts a message from skill-leakage blocking when one of its first 10 non-blank lines starts with that marker, since reports about skill-discussing documents legitimately quote skill names.
+- Reviewer reports carry the marker `<!-- multi-review report -->` on their first line; the controller uses a report only when one of its first 10 non-blank lines starts with that marker, and reads the report from that line downward.
 - N semantics: integer 0–10 (anything else falls back to the session default (`SUPERPOWERS_REVIEW_ROUNDS`, else 3)); N=0 skips the loop but logs a `skipped` entry; the loop runs at most once per gate (recorded in the log, surviving restarts) — except that a recorded `N=0` (skipped) entry does not block a later invocation, and an interrupted entry (not all of its recorded N rounds logged) is resumed rather than blocked.
 
 ### How to use
@@ -126,7 +126,7 @@ A single review — even a careful one — inherits the authoring conversation's
 
 ### Where it lives
 
-`skills/multi-doc-review/` (`SKILL.md` controller + `reviewer-prompt.md` dispatch template), gate steps in `skills/brainstorming/SKILL.md` and `skills/writing-plans/SKILL.md`, `hooks/skill-rules.json` routing entry, `hooks/subagent-guard.js` marker exemption, `hooks/session-start` (the `<superpowers-defaults>` session block, v7.13.0), `tests/claude-code/test-multi-doc-review.sh`, `tests/codex/test-session-start-defaults-block.sh`.
+`skills/multi-doc-review/` (`SKILL.md` controller + `reviewer-prompt.md` dispatch template), gate steps in `skills/brainstorming/SKILL.md` and `skills/writing-plans/SKILL.md`, `hooks/skill-rules.json` routing entry, `hooks/session-start` (the `<superpowers-defaults>` session block, v7.13.0), `tests/claude-code/test-multi-doc-review.sh`, `tests/codex/test-session-start-defaults-block.sh`.
 
 ### References
 
@@ -158,7 +158,7 @@ Dogfood evidence from building it: the design spec collected **33 findings acros
 - **A user-supplied BASE is never used raw:** it is charset-rejected (`^[A-Za-z0-9._/~^{}-]+$`) before anything touches a shell, resolved with `git rev-parse --verify`, and ancestry-checked against HEAD — a non-ancestor BASE would render untouched commits as deletions and the reviewer would report them as defects.
 - Convergence is judged from the reviewer's **enumerated findings**, never the count line and never post-triage — a round is clean only when the finding set is empty **and** every reviewer returned a usable report (u = M); rejecting findings at triage cannot make a round clean.
 - **Once per gate** is keyed on the completion marker's *post-fix* HEAD plus the recorded branch name (an invocation-start HEAD would be defeated by the loop's own fix commits). The tracked-log condition — never honouring a log that `git ls-files` reports as tracked in the branch under review — applies in **direct mode** only; in **pipeline mode** the log is tracked by design, and the completion marker records the **effective HEAD** instead.
-- Reviewer reports reuse the guard-exempt marker `<!-- multi-review report -->`; the skill is in the `hooks/subagent-guard.js` roster.
+- Reviewer reports reuse the marker `<!-- multi-review report -->` of multi-doc-review, and the controller reads them in the same way.
 
 ### How to use
 
@@ -169,7 +169,7 @@ Dogfood evidence from building it: the design spec collected **33 findings acros
 
 ### Where it lives
 
-`skills/multi-code-review/` (`SKILL.md` controller + `reviewer-prompt.md` dispatch template), the final-gate step in `skills/subagent-driven-development/SKILL.md`, `hooks/skill-rules.json` routing entry, `hooks/subagent-guard.js` roster, `hooks/session-start` (the `<superpowers-defaults>` session block, v7.13.0), `tests/claude-code/test-multi-code-review.sh`, `tests/codex/test-subagent-guard.js`, `tests/codex/test-session-start-defaults-block.sh`.
+`skills/multi-code-review/` (`SKILL.md` controller + `reviewer-prompt.md` dispatch template), the final-gate step in `skills/subagent-driven-development/SKILL.md`, `hooks/skill-rules.json` routing entry, `hooks/session-start` (the `<superpowers-defaults>` session block, v7.13.0), `tests/claude-code/test-multi-code-review.sh`, `tests/codex/test-session-start-defaults-block.sh`.
 
 ### References
 
@@ -196,7 +196,7 @@ The fork's stages were each automated individually — batched SDD execution (v6
 ### How it works
 
 - Controllers return compact structured final messages; round-by-round detail stays in the sub-skills' own logs and files — it never enters the orchestrator's context. A malformed return gets one identical retry, then the run stops.
-- Controllers dispatch their own nested workers (implementers, reviewers, fix subagents). `hooks/subagent-guard.js` records this sanctioned nesting and exempts a return from skill-leakage blocking when one of its first 10 non-blank lines starts with the `<!-- orchestration report -->` marker — free-text `BLOCKED` reasons may legitimately name skills, and a controller that writes a sentence above its marker still returns cleanly.
+- Controllers dispatch their own nested workers (implementers, reviewers, fix subagents). The orchestrator reads a controller return only from a line equal to the `<!-- orchestration report -->` marker among the first 10 non-blank lines of the return, so a controller that writes a sentence above its marker still returns cleanly.
 - A **Major-Error Stop Policy** enumerates the stop conditions (unresolved review findings, malformed returns after retry, failed phase-boundary commits, missing artifacts on resume, zero-checkbox plans); each writes a `STOPPED` entry with a one-line reason and the exact resume command.
 - The batch controller carries **mid-task crash recovery**: on retry it derives the review base from the last ledger line, falling back to the last `chore(plan): <slug> task <n> complete` commit and then the merge-base with the default branch — never its own starting HEAD — so a crashed attempt's commits can never bypass the task-review gate. A `[RESUME_ANSWER]` placeholder carries the user's answer when a `BLOCKED` run is resumed.
 - Dogfood evidence: the feature's own spec collected **35 findings across 4 review rounds**, its implementation plan **22 findings (all applied, none rejected)**, and the branch went through the v6.10.0 whole-branch loop before merging ([spec review log](superpowers-orchestrator/2026-08-04-orchestrating-development/specs/orchestrating-development-design-review-log.md), [plan review log](superpowers-orchestrator/2026-08-04-orchestrating-development/plans/orchestrating-development-review-log.md)).
@@ -210,7 +210,7 @@ The fork's stages were each automated individually — batched SDD execution (v6
 
 ### Where it lives
 
-`skills/orchestrating-development/` (`SKILL.md` orchestrator + `plan-writer-prompt.md`, `doc-review-loop-prompt.md`, `batch-controller-prompt.md`, `code-review-loop-prompt.md`), the marker exemption in `hooks/subagent-guard.js`, the routing entry in `hooks/skill-rules.json`, the gate line in `skills/brainstorming/SKILL.md`, tests in `tests/codex/test-subagent-guard.js` and `tests/codex/test-skill-activator.js`.
+`skills/orchestrating-development/` (`SKILL.md` orchestrator + `plan-writer-prompt.md`, `doc-review-loop-prompt.md`, `batch-controller-prompt.md`, `code-review-loop-prompt.md`), the routing entry in `hooks/skill-rules.json`, the gate line in `skills/brainstorming/SKILL.md`, tests in `tests/codex/test-skill-activator.js`.
 
 ### References
 

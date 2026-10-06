@@ -63,6 +63,47 @@ Task tool (general-purpose):
 
         git commit -m "<type>(<scope>): <what changed>" --trailer "Session: [SLUG]" --trailer "Stage: task N/[TASK_TOTAL]"
 
+    **Parallel wave only.** Follow these rules only when your Context
+    holds the line `You run in a parallel wave.` In a parallel wave, other
+    agents share this working tree and its git index, so a bare
+    `git commit` can commit files that they staged. Commit with two
+    commands: first `git add -- <files>`, then the task's own `git commit`
+    command from above, with its message and trailers unchanged, ending
+    with ` -- <files>`.
+    - `<files>` names each file that this task created, changed or
+      deleted, one by one. It is never empty, never a folder, a glob or
+      `.`. Build it from your own Edit, Write, `rm` and `mv` calls. Also
+      list each file that a program you ran created, changed or deleted,
+      for example a package installer, a code generator or a formatter.
+      Find these files in the program's output or in the files that the
+      program is known to write. Confirm each one with
+      `git status --porcelain -- <path>`; if it prints nothing, the file
+      has no change, so leave it out. Never add a path only because
+      `git status`, `git diff` or `git diff --cached` on the whole tree
+      lists it: in a wave, these commands also show the files of other
+      agents. List only a path that existed when the task started or that
+      exists now; a path that the task created and later removed with
+      `rm` or `mv` is not listed.
+    - Run a formatter or a code generator only on the files of this task.
+      In a wave, a run on the whole tree also rewrites the files of other
+      agents.
+    - Delete or rename a file with plain `rm` or `mv`, never with `git rm`
+      or `git mv`. For a rename, list both the old path and the new path.
+      If `git add` says that a path did not match any files, drop that
+      path from `git add` only and keep it after `--`.
+    - Never run `git add -A`, `git add .`, `git commit -a`,
+      `git commit --amend`, `git stash` or `git reset`: each of them can
+      take, change or remove the work of another agent. Run
+      `git checkout` or `git restore` only on paths in `<files>`.
+    - If git makes no commit (it prints "nothing to commit", "no changes
+      added to commit" or "nothing added to commit"), report no commit
+      SHA; never report the current HEAD.
+    - If git says it is unable to create `index.lock` ("File exists"),
+      wait about ten seconds and run the same command again. Repeat this
+      for at most two minutes in total. If the lock is still there after
+      two minutes, stop and report BLOCKED with the git message. Never
+      delete `.git/index.lock`.
+
     ## Code Organization
 
     You reason best about code you can hold in context at once, and your edits are more

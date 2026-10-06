@@ -336,6 +336,9 @@ in detail just below. The alternatives exist for specific situations:
 - **SDD, interactive** — the same per-task subagents and reviews, but it
   stops to ask you about ambiguities instead of journaling them for the
   batch end. Choose it when you want to stay in the loop task by task.
+  In this mode independent tasks can run as a parallel wave in one
+  checkout; since v7.64.0 each implementer of a wave commits only the
+  files it names (`git add -- <files>`, then `git commit … -- <files>`).
 - **`executing-plans` (inline)** — continuous execution inside the current
   session, no subagents. The handoff auto-selects this only when the
   plan's tasks share heavy runtime state that fresh subagents would lose;

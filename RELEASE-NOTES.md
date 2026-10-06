@@ -8,6 +8,193 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.64.0 — no nested git init, wave commits by path, the subagent guard removed, the shared-checkout rule delivered
+
+**Problem.** Four confirmed review findings needed a design step first. The
+fresh-project gate ran `git init` inside an existing repository. Implementers
+of a parallel wave could commit each other's staged files. Since 2026-09-05
+the subagent guard made 18 blocks and none was correct. The reviewers'
+shared-checkout rule stood after the prompt block, so no reviewer dispatched
+by pointer received it.
+
+**Change.** The gate checks for a repository first. Wave implementers commit
+only the files they name. The guard is removed. The rule stands inside both
+reviewer prompts.
+
+**Effect.** Update the plugin and restart the command-line interface (CLI).
+Nothing to migrate. `~/.claude/hooks-logs/subagent-violations.jsonl` is no
+longer written; you may delete it.
+
+These are items 14 to 17 of the findings that the whole-project review of
+2026-10-03 confirmed beyond its limit of 15 (the numbering of v7.63.0). For
+each item, three independent reviewers designed a correction and then
+measured each other's designs; the user chose each design. The steps below
+change what a skill tells a model to do; no model run checked that a model
+obeys the new text (the user's decision).
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the CLI.
+
+### 1. The fresh-project gate never runs `git init` inside a repository (`skills/using-superpowers/SKILL.md`)
+
+Before: the gate fired on a creation word when the session folder had no
+`project-map.md`, and after the user said yes it ran `git init --quiet` with
+no check. In a sub-folder of an existing repository, that creates a second
+repository inside the first. Measured: a commit made there goes into the
+inner repository. In a new, untracked sub-folder, once the inner repository
+has a commit, a later `git add -A` in the outer repository stages a gitlink (a
+pointer to the inner repository, file mode 160000) and none of the files; when
+that is committed, a clone of the outer repository gets an empty folder.
+Before the inner repository's first commit, the outer `git add -A` fails.
+
+Now the gate runs `LC_ALL=C git rev-parse --show-toplevel 2>&1` in the session
+folder before it shows its message:
+
+- The output starts with `fatal: not a git repository (or any`: no repository
+  holds the folder. The message is unchanged, and `git init --quiet` runs
+  after a yes.
+- The output is a folder: the session folder is already inside that
+  repository. The message names it and runs no `git init`. In a sub-folder it
+  also offers a separate repository; when the user asks for one, the gate
+  runs `git init` and gives a warning: an untracked folder
+  becomes an embedded repository on an outer `git add -A` unless the outer
+  repository ignores it, and files that the outer repository already tracks
+  stay tracked even when the folder is ignored. At the top folder of the
+  repository (`git rev-parse --show-prefix` prints an empty line) there is no
+  such offer.
+- Any other output (inside `.git`, a bare repository, "dubious ownership" —
+  git refuses a repository that another user account owns — or a broken `.git`
+  file of a moved worktree): no `git init`; the gate shows the error.
+
+The gate also tells `context-management` to write `project-map.md` in the
+session folder, which is where the session-start hook reads it. The note
+about `context-snapshot.json` appears only when no repository holds the
+folder. All the new text is in the second part of the skill: the part that
+the session-start hook injects is unchanged.
+
+The new test `tests/codex/test-fresh-project-gate.sh` copies the command out
+of the skill and runs it in scratch repositories in the states above; it pins
+the gate section whole and counts `git init --quiet` over the whole file.
+
+### 2. Implementers of a parallel wave commit by explicit path (`skills/subagent-driven-development/`)
+
+Before: when you run subagent-driven-development directly, independent tasks
+can run as a parallel wave: several implementers in one checkout, with one git
+index. Each one committed with a bare `git commit`, which commits everything
+that is staged, a sibling's files too. Measured: the first commit held the
+files of both tasks, and the second task's commit said "nothing to commit". A
+pre-commit hook widens the time window, because a bare `git commit` holds no
+lock on the index while the hook runs. Orchestrated runs are not affected:
+their batches run tasks one at a time.
+
+Now the controller writes `You run in a parallel wave.` into the Context of
+each wave implementer and each wave fix subagent, and the implementer prompt's
+"Parallel wave only" rules apply:
+
+- Commit with `git add -- <files>`, then the task's commit command ending with
+  ` -- <files>`.
+- `<files>` names each file of the task, one by one: from the task's own
+  Edit, Write, `rm` and `mv` calls, plus each file that a program of the task
+  wrote (a package installer, a code generator, a formatter), confirmed with
+  `git status --porcelain -- <path>`. It never comes from a whole-tree
+  `git status` or `git diff`, which in a wave also list other agents' files. It
+  is never empty, a folder, a glob or `.`.
+- Delete and rename with plain `rm` and `mv`; list both paths of a rename.
+- Run a formatter or a code generator only on the task's own files.
+- Never `git add -A`, `git add .`, `git commit -a`, `git commit --amend`,
+  `git stash`, `git reset`, or `git checkout` / `git restore` of paths that are
+  not the task's.
+- When git reports an empty commit (it uses three different messages), report
+  no commit SHA, never the current HEAD.
+- When git cannot create `index.lock`, wait about ten seconds and run the
+  same command again, for at most two minutes; then report BLOCKED. Never
+  delete the lock.
+
+The skill's own plan-tick commit (in its Core Flow, which every mode of
+subagent-driven-development uses) now ends with `-- <plan file>`. Apart from
+that line, sequential runs, orchestrated runs and the plans that writing-plans
+writes are unchanged.
+
+### 3. The subagent guard is removed (`hooks/subagent-guard.js`)
+
+The guard was a SubagentStop hook: it blocked a subagent whose final message
+paired an action verb with a skill name, and told it to redo its task.
+Since 2026-09-05 the guard made 18 false blocks and no correct one: 7 in the
+1,505 subagent transcripts on disk, on agents' own prose (for example a quoted
+"Re-invoking multi-doc-review"), and 11 recorded only in its log file, on
+agents with an empty agent type (probably Claude Code's own internal agents).
+The transcripts also hold one deliberate test block, and about 10 real skill
+calls inside subagents that the guard never saw, each one requested by the
+dispatch prompt. In auto mode, since Claude Code 2.1.271, a subagent hands its
+report back through a tool, so the guard read an empty closing text for such
+subagents.
+
+Removed: the hook, its test, its wiring in `hooks/hooks.json` and
+`plugin.universal.yaml`, the "Subagent leakage guard" rows of the Codex
+documents, and the guard text in the README (the hook count goes from 10 to
+9), `docs/FORK-IMPROVEMENTS.md` and four skills. The four "Guard Interaction"
+sections are now "## Report Marker". The report markers stay, because each
+skill's return parsing reads them (`researching-prior-art` discards a
+researcher's report file whose first line is not the marker). The "Do NOT
+invoke any skills" lines of the prompts stay. The file
+`~/.claude/hooks-logs/subagent-violations.jsonl` is no longer written; the
+plugin does not delete it.
+
+### 4. The shared-checkout rule reaches the reviewers (`skills/multi-code-review/`, `skills/multi-doc-review/`)
+
+Before: both reviewer templates had a "## Shared checkout" section after the
+closing fence of the prompt block. `fill-prompt.js` copies only the block, so
+the section reached none of about 238 code reviewers dispatched by pointer; a
+prompt that the model filled carried it only sometimes. The section also told
+reviewers that other reviewers exist, which the template header rules out, and
+it promised that "anything that must actually run is run once by the
+controller", which no step did. Real runs show one collision: two doc
+reviewers used one scratch folder with a fixed name, and one deleted it while
+the other was using it.
+
+Now the section is deleted, and one bullet inside each prompt body says:
+other agents may work in this checkout at the same time; create files only at
+paths that `mktemp` prints; use no fixed port and no shared database; run a
+program that writes files only in a copy made under a `mktemp -d` path, with
+HOME set to another `mktemp -d` folder. The code template adds that a focused
+test follows these rules too. Both `SKILL.md` files point to the bullet. A new
+check fails when a heading stands after the closing fence of any
+`skills/*/*-prompt.md`.
+
+### Review
+
+One review round of three reviewers (correctness, adversarial, and test
+quality with 77 mutations on a separate clone: 57 caught, 20 survived) found
+9 Important and 12 Minor findings (a finding that two reviewers made counts
+once). The fix round corrected all of them except
+one Minor finding (text after a fence without a heading), which goes to a later
+item. The verification pass replayed every reviewer input on the reviewed and
+on the fixed commit: every finding was fixed, but the fix round had made one
+new Important defect (files that a program of the task wrote were left out of
+the wave commit). A targeted correction fixed it, and the same verifier's
+replay passed.
+
+### Accepted limits
+
+- Two wave tasks that edit one file: every commit form puts both changes into
+  the first commit.
+- Under dubious ownership, `context-management` step 1 hides git's error and
+  may still offer `git init`.
+- A file that was untracked when a wave task started and that the task then
+  deleted makes the task's commit fail loudly.
+- The new gate test does not load `tests/lib/undefined-command-guard.sh`: that
+  guard makes a script with `set -e` exit 1, and the other bash tests in
+  `tests/codex/` do not load it either.
+
+### Suites
+
+All 20 fast suites pass. Changed counts: `tests/sdd-scripts` 207 → 283,
+`tests/reviewer-templates` 272 → 323, `tests/orchestrating-development`
+229 → 235, `tests/fill-prompt` 166 → 167, `tests/in-run-rulings` 883 → 882,
+`tests/smart-compress` 268 → 276;
+`tests/codex/run-unit-tests.sh` still runs 21 suites (the guard's test is gone,
+the gate test is new).
+
 ## v7.63.0 — six confirmed findings outside the review's limit of 15 are corrected
 
 **Problem.** The whole-project review of 2026-10-03 confirmed more findings
