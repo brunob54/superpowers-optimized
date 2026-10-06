@@ -29,12 +29,13 @@ function lines(text) {
   return text ? text.split(/\r?\n/) : [];
 }
 
-// Runs git with an argument array (no shell), colors off and no optional
+// Runs git with an argument array (no shell), colors off, no signature check
+// in "git log" output (log.showSignature adds lines to it) and no optional
 // locks, whatever the user's configuration. Returns the exit state, the
 // exit status (null when git did not start), the untrimmed standard output and
 // the trimmed standard error.
 function gitRaw(args) {
-  const result = spawnSync('git', ['--no-optional-locks', '-c', 'color.ui=never', ...args], { encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
+  const result = spawnSync('git', ['--no-optional-locks', '-c', 'color.ui=never', '-c', 'log.showSignature=false', ...args], { encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
   return { ok: result.status === 0, status: result.status, raw: result.stdout || '', err: (result.stderr || result.error?.message || '').trim() };
 }
 
