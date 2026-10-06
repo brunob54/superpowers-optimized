@@ -422,19 +422,6 @@ and 5 are conditional; each states its own condition.
    automatically once the comparison in this item finds no unexpected
    changes — no user review step stands between the write and the
    commit.
-
-   Accepted residual risk: `hooks/subagent-guard.js` exempts a message
-   from skill-leakage blocking when one of its first 10 non-blank lines
-   starts with the `<!-- research report -->` marker — the marker does
-   not have to be the message's first line — and both the controller and
-   researcher prompt templates require that marker as the first line of
-   their returns. This means the guard never inspects the output of the
-   agents in this skill that consume the most untrusted external
-   content (fetched pages, registry metadata, cloned repository
-   files). Accepted as a trade-off: the marker is required precisely
-   so the invoking skill and the user can identify and read research
-   output, and the reports themselves are already handled as data,
-   not instructions, throughout this skill and its prompt templates.
 5. Commit this invocation's cache entries, and nothing else. Work
    through the sub-steps in order.
 
@@ -607,16 +594,13 @@ and 5 are conditional; each states its own condition.
 | All researcher reports discarded | Merged report contains only evidence gaps; surfaced to the user |
 | N=0 or platform skip | Brainstorming-invoked: never reaches this skill; brainstorming records the skip in the spec. Direct invocation answered 0: state the skip in the conversation and stop |
 
-## Guard interaction
+## Report Marker
 
-`hooks/subagent-guard.js` exempts a message from skill-leakage blocking when
-one of its first 10 non-blank lines starts with `<!-- research report -->` —
-research reports legitimately quote skill-like phrases found in external
-documentation. This widened rule governs a subagent's final message only.
-`controller-prompt.md`'s report verification discards a different object —
-a researcher's report file — when the `<!-- research report -->` marker is
-not that file's first line; no check anywhere in this skill applies the same
-marker-position test to a research subagent's final message. Never remove the
-marker instruction from `research-prompt.md`
-or `controller-prompt.md`; without it, reports get blocked and assignments
-degrade to evidence gaps.
+Research reports open with `<!-- research report -->`. The report
+verification of `controller-prompt.md` discards a researcher's report
+file when that marker is not the file's first line, and records the
+discard as an evidence gap. No step of this skill tests the marker in a
+subagent's final message; there it only marks the summary as research
+output for the invoking skill and the user. Never remove the marker
+instruction from `research-prompt.md` or `controller-prompt.md`; without
+it, report files are discarded and assignments degrade to evidence gaps.

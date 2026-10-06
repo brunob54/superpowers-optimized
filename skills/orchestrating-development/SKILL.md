@@ -193,8 +193,7 @@ can land between a ruling's write and its commit.
   `<!-- orchestration report -->` and is among the **first 10
   non-blank lines** of the final message; blank lines are skipped and do not
   consume that budget. A line carrying content after the marker is not a
-  qualifying marker line under this equality test, even though the hook that
-  also watches for this marker tolerates such content via a prefix match. Only
+  qualifying marker line under this equality test. Only
   this marker is searched for: a line equal to
   another skill's marker is ordinary preamble. When more than one such line
   is present, the **first** begins the report; everything above it is
@@ -1939,11 +1938,6 @@ Agent tool:
     REASON: <at most five lines>
     CONTRADICTS: none | <what a different lens would have to concede>
     TABLED: none | <an outcome nobody had tabled>
-
-    Your final message must not end with an
-    action verb followed by a skill name (for example
-    `use multi-code-review`) — without the marker the subagent guard
-    blocks such a message and sends you back to rewrite it.
 ```
 
 **Consolidation** is yours: read the verdicts; when they agree, decide;
@@ -1964,11 +1958,9 @@ the ruling records `contradiction: unsettled`. A contradiction, settled or
 not, is recorded in the ruling and surfaced in the Phase 5 report; it is
 never resolved silently.
 
-**Lost returns.** `hooks/subagent-guard.js` exempts a final message when one
-of its first 10 non-blank lines starts with the marker; a message with no
-such line that matches any of the guard's violation patterns is answered
-with `decision: block` and a redo instruction, so the fork spends another
-turn rewriting — the notice still arrives, later.
+**Lost returns.** You start to read a reviewer's return at its
+`<!-- multi-review report -->` marker line, so a return without that
+marker cannot be parsed and is lost under the rule below.
 
 Every bound below is stated over the **reviewer returns of the round**,
 never over the dispatch type: a lens of a round is dispatched as a fork
@@ -2974,31 +2966,20 @@ NOT failures of the mechanism (today's paths, unchanged):
 | A controller reads another file in the directory | Cannot be prevented by wording alone; the directory holds only this session's prompt and value files, and the pointer forbids it. Accepted. |
 | A stale directory from an earlier session is still on disk | Never reused (the path is recorded nowhere); the platform's temporary-directory cleaning removes it. Accepted. |
 
-## Guard Interaction
+## Report Marker
 
-Controller returns open with `<!-- orchestration report -->`.
-`hooks/subagent-guard.js` exempts a message when one of its first 10
-non-blank lines starts with that marker. A return that carries a sentence
-above its marker line is still exempt. Never remove the marker instruction
-from the four templates — free-text `BLOCKED` reasons legitimately pair
-action verbs with skill names.
+Controller returns open with `<!-- orchestration report -->`. The Return
+contract (Controller Dispatch Rules) reads a return only from a line
+equal to that marker among the first 10 non-blank lines of the final
+message, so a return that carries a sentence above its marker line is
+still read. Never remove the marker instruction from the four templates:
+a return without the marker is malformed, and a malformed return costs
+the identical retry and then a major-error stop.
 
-Without the marker, the guard answers with `decision: block` and a redo
-instruction when the message matches any of the guard's violation
-patterns. Most of those patterns pair an action verb with a plugin skill
-name. Four patterns match without pairing an action verb with a plugin
-skill name at all: a `Skill(superpowers…` call form, a `skill: <name>`
-field, an "I'm using the … skill" sentence, and "Invoke the
-superpowers-…" sentence. A message with no marker is not blocked only
-when it matches none of the guard's violation patterns. Measured on
-2026-09-06, the dispatch resumed after one extra turn instead of
-stalling. A controller that obeys "redo your assigned task" can repeat
-review rounds and fix commits it has already written. The marker
-instruction stays mandatory for that reason.
-
-Nested workers dispatched by batch controllers carry SDD's
-leakage-prevention line. Nested reviewers inside the two loop controllers
-emit `<!-- multi-review report -->`, which the guard already exempts.
+Nested reviewers inside the two loop controllers emit
+`<!-- multi-review report -->`, which the validation step of
+multi-doc-review and of multi-code-review looks for among the first 10
+non-blank lines of each report.
 Forks dispatched under `## In-run rulings` open their return
 with that same `<!-- multi-review report -->` marker; a fork return
 without it is a lost return under that section's rule, never a reason to

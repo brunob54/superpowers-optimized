@@ -9,17 +9,6 @@ the controller dispatches a pointer to that file (SKILL.md, Procedure,
 "Before round 1"). The body carries every rule the fix subagent works under;
 the controller passes only the values listed in the legend.
 
-The fix subagent's final message must not name any skill of this plugin:
-`hooks/subagent-guard.js` blocks a subagent's final message that matches
-one of its skill-leakage patterns (a plugin skill name paired with an
-action verb, and four patterns that match without pairing an action verb
-with a plugin skill name at all) only when none of the message's
-first 10 non-blank lines starts with a report marker, so a message that
-quotes a marker line at the start of one of its first 10 non-blank lines
-is exempt too; the fix
-subagent's final message carries no report marker, so it must not name a
-plugin skill.
-
 ```
 Agent tool (general-purpose):
   description: "multi-code-review round [ROUND]: fix subagent"
@@ -49,8 +38,6 @@ Agent tool (general-purpose):
       file is the implementation plan this branch was built from. When
       a finding can only be fixed by changing the plan, leave it
       unfixed and report its id back as needing a plan edit.
-    - Never name any skill of this plugin in your final message;
-      refer to files by path.
 
     ## Repository
 

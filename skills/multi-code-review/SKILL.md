@@ -869,17 +869,7 @@ code has been revised since, so a re-pass is meaningful):
      ALL fix commits use this subject form — verification-cycle and
      post-loop-addendum fixes included, reusing the originating round's
      number for `<i>`. Its complete rules are the body of
-     `./fix-prompt.md` and are not restated here; one reason stays in this
-     file because the template does not carry it: `hooks/subagent-guard.js`
-     blocks a subagent's final message that matches one of its
-     skill-leakage patterns (a plugin skill name paired with an action
-     verb, and four patterns that match without pairing an action verb
-     with a plugin skill name at all) only when none of the message's
-     first 10 non-blank lines starts with a report marker, so a message
-     that quotes a marker line at the start of one of its first 10
-     non-blank lines is exempt too; the
-     fix subagent's final message carries no report marker, so it must
-     not name a plugin skill. Dispatch it
+     `./fix-prompt.md` and are not restated here. Dispatch it
      by pointer: write the list to `<PROMPT_DIR>/round-<i>-findings.txt`
      under the value-file rule. When the loop started over pre-existing
      uncommitted changes the user consented to (Working-tree
@@ -1983,13 +1973,14 @@ completed invocation only on explicit user request.
   must not put its own files there: a file a branch places there under
   one of the four names is hidden from every reviewer round.
 
-## Guard Interaction
+## Report Marker
 
-Reviewer reports open with `<!-- multi-review report -->` —
-`hooks/subagent-guard.js` exempts a message from skill-leakage blocking when
-one of its first 10 non-blank lines starts with that marker (code reviews in
-this repository legitimately quote skill names), so a report with a sentence
-above its marker line is still exempt. The validation step above uses
-that same 10-non-blank-line window; only `reviewer-prompt.md` still tells
+Reviewer reports open with `<!-- multi-review report -->`. The validation
+step above (Procedure step 3) parses each report from that marker: a
+report is usable only when one of its first 10 non-blank lines starts
+with the marker, and the Verdict block and the findings are read only
+from that line downward. A report that carries a sentence above its
+marker line is therefore still usable. Only `reviewer-prompt.md` tells
 the reviewer to make the marker its first output line. Never remove the
-marker instruction from `reviewer-prompt.md`.
+marker instruction from `reviewer-prompt.md`; without it, every report
+is unusable, and each one costs a retry.

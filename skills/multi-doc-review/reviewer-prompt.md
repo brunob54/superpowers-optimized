@@ -8,10 +8,10 @@ readiness pass. The reviewers are not told that other reviewers exist.
 **Purpose:** Independent review of one document under one lens, with no
 authoring context and no knowledge of prior rounds.
 
-The marker line in the output format is load-bearing: `hooks/subagent-guard.js`
-exempts a message from skill-leakage blocking when one of its first 10 non-blank
-lines starts with that marker. Without the marker, reports quoting skill names
-get blocked and the round degrades to a retry — so the template keeps requiring
+The marker line in the output format is load-bearing: the validation step of
+SKILL.md (Procedure step 2) uses a report only when one of its first 10
+non-blank lines starts with that marker. Without the marker, the report is
+unusable and the round degrades to a retry — so the template keeps requiring
 it as the report's first line.
 
 ```

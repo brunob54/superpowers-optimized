@@ -22,6 +22,7 @@ FIX_PROMPT="$ROOT/skills/multi-code-review/fix-prompt.md"
 WP_SKILL="$ROOT/skills/writing-plans/SKILL.md"
 SDD_SKILL="$ROOT/skills/subagent-driven-development/SKILL.md"
 SDD_TASK_REVIEWER="$ROOT/skills/subagent-driven-development/task-reviewer-prompt.md"
+RESEARCH_SKILL="$ROOT/skills/researching-prior-art/SKILL.md"
 
 # Wording contracts asserted below. Each is one fixed string.
 RULE_HEADING='    ### Harness claims'
@@ -58,7 +59,6 @@ FIX_RULE_CLAUSES=(
   'Do NOT invoke any skills'
   'append command and output'
   'review fixes ([SLUG], round [ROUND])'
-  'refer to files by path'
   'the command run and the output'
   'Never edit the plan file, not even its reference text'
   'report its id back as needing a plan edit'
@@ -66,9 +66,38 @@ FIX_RULE_CLAUSES=(
 # Rows 61 and 62, review round 1. The clause list above matches one line at a
 # time, so the middle of the plan-file rule could be deleted, or its condition
 # turned round ("Unless a finding can only ..."), with the suite green. This is
-# the whole bullet, folded, up to the opening of the next bullet. The closing
-# words are the words multi-code-review's Triage step records the id under.
-FIX_PLAN_RULE='- Never edit the plan file, not even its reference text. The plan file is the implementation plan this branch was built from. When a finding can only be fixed by changing the plan, leave it unfixed and report its id back as needing a plan edit. - Never name any skill of this plugin'
+# the whole bullet, folded, up to the heading of the next section: it is the
+# last bullet of the rules, and the blank line above the heading folds into
+# two spaces. The closing words are the words multi-code-review's Triage step
+# records the id under.
+FIX_PLAN_RULE='- Never edit the plan file, not even its reference text. The plan file is the implementation plan this branch was built from. When a finding can only be fixed by changing the plan, leave it unfixed and report its id back as needing a plan edit.  ## Repository'
+# The subagent guard (a SubagentStop hook) was removed. The fix template's
+# rule against naming a plugin skill had no other reason, so it is gone.
+FIX_OLD_SKILL_NAME_RULE='Never name any skill of this plugin'
+# The section that keeps the report marker, under one heading in every skill
+# that had a section about the removed guard. The REASON sentences give the
+# reason the marker is kept now: the skill parses a report from it. The
+# SECTION strings are each whole section, folded (the blank line below the
+# heading folds into two spaces), so that an added sentence fails too. The
+# two review skills differ only in the number of their validation step.
+H_REPORT_MARKER='## Report Marker'
+REVIEW_MARKER_OPENING='Reviewer reports open with `<!-- multi-review report -->`.'
+REVIEW_MARKER_PARSE='parses each report from that marker: a report is usable only when one of its first 10 non-blank lines starts with the marker, and the Verdict block and the findings are read only from that line downward.'
+CODE_MARKER_REASON="The validation step above (Procedure step 3) $REVIEW_MARKER_PARSE"
+DOC_MARKER_REASON="The validation step above (Procedure step 2) $REVIEW_MARKER_PARSE"
+REVIEW_MARKER_ONLY='A report that carries a sentence above its marker line is therefore still usable. Only `reviewer-prompt.md` tells the reviewer to make the marker its first output line.'
+REVIEW_MARKER_RULE='Never remove the marker instruction from `reviewer-prompt.md`; without it, every report is unusable, and each one costs a retry.'
+CODE_MARKER_SECTION="$H_REPORT_MARKER  $REVIEW_MARKER_OPENING $CODE_MARKER_REASON $REVIEW_MARKER_ONLY $REVIEW_MARKER_RULE"
+DOC_MARKER_SECTION="$H_REPORT_MARKER  $REVIEW_MARKER_OPENING $DOC_MARKER_REASON $REVIEW_MARKER_ONLY $REVIEW_MARKER_RULE"
+PROMPT_MARKER_LOAD_BEARING='The marker line in the output format is load-bearing: the validation step of SKILL.md'
+PROMPT_MARKER_USES='uses a report only when one of its first 10 non-blank lines starts with that marker. Without the marker, the report is unusable and the round degrades to a retry'
+CODE_PROMPT_MARKER_REASON="$PROMPT_MARKER_LOAD_BEARING (Procedure step 3) $PROMPT_MARKER_USES"
+DOC_PROMPT_MARKER_REASON="$PROMPT_MARKER_LOAD_BEARING (Procedure step 2) $PROMPT_MARKER_USES"
+RESEARCH_MARKER_OPENING='Research reports open with `<!-- research report -->`.'
+RESEARCH_MARKER_REASON="The report verification of \`controller-prompt.md\` discards a researcher's report file when that marker is not the file's first line, and records the discard as an evidence gap."
+RESEARCH_MARKER_FINAL_MESSAGE="No step of this skill tests the marker in a subagent's final message; there it only marks the summary as research output for the invoking skill and the user."
+RESEARCH_MARKER_RULE='Never remove the marker instruction from `research-prompt.md` or `controller-prompt.md`; without it, report files are discarded and assignments degrade to evidence gaps.'
+RESEARCH_MARKER_SECTION="$H_REPORT_MARKER  $RESEARCH_MARKER_OPENING $RESEARCH_MARKER_REASON $RESEARCH_MARKER_FINAL_MESSAGE $RESEARCH_MARKER_RULE"
 NOTHING_ELSE='**Nothing else may be added to the prompt.**'
 # Pointer-dispatch contracts on multi-code-review SKILL.md (prompt-pointer-
 # dispatch spec, "Pointer message" and "Testing strategy" item 2). Each pointer
@@ -300,6 +329,7 @@ for clause in "${FIX_RULE_CLAUSES[@]}"; do
   assert_file_contains "fix template body: rule clause '$clause'" "$FIX_BODY" "$clause"
 done
 assert_folded_contains "fix template body: the plan-file rule is one whole bullet" "$FIX_BODY" "$FIX_PLAN_RULE"
+assert_file_not_contains "fix template: no rule against naming a plugin skill" "$FIX_PROMPT" "$FIX_OLD_SKILL_NAME_RULE"
 assert_file_contains "fix template: legend closes with the nothing-else sentence" "$FIX_PROMPT" "$NOTHING_ELSE"
 assert_file_has_line "fix template: [FAILURE_BLOCK] stands alone on its line" "$FIX_BODY" '    [FAILURE_BLOCK]'
 assert_file_has_line "fix template: [FINDINGS] stands alone on its line" "$FIX_BODY" '    [FINDINGS]'
@@ -308,7 +338,7 @@ bold "10. multi-code-review SKILL.md dispatches prompts by pointer"
 PROC_START="$(first_line_of "$CODE_SKILL" '## Procedure')"
 PROC_END="$(first_line_of "$CODE_SKILL" '## Review Log Format')"
 ERR_START="$(first_line_of "$CODE_SKILL" '## Error Handling')"
-ERR_END="$(first_line_of "$CODE_SKILL" '## Guard Interaction')"
+ERR_END="$(first_line_of "$CODE_SKILL" "$H_REPORT_MARKER")"
 PROC_RANGE="$WORK/code-procedure.txt"
 ERR_RANGE="$WORK/code-error-handling.txt"
 if [ -n "$PROC_START" ] && [ -n "$PROC_END" ]; then
@@ -904,6 +934,32 @@ assert_diff_reads_guarded "multi-code-review reviewer template" "$CODE_PROMPT" "
 assert_diff_reads_guarded "multi-code-review SKILL.md no-package fallback" "$CODE_FALLBACK_RANGE" "$HELPER_RULE_SKILL"
 assert_diff_reads_guarded "task reviewer template" "$SDD_TASK_REVIEWER" "$HELPER_RULE"
 assert_diff_reads_guarded "requesting-code-review reviewer template" "$REQUESTING_REVIEWER" "$HELPER_RULE"
+
+bold "23. Report Marker: each skill keeps its report marker because it parses reports from it (the subagent guard was removed)"
+# Print the level-two section of file $1 whose heading line is $2: from that
+# line up to, but not including, the next level-two heading, or to the end of
+# the file. Empty when the heading is absent. The heading reaches awk through
+# the environment so that no character of it is reinterpreted.
+extract_section() { # file heading
+  heading="$2" awk 'BEGIN { h = ENVIRON["heading"] } $0 == h { on = 1; print; next } on && /^## / { exit } on { print }' "$1"
+}
+check_marker_section() { # label file reason-sentence never-remove-sentence whole-section
+  local range="$WORK/report-marker-section.txt"
+  extract_section "$2" "$H_REPORT_MARKER" > "$range"
+  if [ -s "$range" ]; then ok "$1: has the section '$H_REPORT_MARKER'"; else bad "$1: no section '$H_REPORT_MARKER'"; fi
+  assert_folded_contains "$1: Report Marker gives the parsing reason" "$range" "$3"
+  assert_folded_contains "$1: Report Marker keeps the never-remove rule" "$range" "$4"
+  # A blank line above the next heading folds into a trailing space.
+  assert_eq "$1: Report Marker holds these sentences and no other" \
+    "$(fold_file "$range" | sed 's/ *$//')" "$5"
+}
+check_marker_section "multi-code-review SKILL.md" "$CODE_SKILL" "$CODE_MARKER_REASON" "$REVIEW_MARKER_RULE" "$CODE_MARKER_SECTION"
+check_marker_section "multi-doc-review SKILL.md" "$DOC_SKILL" "$DOC_MARKER_REASON" "$REVIEW_MARKER_RULE" "$DOC_MARKER_SECTION"
+check_marker_section "researching-prior-art SKILL.md" "$RESEARCH_SKILL" "$RESEARCH_MARKER_REASON" "$RESEARCH_MARKER_RULE" "$RESEARCH_MARKER_SECTION"
+assert_folded_contains "multi-code-review reviewer template: the marker is load-bearing for the validation step" \
+  "$CODE_PROMPT" "$CODE_PROMPT_MARKER_REASON"
+assert_folded_contains "multi-doc-review reviewer template: the marker is load-bearing for the validation step" \
+  "$DOC_PROMPT" "$DOC_PROMPT_MARKER_REASON"
 
 echo
 bold "Results: $PASS passed, $FAIL failed"

@@ -53,7 +53,6 @@ run_test "session-start (update check only in a clone of the plugin)" "${SCRIPT_
 run_test "check-no-superpowers-defaults-setting" "${SCRIPT_DIR}/test-check-no-superpowers-defaults-setting.sh" bash
 run_test "claude-code work folder" "${SCRIPT_DIR}/test-claude-code-workdir.sh" bash
 run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activator.js"
-run_test "subagent-guard (SubagentStop)" "${SCRIPT_DIR}/test-subagent-guard.js"
 run_test "block-dangerous-commands (PreToolUse Bash)" "${SCRIPT_DIR}/test-block-dangerous-commands.js"
 run_test "protect-secrets (PreToolUse Read, Edit, Write, Grep, Bash)" "${SCRIPT_DIR}/test-protect-secrets.js"
 run_test "track-edits and context-engine (git ignore entries)" "${SCRIPT_DIR}/test-git-exclude-hooks.js"

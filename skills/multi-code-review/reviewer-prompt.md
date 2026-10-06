@@ -5,12 +5,11 @@ M reviewers per round (default 1), all with this identical prompt; the
 lens comes from SKILL.md's Lens Rotation. The reviewers are not told that
 other reviewers exist.
 
-The marker line in the output format is load-bearing:
-`hooks/subagent-guard.js` exempts a message from skill-leakage
-blocking when one of its first 10 non-blank lines starts with that
-marker. Without the marker, reports quoting skill names get blocked
-and the round degrades to a retry — so the template keeps requiring
-it as the report's first line.
+The marker line in the output format is load-bearing: the validation
+step of SKILL.md (Procedure step 3) uses a report only when one of its
+first 10 non-blank lines starts with that marker. Without the marker,
+the report is unusable and the round degrades to a retry — so the
+template keeps requiring it as the report's first line.
 
 ```
 Agent tool (general-purpose):

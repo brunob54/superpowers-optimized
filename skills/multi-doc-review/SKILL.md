@@ -1067,13 +1067,13 @@ governs the remaining passes.
   resume supersedes it. A readiness pass with a prompt-delivery or round-level failure is
   handled by the bullets above, as a round is.
 
-## Guard Interaction
+## Report Marker
 
-`hooks/subagent-guard.js` exempts a message from skill-leakage blocking when
-one of its first 10 non-blank lines starts with `<!-- multi-review report -->`
-— reviewer reports legitimately quote skill names. A report that carries a
-sentence above its marker line is therefore still exempt. The validation step
-above uses that same 10-non-blank-line window; only `reviewer-prompt.md` still
-tells the reviewer to make the marker its first output line. Never remove the
-marker instruction from `reviewer-prompt.md`; without it, reports about
-skill-discussing documents get blocked and rounds degrade to retries.
+Reviewer reports open with `<!-- multi-review report -->`. The validation step
+above (Procedure step 2) parses each report from that marker: a report is
+usable only when one of its first 10 non-blank lines starts with the marker,
+and the Verdict block and the findings are read only from that line downward. A
+report that carries a sentence above its marker line is therefore still usable.
+Only `reviewer-prompt.md` tells the reviewer to make the marker its first
+output line. Never remove the marker instruction from `reviewer-prompt.md`;
+without it, every report is unusable, and each one costs a retry.

@@ -1213,11 +1213,26 @@ assert "plugin.universal.yaml: bash-compress-hook is declared on PostToolUse onl
 result=$(node -e "
   // Verify hooks.json is still valid JSON with correct structure
   const h = JSON.parse(require('fs').readFileSync('hooks/hooks.json','utf8'));
-  const required = ['SessionStart','UserPromptSubmit','PostToolUse','Stop','SubagentStop','PreToolUse'];
+  const required = ['SessionStart','UserPromptSubmit','PostToolUse','Stop','PreToolUse'];
   const ok = required.every(k => h.hooks[k]);
   console.log(ok ? 'ok' : 'missing-keys');
 ")
 assert "hooks.json: all original hook sections still present" "$result" "ok"
+
+# The subagent guard (a SubagentStop hook) was removed. No hook configuration
+# file may start it, its file may not come back, and no hook, skill or reader
+# document may still name it.
+HOOK_CONFIG_FILES=(hooks/hooks.json hooks/codex-hooks.json hooks/hooks-cursor.json plugin.universal.yaml)
+assert "no hook configuration file names subagent-guard.js" \
+  "$(grep -lF 'subagent-guard.js' "${HOOK_CONFIG_FILES[@]}" | tr '\n' ' ')" ""
+assert "hooks/subagent-guard.js does not exist" \
+  "$([ -e hooks/subagent-guard.js ] && echo exists || echo absent)" "absent"
+assert "no file in hooks/, skills/, README.md or docs/FORK-IMPROVEMENTS.md names subagent-guard" \
+  "$(git grep -l subagent-guard -- hooks skills README.md docs/FORK-IMPROVEMENTS.md | tr '\n' ' ')" ""
+# The same files may not name the guard in words either. The text matches one
+# line at a time, so a phrase that wraps across two lines is not found.
+assert "no file in hooks/, skills/, README.md or docs/FORK-IMPROVEMENTS.md names the subagent guard, a Guard Interaction section or skill-leakage blocking" \
+  "$(git grep -l -i -e 'subagent guard' -e 'guard interaction' -e 'skill-leakage' -- hooks skills README.md docs/FORK-IMPROVEMENTS.md | tr '\n' ' ')" ""
 
 assert "hooks/bash-optimizer.js does not exist" "$([ -e hooks/bash-optimizer.js ] && echo exists || echo absent)" "absent"
 
