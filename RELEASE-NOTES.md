@@ -12,10 +12,10 @@
 
 **Problem.** Four confirmed review findings needed a design step first. The
 fresh-project gate ran `git init` inside an existing repository. Implementers
-of a parallel wave could commit each other's staged files. The subagent guard
-blocked 18 times in the transcripts on disk and was never right. The
-reviewers' shared-checkout rule stood outside the prompt and never reached
-them.
+of a parallel wave could commit each other's staged files. Since 2026-09-05
+the subagent guard made 18 blocks and none was correct. The reviewers'
+shared-checkout rule stood after the prompt block, so no reviewer dispatched
+by pointer received it.
 
 **Change.** The gate checks for a repository first. Wave implementers commit
 only the files they name. The guard is removed. The rule stands inside both
@@ -41,10 +41,11 @@ Before: the gate fired on a creation word when the session folder had no
 `project-map.md`, and after the user said yes it ran `git init --quiet` with
 no check. In a sub-folder of an existing repository, that creates a second
 repository inside the first. Measured: a commit made there goes into the
-inner repository. In a new, untracked sub-folder, a later `git add -A` in the
-outer repository commits a gitlink (a pointer to the inner repository, file
-mode 160000) and none of the files, so a clone of the outer repository gets an
-empty folder.
+inner repository. In a new, untracked sub-folder, once the inner repository
+has a commit, a later `git add -A` in the outer repository stages a gitlink (a
+pointer to the inner repository, file mode 160000) and none of the files; when
+that is committed, a clone of the outer repository gets an empty folder.
+Before the inner repository's first commit, the outer `git add -A` fails.
 
 Now the gate runs `LC_ALL=C git rev-parse --show-toplevel 2>&1` in the session
 folder before it shows its message:
@@ -54,7 +55,8 @@ folder before it shows its message:
   after a yes.
 - The output is a folder: the session folder is already inside that
   repository. The message names it and runs no `git init`. In a sub-folder it
-  also offers a separate repository, with a warning: an untracked folder
+  also offers a separate repository; when the user asks for one, the gate
+  runs `git init` and gives a warning: an untracked folder
   becomes an embedded repository on an outer `git add -A` unless the outer
   repository ignores it, and files that the outer repository already tracks
   stay tracked even when the folder is ignored. At the top folder of the
@@ -108,21 +110,23 @@ each wave implementer and each wave fix subagent, and the implementer prompt's
   same command again, for at most two minutes; then report BLOCKED. Never
   delete the lock.
 
-The skill's own plan-tick commit now ends with `-- <plan file>`.
-Sequential and orchestrated runs and the plans that writing-plans writes are
-unchanged.
+The skill's own plan-tick commit (in its Core Flow, which every mode of
+subagent-driven-development uses) now ends with `-- <plan file>`. Apart from
+that line, sequential runs, orchestrated runs and the plans that writing-plans
+writes are unchanged.
 
 ### 3. The subagent guard is removed (`hooks/subagent-guard.js`)
 
 The guard was a SubagentStop hook: it blocked a subagent whose final message
 paired an action verb with a skill name, and told it to redo its task.
-Measured over the 1,505 subagent transcripts on disk (2026-09-05 to
-2026-10-06): 0 correct blocks; 7 false blocks on agents' own prose (for
-example a quoted "Re-invoking multi-doc-review"); 11 false blocks on Claude
-Code's own internal agents, which have an empty agent type; and about 10
-real skill calls inside subagents that it never saw, each one requested by
-the dispatch prompt. Since Claude Code 2.1.271 a subagent hands its report
-back through a tool, so the guard read an empty closing text for real
+Since 2026-09-05 the guard made 18 false blocks and no correct one: 7 in the
+1,505 subagent transcripts on disk, on agents' own prose (for example a quoted
+"Re-invoking multi-doc-review"), and 11 recorded only in its log file, on
+agents with an empty agent type (probably Claude Code's own internal agents).
+The transcripts also hold one deliberate test block, and about 10 real skill
+calls inside subagents that the guard never saw, each one requested by the
+dispatch prompt. In auto mode, since Claude Code 2.1.271, a subagent hands its
+report back through a tool, so the guard read an empty closing text for such
 subagents.
 
 Removed: the hook, its test, its wiring in `hooks/hooks.json` and
@@ -161,7 +165,8 @@ check fails when a heading stands after the closing fence of any
 
 One review round of three reviewers (correctness, adversarial, and test
 quality with 77 mutations on a separate clone: 57 caught, 20 survived) found
-9 Important and 14 Minor findings. The fix round corrected all of them except
+9 Important and 12 Minor findings (a finding that two reviewers made counts
+once). The fix round corrected all of them except
 one Minor finding (text after a fence without a heading), which goes to a later
 item. The verification pass replayed every reviewer input on the reviewed and
 on the fixed commit: every finding was fixed, but the fix round had made one
@@ -185,7 +190,8 @@ replay passed.
 
 All 20 fast suites pass. Changed counts: `tests/sdd-scripts` 207 → 283,
 `tests/reviewer-templates` 272 → 323, `tests/orchestrating-development`
-229 → 235, `tests/fill-prompt` 166 → 167, `tests/in-run-rulings` 883 → 882;
+229 → 235, `tests/fill-prompt` 166 → 167, `tests/in-run-rulings` 883 → 882,
+`tests/smart-compress` 268 → 276;
 `tests/codex/run-unit-tests.sh` still runs 21 suites (the guard's test is gone,
 the gate test is new).
 
