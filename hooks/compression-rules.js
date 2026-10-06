@@ -248,8 +248,9 @@ const RULES = [
       // `git status -v` and `-vv` print a diff after the status text. A
       // context line of the diff can be a single space or can look like a
       // hint line, so only the status text before the first line
-      // "diff --git" is filtered.
-      const diffIndex = lines.findIndex(l => l.startsWith('diff --git '));
+      // "diff --git" is filtered. With a colour setting (`color.ui=always`),
+      // that line starts with a colour code, which the test does not read.
+      const diffIndex = lines.findIndex(l => l.replace(ANSI_CODE, '').startsWith('diff --git '));
       const diffStart = diffIndex === -1 ? lines.length : diffIndex;
       const status = lines.slice(0, diffStart);
       const diff = lines.slice(diffStart);

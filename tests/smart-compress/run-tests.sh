@@ -481,13 +481,17 @@ assert_contains     "real git status: has [compressed] marker"                  
 # compress the status text, but the lines of the diff pass unchanged.
 VERBOSE_REPO="$WORK/verbose-repo"
 mkdir "$VERBOSE_REPO"
-verbose_git() { (cd "$VERBOSE_REPO" && LC_ALL=C git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false "$@" 2>&1); }
+# Git reads no global and no system configuration file here: a setting of the
+# user (for example diff.suppressBlankEmpty=true or color.ui=always) changes
+# the output that the checks expect.
+verbose_git() { (cd "$VERBOSE_REPO" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 LC_ALL=C git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false "$@" 2>&1); }
 # Print the text of a changed file; $1 is its third line. The two empty lines
 # come first, so they follow the hunk header directly.
 verbose_text() { printf '\n\n%s\n(use "git x")\nno changes added to commit\ndelta\n' "$1"; }
 # Print the diff part of a git status output: from the first line
-# "diff --git" to the end
-diff_part() { printf '%s\n' "$1" | sed -n '/^diff --git /,$p'; }
+# "diff --git" to the end. Colour codes are removed first, so the output of a
+# run with colours gives the same text as the output of a run without them.
+diff_part() { printf '%s\n' "$1" | sed -n -e $'s/\x1b\\[[0-9;]*m//g' -e '/^diff --git /,$p'; }
 # The expected text of a check: the diff part of the git status output $1.
 # When the diff part does not hold the context lines named above, print a
 # line that no check expects, so that a check cannot pass without them.
@@ -517,11 +521,24 @@ for flag in -v -vv; do
 done
 # Without a staged change, git prints the summary hint "no changes added to
 # commit (use ...)" after the diff of `-vv`, as the last line of the output.
-# The rule removes that line and no line of the diff.
+# The rule removes that line and no line of the diff. With color.ui=always,
+# git writes a colour code before the line "diff --git" and around each line
+# of the diff; the rule finds the diff part all the same. The colour "bold
+# yellow" of that line is one code with two numbers ("\033[1;33m").
 verbose_git commit -q -m second > /dev/null
-real_status=$(verbose_git status -vv)
-assert "real git status -vv without a staged change: the summary hint after the diff is removed, the lines of the diff pass unchanged" \
-  "$(compressed_diff -vv "$real_status")" "$(expected_diff "$(printf '%s\n' "$real_status" | sed '$d')")"
+for color in never always; do
+  real_status=$(verbose_git -c color.ui="$color" -c color.diff.meta="bold yellow" status -vv)
+  assert "real git status -vv with color.ui=$color, without a staged change: the summary hint after the diff is removed, the lines of the diff pass unchanged" \
+    "$(compressed_diff -vv "$real_status")" "$(expected_diff "$(printf '%s\n' "$real_status" | sed '$d')")"
+done
+# With untracked files and no other change, git ends the output with the
+# summary hint "nothing added to commit but untracked files present (use ...)".
+verbose_git commit -q -a -m third > /dev/null
+touch "$VERBOSE_REPO/untracked-file-one.txt" "$VERBOSE_REPO/untracked-file-two.txt"
+real_status=$(verbose_git status)
+assert "real git status with untracked files only: the hint lines are removed, the file names stay" \
+  "$(compressed_text "$(run_hook "git status" "$real_status" "untracked-$$-$RANDOM")" | sed '$d')" \
+  "$(printf 'On branch main\nUntracked files:\n\tuntracked-file-one.txt\n\tuntracked-file-two.txt\n')"
 
 # A response that the hook cannot prove safe to replace stays as it is
 untouched() { run_hook "${3:-git status}" "${2:-$STATUS_OUT}" "untouched-$$-$RANDOM" "$1"; }
