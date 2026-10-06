@@ -5,7 +5,7 @@ description: >
   boundaries via state.md. Also generates project-map.md when asked to map
   the project. Triggers on: user explicitly asks to "save state", "compress
   context", "map this project", "generate project map", "create project map",
-  cross-session handoff needed, or repeated failures indicate context is
+  "archive the session log", cross-session handoff needed, or repeated failures indicate context is
   getting stale.
 ---
 
@@ -17,6 +17,7 @@ description: >
 |---|---|
 | "map this project" / "generate project map" / "create project map" / "update project map" | [Project Map](#project-map) section |
 | "save state" / "compress context" / session ending with ongoing work | [Procedure](#procedure) section |
+| "archive the session log" | [session-log.md Format and Maintenance](#session-logmd-format-and-maintenance) section |
 | Starting a task on a project with existing history | Grep `session-log.md` first, then proceed |
 
 Do not default to `state.md` for a map request. Do not default to `project-map.md` for a save-state request.
@@ -54,7 +55,7 @@ grep -i "<keyword2>" session-log.md | tail -20
 Check the hit count before reading results. This tells you whether to narrow or widen before committing to any output.
 
 **Step 3 — Adjust based on hit count:**
-- **0 hits on all keywords** → fall back to `project-map.md` Critical Constraints. Relevant history may have been promoted there instead of staying in the log. If still nothing, proceed without history.
+- **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints. Relevant history may have been promoted there instead of staying in the log. If still nothing, proceed without history.
 - **1–10 hits** → read them. Surface past decisions, rejected approaches, and constraints.
 - **>10 hits on one keyword** → narrow with a second term: `grep -i "<kw1>" session-log.md | grep -i "<kw2>" | tail -20`
 
@@ -134,7 +135,7 @@ SAVED_ENTRY_END_7Q
 - The part after `&&` writes the save marker of this session. The save marker is a file under `~/.claude/hooks-logs/` that holds the time of the last `[saved]` entry; the stop hook compares it with the time of each edit. The file name holds the session id, which Claude Code gives to every Bash command in the environment variable `CLAUDE_CODE_SESSION_ID`, so a save in one session does not reset the reminder of another session. When the variable is not set, the command writes the older marker file that all sessions share; the stop hook reads that file as well.
 - Fallback: a hook can block this command. For example, a safety hook refuses a command that it cannot read to its end. In that case write the entry with the Edit tool instead (or with the Write tool when `session-log.md` does not exist yet). Write the `## ... [saved]` heading at the start of a line: the hook counts a heading only when at most three spaces stand before its `#`. The edit-tracking hook sees the new `[saved]` heading and moves the marker itself, so step 5 is not needed.
 - Save AFTER the edits that implement a decision. The stop hook reports every significant edit that is later than the marker, and it cannot know that an earlier entry already covers a later edit. An entry saved before its edits therefore gives one more reminder. This is a known limit; step 5 handles it.
-- After the save, count the entries of the log with `grep -c '^## .*\[saved\]' session-log.md`. When the count is above 200, add one line to your reply that gives the count and offers to archive the log; the user can answer, for example, "archive the session log". Write this line only once per session. Do not ask a question that waits for an answer, and do not move any entry before the user says yes. The archive procedure is in [session-log.md Format and Maintenance](#session-logmd-format-and-maintenance).
+- After the save, count the entries of the log with `grep -c -a -E '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' session-log.md`. This is the rule of the archive script: an entry starts at a line with `## ` and a date (the script also skips such a line inside a fenced code block). The option `-a` makes `grep` read the file as text: without it, the `grep` of the Claude Code Bash tool prints nothing for a file that holds a byte that is not valid UTF-8 (Unicode Transformation Format, 8-bit). When the count is above 200, add one line to your reply that gives the count and offers to archive the log; the user can answer, for example, "archive the session log". Write this line only once per session. Do not ask a question that waits for an answer, and do not move any entry before the user says yes. The archive procedure is in [session-log.md Format and Maintenance](#session-logmd-format-and-maintenance).
 
 5. When the `[saved]` entry already exists, do not write a second entry. This is the case when the stop hook asks for a decision-log entry again, and an entry of this session already covers the edits that it reports. Run the marker command alone, so that the decision-log reminder resets:
    ```bash
@@ -142,7 +143,7 @@ SAVED_ENTRY_END_7Q
    ```
    Without this command the stop hook repeats the decision-log reminder on every later stop in the same session.
 
-6. In a new session, read `state.md` first to restore task context, then grep `session-log.md` for relevant history.
+6. In a new session, read `state.md` first to restore task context, then grep `session-log.md` for relevant history. With 0 hits there, grep `session-log-archive.md` too when it exists.
 
 ## session-log.md Format and Maintenance
 
@@ -152,7 +153,7 @@ The log contains a single entry type:
 
 **File management:**
 - Lives at the project root alongside `CLAUDE.md` and `package.json`
-- Archive old entries when the user asks for it, for example with "archive the session log". After a save, step 4 offers this when the log holds more than 200 entries. Run `node "<skill-dir>/scripts/archive-session-log.js"` with the Bash tool from the folder that holds `session-log.md` (`<skill-dir>` is this skill's base directory). The script keeps the newest 100 entries in `session-log.md` and moves the older entries, unchanged, to the end of `session-log-archive.md` in the same folder. To keep another number of entries, give that number as the only argument. Report the one line that the script prints. The automatic recall of the hooks does not read `session-log-archive.md`; search it with `grep` when you need older history.
+- Archive old entries when the user asks for it, for example with "archive the session log". After a save, step 4 offers this when the log holds more than 200 entries. Run `node "<skill-dir>/scripts/archive-session-log.js"` with the Bash tool from the folder that holds `session-log.md` (`<skill-dir>` is this skill's base directory). The script keeps the newest 100 entries in `session-log.md` and moves the older entries, unchanged, to the end of `session-log-archive.md` in the same folder. To keep another number of entries, give that number as the only argument. Report the one line that the script prints. When the script exits with a non-zero code, report its output and change no file by hand. The automatic recall (the session-start hook and the prompt hook, which add log entries to the context of a session) does not read `session-log-archive.md`; search it with `grep` when you need older history.
 - When a decision is permanently superseded (e.g., the approach was replaced), mark it rather than deleting: append `[superseded by YYYY-MM-DD]`
 - Do NOT log trivial sessions (the stop hook already filters these out)
 

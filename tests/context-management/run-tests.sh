@@ -11,6 +11,15 @@ set -u
 # Stop the suite when a command is not found; the file explains the reason.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/undefined-command-guard.sh"
 
+# Isolation: the user's global and system git configuration must not change a
+# result, and no git variable of the caller may point git at another
+# repository. Commit identities come from the environment, so no fixture
+# needs a config write.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$ROOT/skills/context-management/scripts/archive-session-log.js"
 SKILL="$ROOT/skills/context-management/SKILL.md"
@@ -61,18 +70,25 @@ region() {
 # the day is 1 + (i-1)%28, so the dates are valid and ascending up to i = 336.
 entry_date() { printf '2026-%02d-%02d' $(( 1 + ($1 - 1) / 28 )) $(( 1 + ($1 - 1) % 28 )); }
 # entries <first> <last>: print the entries with these numbers, oldest first.
+# Each entry holds non-ASCII bytes (UTF-8 for "é" and an em dash, and the
+# byte 0xFF, which is not valid UTF-8), so a script that does not keep the
+# exact bytes fails the byte checks. The last four body lines look like
+# headings but do not start an entry: "## " is not at the start of the line,
+# there are three "#", there is no space, or blanks stand before "##".
 entries() {
   local i
   for ((i = $1; i <= $2; i++)); do
-    printf '## %s 10:00 [saved]\nGoal: entry %03d\nDecisions:\n- decision %03d\n\n' "$(entry_date "$i")" "$i" "$i"
+    printf '## %s 10:00 [saved]\nGoal: entry %03d caf\303\251 \342\200\224 \377\nDecisions:\n- decision %03d\nsee ## 2026-01-09\n### 2026-01-08\n##2026-01-07\n   ## 2026-01-06\n\n' "$(entry_date "$i")" "$i" "$i"
   done
 }
 # header: print the header of a fixture log (the text before the first entry).
 header() { printf '%s\n\n' "$HEADER_TITLE"; }
 # to_crlf: print standard input with a carriage return before every line end.
 to_crlf() { awk '{ printf "%s\r\n", $0 }'; }
-# count_entries <file>: the number of entry headings in <file>.
-count_entries() { grep -cE "$ENTRY_HEADING" "$1"; }
+# count_entries <file>: the number of entry headings in <file>. The fixtures
+# hold a byte that is not valid UTF-8: -a and the C locale make grep read
+# every file as text.
+count_entries() { LC_ALL=C grep -c -a -E "$ENTRY_HEADING" "$1"; }
 # bytes <file>: the size of <file> in bytes.
 bytes() { wc -c < "$1" | tr -d ' '; }
 # starts_with <file> <prefix-file>, ends_with <file> <suffix-file>: exit 0
@@ -89,10 +105,54 @@ TMP="$(cd "$TMP" && pwd -P)"
 trap 'rm -rf "$TMP"' EXIT
 OUTF="$TMP/out.txt"
 ERRF="$TMP/err.txt"
-# A home folder with no git configuration, so that no global excludes file of
-# the user hides the archive in the git checks.
+# A home folder with no git files. GIT_CONFIG_GLOBAL does not switch off the
+# default global excludes file ($XDG_CONFIG_HOME/git/ignore, else
+# $HOME/.config/git/ignore), which could hide the archive in the git checks.
 EMPTY_HOME="$TMP/home"
 mkdir "$EMPTY_HOME"
+export HOME="$EMPTY_HOME" XDG_CONFIG_HOME="$EMPTY_HOME"
+
+# Fault injection for the archive script, loaded with `node --require`: after
+# the script writes the archive, do the action named in INJECT. Each action
+# stands for an event that a real run can meet: another session appends to
+# the log or rewrites it, or a write does not store the expected bytes.
+INJECT_JS="$TMP/inject.js"
+cat > "$INJECT_JS" <<'JS'
+const fs = require('fs');
+const path = require('path');
+const realAppend = fs.appendFileSync;
+const realWrite = fs.writeFileSync;
+const action = process.env.INJECT;
+const { APPENDED_ENTRY, REWRITTEN_LOG } = process.env;
+// Node's appendFileSync calls fs.writeFileSync, so a write can pass two
+// wrappers; only the outer one acts.
+let depth = 0;
+function wrap(real) {
+  return function (file, data, ...rest) {
+    if (depth > 0) return real.call(fs, file, data, ...rest);
+    depth++;
+    try {
+      const name = typeof file === 'string' ? path.basename(file) : '';
+      if (name === 'session-log-archive.md' && action === 'corrupt-archive') data += 'X';
+      if (name === 'session-log.md' && action === 'corrupt-log') data = data.slice(0, -1);
+      const result = real.call(fs, file, data, ...rest);
+      if (name === 'session-log-archive.md' && action === 'append-log') realAppend.call(fs, 'session-log.md', APPENDED_ENTRY);
+      if (name === 'session-log-archive.md' && action === 'rewrite-log') realWrite.call(fs, 'session-log.md', REWRITTEN_LOG);
+      return result;
+    } finally {
+      depth--;
+    }
+  };
+}
+fs.appendFileSync = wrap(realAppend);
+fs.writeFileSync = wrap(realWrite);
+JS
+# The texts that the injected actions write; inject.js reads them from the
+# environment.
+export APPENDED_ENTRY=$'## 2026-12-28 10:00 [saved]\nGoal: appended during the run\n\n'
+export REWRITTEN_LOG=$'# Rewritten by another session\n'
+INJECT=''
+RUN_PATH="$PATH"
 
 # new_case <name>: make an empty fixture folder $TMP/<name>, leave its path in
 # CASE_DIR, and clear the problem list.
@@ -102,9 +162,21 @@ new_case() { CASE_DIR="$TMP/$1"; mkdir "$CASE_DIR"; PROBLEMS=''; }
 make_log() { { header; entries 1 "$1"; } > "$CASE_DIR/$LOG_NAME"; cp "$CASE_DIR/$LOG_NAME" "$CASE_DIR.orig"; }
 # run_archive [arguments]: run the script in CASE_DIR; leave its exit code in
 # CODE, its standard output in OUTF and its standard error in ERRF.
+# INJECT names an action of the fault injection (empty: none); RUN_PATH is
+# the PATH of the script.
 run_archive() {
+  local preload=()
+  [ -z "$INJECT" ] || preload=(--require "$INJECT_JS")
   CODE=0
-  (cd "$CASE_DIR" && HOME="$EMPTY_HOME" XDG_CONFIG_HOME="$EMPTY_HOME" node "$SCRIPT" "$@") > "$OUTF" 2> "$ERRF" || CODE=$?
+  (cd "$CASE_DIR" && INJECT="$INJECT" PATH="$RUN_PATH" node ${preload[@]+"${preload[@]}"} "$SCRIPT" "$@") > "$OUTF" 2> "$ERRF" || CODE=$?
+}
+# run_injected <action> [arguments]: run_archive with that injected action.
+run_injected() { INJECT="$1"; shift; run_archive "$@"; INJECT=''; }
+# expect_one_message <fragment>: add a problem unless standard error is one
+# line that holds <fragment> (a message, not a stack trace).
+expect_one_message() {
+  [ "$(grep -c '' "$ERRF")" = 1 ] || problem "standard error is not one line: $(tr '\n' '|' < "$ERRF")"
+  grep -qF -- "$1" "$ERRF" || problem "standard error does not say \"$1\""
 }
 # expect_unchanged: add a problem when the log differs from its copy or when
 # an archive exists.
@@ -138,7 +210,7 @@ expect_pointer_paragraph() {
     *) problem "the pointer paragraph does not end with one blank line"; body="$text" ;;
   esac
   case "$body" in
-    '' | *$'\n\n'* | *$'\n') problem "the text after the header is not one paragraph" ;;
+    '' | $'\n'* | *$'\n\n'* | *$'\n') problem "the text after the header is not one paragraph" ;;
   esac
   if grep -qE "$ENTRY_HEADING" "$1"; then problem "the pointer paragraph holds an entry heading"; fi
 }
@@ -274,7 +346,93 @@ expect_counts 100 3
 starts_with "$CASE_DIR/$LOG_NAME" "$TMP/header-6.txt" || problem "the log does not start with its CRLF header"
 ends_with "$CASE_DIR/$LOG_NAME" "$TMP/kept-6.txt" || problem "the log does not end with CRLF entries 4-103, byte for byte"
 ends_with "$CASE_DIR/$ARCHIVE_NAME" "$TMP/moved-6.txt" || problem "the archive does not end with CRLF entries 1-3, byte for byte"
-check "CRLF (carriage return and line feed) line ends: headings found, entries moved byte for byte" "$PROBLEMS"
+for file in "$LOG_NAME" "$ARCHIVE_NAME"; do
+  LF_ONLY="$(LC_ALL=C grep -c -a -v $'\r$' "$CASE_DIR/$file")"
+  [ "$LF_ONLY" = 0 ] || problem "$file has $LF_ONLY lines that end without a carriage return"
+done
+middle "$CASE_DIR/$LOG_NAME" "$(bytes "$TMP/header-6.txt")" "$(bytes "$TMP/kept-6.txt")" > "$TMP/pointer-6.txt"
+[ "$(grep -c '' "$TMP/pointer-6.txt")" = 2 ] && [ "$(sed -n 2p "$TMP/pointer-6.txt")" = $'\r' ] \
+  && sed -n 1p "$TMP/pointer-6.txt" | grep -qF "$ARCHIVE_NAME" \
+  || problem "after the header (which ends with its blank line) the log does not hold the pointer line and one blank line: $(od -c "$TMP/pointer-6.txt" | head -3 | tr '\n' '|')"
+check "CRLF (carriage return and line feed) line ends: headings found, entries moved byte for byte, new lines end with CRLF, one blank line before the pointer" "$PROBLEMS"
+
+new_case crlf-heading-lf-blank
+printf '# Log\r\n\r\n## 2026-01-01 [saved]\r\nGoal: a\r\n\n## 2026-01-02 [saved]\r\nGoal: b\r\n\n## 2026-01-03 [saved]\r\n' > "$CASE_DIR/$LOG_NAME"
+run_archive 1
+expect_code 0
+head -1 "$CASE_DIR/$ARCHIVE_NAME" | LC_ALL=C grep -q -a $'\r$' || problem "the archive title line ends without a carriage return"
+check "a CRLF heading line whose entry ends with an LF blank line: the new lines take the line end of the heading line" "$PROBLEMS"
+
+# fence_variant <n>: print fenced entry number <n> (1 to 4), dated 2026-01-03.
+# Inside each block stand "## YYYY-MM-DD" lines and fence lines that must not
+# close the block.
+fence_variant() {
+  printf '## 2026-01-03 10:00 [saved]\nGoal: fence variant %s\n' "$1"
+  case "$1" in
+    1) printf '```markdown\n## 2026-01-03 10:00 [saved]\n``` not a closing fence\n## 2026-01-03 11:00 [saved]\n```\n' ;;
+    2) printf '~~~~\n~~~\n## 2026-01-03 11:00 [saved]\n~~~~\n' ;;
+    3) printf '~~~\n```\n## 2026-01-03 11:00 [saved]\n~~~\n' ;;
+    4) printf '   ```\n## 2026-01-03 11:00 [saved]\n   ```\n' ;;
+  esac
+  printf -- '- after the block\n\n'
+}
+FENCE_VARIANTS=(
+  'backticks with an info string, and a fence line that carries text'
+  'tildes with a shorter inner run'
+  'tildes with an inner run of backticks'
+  'backticks indented by three spaces'
+)
+# expect_moved_count <n>: add a problem unless the output says that <n>
+# entries were moved. A split of a moved entry keeps its bytes, but not this
+# count.
+expect_moved_count() {
+  case "$(cat "$OUTF")" in "archived $1 entries "*) ;; *) problem "the output does not say \"archived $1 entries\": $(cat "$OUTF")" ;; esac
+}
+# fence_fixture <name> <log part after entries 1-2> <expected kept part>
+# <expected moved part after entries 1-2> <moved count>: one run with keep 1,
+# for the fenced entry VARIANT and the line ends of CONVERT. Each part is the
+# name of a shell function that prints it (`:` prints nothing).
+fence_fixture() {
+  CASE_DIR="$TMP/$1"
+  mkdir "$CASE_DIR"
+  { header; entries 1 2; $2; } | "$CONVERT" > "$CASE_DIR/$LOG_NAME"
+  { header; cat "$TMP/pointer.txt"; $3; } | "$CONVERT" > "$TMP/expected-log-$1.txt"
+  { entries 1 2; $4; } | "$CONVERT" > "$TMP/expected-moved-$1.txt"
+  run_archive 1
+  expect_code 0
+  cmp -s "$CASE_DIR/$LOG_NAME" "$TMP/expected-log-$1.txt" || problem "$1: the log is not the header, the pointer and the expected kept entry"
+  ends_with "$CASE_DIR/$ARCHIVE_NAME" "$TMP/expected-moved-$1.txt" 2>/dev/null || problem "$1: the archive does not end with the expected moved entries"
+  expect_moved_count "$5"
+}
+# The fenced entry, and the fenced entry followed by entry 4.
+fenced() { fence_variant "$VARIANT"; }
+fenced_then_4() { fence_variant "$VARIANT"; entries 4 4; }
+entry_4() { entries 4 4; }
+for eol in LF CRLF; do
+  if [ "$eol" = CRLF ]; then CONVERT=to_crlf; else CONVERT=cat; fi
+  for VARIANT in 1 2 3 4; do
+    PROBLEMS=''
+    # The fenced entry is the last one: a split would keep only its end.
+    fence_fixture "fence-$eol-$VARIANT-last" fenced fenced : 2
+    # A plain entry follows: a block that does not close would swallow it.
+    fence_fixture "fence-$eol-$VARIANT-closed" fenced_then_4 entry_4 fenced 3
+    check "$eol: fence of ${FENCE_VARIANTS[$((VARIANT - 1))]}: a \"## YYYY-MM-DD\" line inside does not start an entry, and the block closes" "$PROBLEMS"
+  done
+done
+
+new_case byte-order-mark
+{ printf '\357\273\277'; entries 1 101; } > "$CASE_DIR/$LOG_NAME"
+printf '\357\273\277' > "$TMP/bom.txt"
+entries 2 101 > "$TMP/kept-9.txt"
+entries 1 1 > "$TMP/moved-9.txt"
+run_archive
+expect_code 0
+starts_with "$CASE_DIR/$LOG_NAME" "$TMP/bom.txt" || problem "the log does not start with the byte order mark"
+ends_with "$CASE_DIR/$LOG_NAME" "$TMP/kept-9.txt" || problem "the log does not end with entries 2-101"
+middle "$CASE_DIR/$LOG_NAME" 3 "$(bytes "$TMP/kept-9.txt")" > "$TMP/pointer-9.txt"
+expect_pointer_paragraph "$TMP/pointer-9.txt"
+ends_with "$CASE_DIR/$ARCHIVE_NAME" "$TMP/moved-9.txt" 2>/dev/null || problem "the archive does not end with entry 1"
+check "a UTF-8 byte order mark before the first entry: the mark stays first, entry 1 is moved" "$PROBLEMS"
 
 bold "Archive script: refusals"
 
@@ -305,23 +463,79 @@ grep -qF "$LOG_NAME" "$ERRF" || problem "standard error does not name $LOG_NAME"
 [ -z "$(ls -A "$CASE_DIR")" ] || problem "a file was written: $(ls -A "$CASE_DIR")"
 check "no $LOG_NAME in the folder: message on standard error, exit 1, no file written" "$PROBLEMS"
 
-# The script writes the archive first. When the log cannot be written, the
-# moved entries are then in both files, and no entry is lost. The root user
-# can write a read-only file, so the check does not run as root.
+# The script writes the archive first. When the log write then fails, the
+# script removes what it appended to the archive. The root user can write a
+# read-only file, so the check does not run as root.
 if [ "$(id -u)" = 0 ]; then
   bold "  SKIP: a read-only log (the root user can write a read-only file)"
 else
   new_case read-only-log
   make_log 101
-  entries 1 1 > "$TMP/moved-8.txt"
   chmod 444 "$CASE_DIR/$LOG_NAME"
   run_archive
   chmod 644 "$CASE_DIR/$LOG_NAME"
-  [ "$CODE" != 0 ] || problem "exit code 0"
-  cmp -s "$CASE_DIR/$LOG_NAME" "$CASE_DIR.orig" || problem "the log changed"
-  ends_with "$CASE_DIR/$ARCHIVE_NAME" "$TMP/moved-8.txt" 2>/dev/null || problem "the archive does not hold the moved entry"
-  check "a read-only log: non-zero exit, the log unchanged, the archive already holds the moved entry" "$PROBLEMS"
+  expect_code 1
+  expect_one_message 'unchanged'
+  expect_unchanged
+  run_archive
+  expect_code 0
+  expect_counts 100 1
+  check "a read-only log: one message, exit 1, the archive write undone; a second run moves each entry once" "$PROBLEMS"
 fi
+
+for name in "$LOG_NAME" "$ARCHIVE_NAME"; do
+  new_case "folder-$name"
+  if [ "$name" = "$ARCHIVE_NAME" ]; then make_log 101; fi
+  mkdir "$CASE_DIR/$name"
+  run_archive
+  expect_code 1
+  expect_one_message 'is a folder'
+  if [ "$name" = "$ARCHIVE_NAME" ]; then
+    cmp -s "$CASE_DIR/$LOG_NAME" "$CASE_DIR.orig" || problem "the log changed"
+  else
+    [ ! -e "$CASE_DIR/$ARCHIVE_NAME" ] || problem "an archive was written"
+  fi
+  check "a folder in place of $name: one message, exit 1, no file changed" "$PROBLEMS"
+done
+
+bold "Archive script: events during the run (fault injection)"
+
+new_case append-during-run
+make_log 103
+entries 4 103 > "$TMP/kept-10.txt"
+printf '%s' "$APPENDED_ENTRY" >> "$TMP/kept-10.txt"
+entries 1 3 > "$TMP/moved-10.txt"
+run_injected append-log
+expect_code 0
+ends_with "$CASE_DIR/$LOG_NAME" "$TMP/kept-10.txt" || problem "the log does not end with entries 4-103 and the entry appended during the run"
+ends_with "$CASE_DIR/$ARCHIVE_NAME" "$TMP/moved-10.txt" || problem "the archive does not end with entries 1-3"
+check "an entry appended to the log after the archive write is kept at the end of the log" "$PROBLEMS"
+
+new_case rewrite-during-run
+make_log 103
+printf '# Old archive\n' > "$CASE_DIR/$ARCHIVE_NAME"
+cp "$CASE_DIR/$ARCHIVE_NAME" "$TMP/archive-11.txt"
+run_injected rewrite-log
+expect_code 1
+expect_one_message 'unchanged'
+[ "$(cat "$CASE_DIR/$LOG_NAME"; printf x)" = "${REWRITTEN_LOG}x" ] || problem "the script changed the log that another session rewrote"
+cmp -s "$CASE_DIR/$ARCHIVE_NAME" "$TMP/archive-11.txt" || problem "the archive does not hold its old bytes again"
+check "the log rewritten (not appended) after the archive write: one message, exit 1, the archive back to its old bytes" "$PROBLEMS"
+
+new_case corrupt-archive
+make_log 103
+run_injected corrupt-archive
+expect_code 1
+expect_one_message "$ARCHIVE_NAME does not hold the expected bytes"
+expect_unchanged
+check "the archive does not hold the expected bytes after its write: exit 1, the archive write undone, the log unchanged" "$PROBLEMS"
+
+new_case corrupt-log
+make_log 103
+run_injected corrupt-log
+expect_code 1
+expect_one_message "$LOG_NAME does not hold the expected bytes"
+check "the log does not hold the expected bytes after its write: one message, exit 1" "$PROBLEMS"
 
 bold "Archive script: git"
 
@@ -335,17 +549,68 @@ expect_code 0
 expect_counts 100 1
 check "outside a git work tree: exit 0 and the archive is written" "$PROBLEMS"
 
+# The exclude entry that hooks/git-exclude.js writes for the archive.
+EXCLUDE_ENTRY="/$ARCHIVE_NAME"
+
 new_case inside-git
-(cd "$CASE_DIR" && HOME="$EMPTY_HOME" XDG_CONFIG_HOME="$EMPTY_HOME" git init -q) > /dev/null 2>&1
+git -C "$CASE_DIR" init -q
 make_log 101
 run_archive
 expect_code 0
-(cd "$CASE_DIR" && HOME="$EMPTY_HOME" XDG_CONFIG_HOME="$EMPTY_HOME" git check-ignore -q "$ARCHIVE_NAME") \
-  || problem "git check-ignore does not report $ARCHIVE_NAME as ignored"
-STATUS="$(cd "$CASE_DIR" && HOME="$EMPTY_HOME" XDG_CONFIG_HOME="$EMPTY_HOME" git status --porcelain)"
+git -C "$CASE_DIR" check-ignore -q "$ARCHIVE_NAME" || problem "git check-ignore does not report $ARCHIVE_NAME as ignored"
+grep -qxF "$EXCLUDE_ENTRY" "$CASE_DIR/.git/info/exclude" || problem "the exclude file has no entry $EXCLUDE_ENTRY"
+STATUS="$(git -C "$CASE_DIR" status --porcelain)"
 case "$STATUS" in *"$ARCHIVE_NAME"*) problem "git status lists the archive: $STATUS" ;; esac
 [ ! -e "$CASE_DIR/.gitignore" ] || problem "a .gitignore was written"
 check "inside a git work tree: git ignores the archive through the exclude file, no .gitignore" "$PROBLEMS"
+
+new_case tracked-log
+git -C "$CASE_DIR" init -q
+make_log 101
+git -C "$CASE_DIR" add "$LOG_NAME"
+git -C "$CASE_DIR" commit -q -m log
+run_archive
+expect_code 0
+if grep -qxF "$EXCLUDE_ENTRY" "$CASE_DIR/.git/info/exclude" 2>/dev/null; then problem "the exclude file hides the archive"; fi
+STATUS="$(git -C "$CASE_DIR" status --porcelain)"
+case "$STATUS" in *"?? $ARCHIVE_NAME"*) ;; *) problem "git status does not list the archive as untracked: $STATUS" ;; esac
+grep -qF "is not hidden from git: commit it together with $LOG_NAME" "$OUTF" || problem "the output does not say to commit the archive: $(cat "$OUTF")"
+check "git tracks the log: no exclude entry, and the output says to commit the archive together with the log" "$PROBLEMS"
+
+# A save of another session while git runs: a fake git first appends one
+# entry to the log, then runs the real git. Windows cannot start a bash
+# script named "git" from node, so the check does not run there.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) bold "  SKIP: a save during the git step (no fake git on Windows)" ;;
+  *)
+    new_case save-during-git
+    git -C "$CASE_DIR" init -q
+    make_log 101
+    mkdir "$TMP/fakebin"
+    {
+      printf '#!/bin/sh\nreal_git='"'"'%s'"'"'\n' "$(command -v git)"
+      cat <<'FAKE'
+n=$(( $(cat git-calls 2>/dev/null || echo 0) + 1 ))
+echo "$n" > git-calls
+printf '## 2026-12-28 10:00 [saved]\nGoal: concurrent save %s\n\n' "$n" >> session-log.md
+exec "$real_git" "$@"
+FAKE
+    } > "$TMP/fakebin/git"
+    chmod +x "$TMP/fakebin/git"
+    RUN_PATH="$TMP/fakebin:$PATH"
+    run_archive
+    RUN_PATH="$PATH"
+    expect_code 0
+    CALLS="$(cat "$CASE_DIR/git-calls" 2>/dev/null)"
+    [ "${CALLS:-0}" -gt 0 ] || problem "the fake git never ran"
+    cat "$CASE_DIR/$LOG_NAME" "$CASE_DIR/$ARCHIVE_NAME" 2>/dev/null | LC_ALL=C grep -a '^Goal: concurrent save ' > "$TMP/saved-during-git.txt"
+    TOTAL="$(grep -c '' "$TMP/saved-during-git.txt")"
+    UNIQUE="$(sort -u "$TMP/saved-during-git.txt" | grep -c '')"
+    [ "$TOTAL" = "${CALLS:-0}" ] && [ "$UNIQUE" = "$TOTAL" ] \
+      || problem "${CALLS:-0} entries were saved during the git step; the log and the archive hold $TOTAL ($UNIQUE different)"
+    check "entries saved while the script runs git are kept" "$PROBLEMS"
+    ;;
+esac
 
 bold "Skill text: step 4 of the save procedure"
 
@@ -353,7 +618,9 @@ SQ="'"
 BT='`'
 STEP4="$(region "$SKILL" '4. Append a `[saved]` entry' '5. When the `[saved]` entry already exists' | fold_text)"
 STEP4_RULES=(
-  "After the save, count the entries of the log with ${BT}grep -c ${SQ}^## .*\\[saved\\]${SQ} session-log.md${BT}."
+  "After the save, count the entries of the log with ${BT}grep -c -a -E ${SQ}^## [0-9]{4}-[0-9]{2}-[0-9]{2}${SQ} session-log.md${BT}."
+  'This is the rule of the archive script: an entry starts at a line with `## ` and a date (the script also skips such a line inside a fenced code block).'
+  'The option `-a` makes `grep` read the file as text: without it, the `grep` of the Claude Code Bash tool prints nothing for a file that holds a byte that is not valid UTF-8 (Unicode Transformation Format, 8-bit).'
   'When the count is above 200, add one line to your reply that gives the count and offers to archive the log; the user can answer, for example, "archive the session log".'
   'Write this line only once per session.'
   'Do not ask a question that waits for an answer, and do not move any entry before the user says yes.'
@@ -371,8 +638,11 @@ MAINTENANCE_RULES=(
   'Archive old entries when the user asks for it, for example with "archive the session log".'
   'Run `node "<skill-dir>/scripts/archive-session-log.js"` with the Bash tool from the folder that holds `session-log.md` (`<skill-dir>` is this skill'"'"'s base directory).'
   'The script keeps the newest 100 entries in `session-log.md` and moves the older entries, unchanged, to the end of `session-log-archive.md` in the same folder.'
+  'After a save, step 4 offers this when the log holds more than 200 entries.'
+  'To keep another number of entries, give that number as the only argument.'
   'Report the one line that the script prints.'
-  'The automatic recall of the hooks does not read `session-log-archive.md`; search it with `grep` when you need older history.'
+  'When the script exits with a non-zero code, report its output and change no file by hand.'
+  'The automatic recall (the session-start hook and the prompt hook, which add log entries to the context of a session) does not read `session-log-archive.md`; search it with `grep` when you need older history.'
 )
 for rule in "${MAINTENANCE_RULES[@]}"; do
   PROBLEMS=''
@@ -384,6 +654,24 @@ PROBLEMS=''
 case "$MAINTENANCE" in *'mark it rather than deleting: append `[superseded by YYYY-MM-DD]`'*) ;; *) problem "missing" ;; esac
 check "the maintenance section keeps the rule: a superseded decision is marked, not deleted" "$PROBLEMS"
 
+bold "Skill text: routing and the search of older history"
+
+STEP0="$(region "$SKILL" '| User said | Go to |' 'Do not default to' | fold_text)"
+FRONTMATTER="$(awk 'NR == 1 && /^---$/ { f = 1; next } f && /^---$/ { exit } f' "$SKILL" | fold_text)"
+STEP3="$(region "$SKILL" '**Step 3 — Adjust based on hit count:**' '**Step 4 — Surface what matters.**' | fold_text)"
+STEP6="$(region "$SKILL" '6. In a new session' '## session-log.md Format and Maintenance' | fold_text)"
+# Each line: a label, a tab, the text to search, a tab, the fixed string.
+while IFS="$(printf '\t')" read -r label text rule; do
+  PROBLEMS=''
+  case "${!text}" in *"$rule"*) ;; *) problem "missing" ;; esac
+  check "$label holds: $rule" "$PROBLEMS"
+done <<'RULES'
+the frontmatter description	FRONTMATTER	"create project map", "archive the session log", cross-session handoff needed
+the route table	STEP0	| "archive the session log" | [session-log.md Format and Maintenance](#session-logmd-format-and-maintenance) section |
+step 3 of the start-of-task search	STEP3	- **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints.
+step 6 of the save procedure	STEP6	With 0 hits there, grep `session-log-archive.md` too when it exists.
+RULES
+
 PROBLEMS=''
 if grep -qF '6 months' "$SKILL"; then problem "found at line $(grep -nF '6 months' "$SKILL" | cut -d: -f1 | tr '\n' ' ')"; fi
 check "the skill has no \"6 months\" rule" "$PROBLEMS"
@@ -392,8 +680,9 @@ bold "Architecture document"
 
 PROBLEMS=''
 if grep -qF '6 months' "$ARCH_DOC"; then problem "\"6 months\" found at line $(grep -nF '6 months' "$ARCH_DOC" | cut -d: -f1 | tr '\n' ' ')"; fi
-grep -qF "$ARCHIVE_NAME" "$ARCH_DOC" || problem "$ARCHIVE_NAME is not named"
-check "docs/architecture/project-memory.md: no \"6 months\" rule; the archive rule names $ARCHIVE_NAME" "$PROBLEMS"
+DOC_RULE='The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user'"'"'s request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.'
+case "$(fold_text < "$ARCH_DOC")" in *"$DOC_RULE"*) ;; *) problem "the archive rule is missing: $DOC_RULE" ;; esac
+check "docs/architecture/project-memory.md: no \"6 months\" rule; the archive rule names 200, 100 and $ARCHIVE_NAME" "$PROBLEMS"
 
 bold "Skill-activator routing"
 
@@ -407,6 +696,10 @@ for prompt in 'archive the session log' 'please archive session-log.md now'; do
   [ "$ROUTE" = context-management ] || problem "ranked first: $ROUTE"
   check "the prompt \"$prompt\" routes to context-management" "$PROBLEMS"
 done
+ROUTE="$(route 'unarchive the session log')"
+PROBLEMS=''
+[ "$ROUTE" != context-management ] || problem "ranked first: $ROUTE"
+check "the prompt \"unarchive the session log\" does not route to context-management" "$PROBLEMS"
 
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
