@@ -72,19 +72,28 @@ Task tool (general-purpose):
     with ` -- <files>`.
     - `<files>` names each file that this task created, changed or
       deleted, one by one. It is never empty, never a folder, a glob or
-      `.`, and never built from `git diff --cached`.
+      `.`. Build it from your own Edit, Write, `rm` and `mv` calls, never
+      from `git status`, `git diff` or `git diff --cached`: in a wave,
+      these commands also show the files of other agents. List only a
+      path that existed when the task started or that exists now; a path
+      that the task created and later removed with `rm` or `mv` is not
+      listed.
     - Delete or rename a file with plain `rm` or `mv`, never with `git rm`
       or `git mv`. For a rename, list both the old path and the new path.
       If `git add` says that a path did not match any files, drop that
       path from `git add` only and keep it after `--`.
-    - Never run `git add -A`, `git add .` or `git commit -a`.
+    - Never run `git add -A`, `git add .`, `git commit -a`,
+      `git commit --amend`, `git stash` or `git reset`: each of them can
+      take, change or remove the work of another agent. Run
+      `git checkout` or `git restore` only on paths in `<files>`.
     - If git makes no commit (it prints "nothing to commit", "no changes
       added to commit" or "nothing added to commit"), report no commit
       SHA; never report the current HEAD.
     - If git says it is unable to create `index.lock` ("File exists"),
-      wait a few seconds and run the same command again, at most three
-      times. If the lock is still there, stop and report BLOCKED with the
-      git message. Never delete `.git/index.lock`.
+      wait about ten seconds and run the same command again. Repeat this
+      for at most two minutes in total. If the lock is still there after
+      two minutes, stop and report BLOCKED with the git message. Never
+      delete `.git/index.lock`.
 
     ## Code Organization
 

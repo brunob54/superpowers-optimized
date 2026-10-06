@@ -71,7 +71,7 @@ digraph sdd_process {
 - Run `scripts/review-package BASE HEAD` (never `HEAD~1` — it silently drops all but the last commit of a multi-commit task) and dispatch the single task reviewer (`./task-reviewer-prompt.md`) with the brief, report, and package paths.
 - Resolve any ⚠️ "cannot verify from diff" items yourself (see Handling Reviewer ⚠️ Items).
 - If the review finds Critical/Important issues: dispatch ONE fix subagent for all of them (spec gaps and quality findings together), have it append to the report file, then re-review — the re-review covers both verdicts.
-- Mark task complete: update the task's checkbox in plan.md from `- [ ]` to `- [x]`, append the ledger line (see Durable Progress), commit the tick as `chore(plan): <slug> task <n> complete` (`<slug>` = plan basename with the `YYYY-MM-DD-` prefix and `.md` stripped), staging the plan file by explicit path, and sync `state.md` if it has a plan status section.
+- Mark task complete: update the task's checkbox in plan.md from `- [ ]` to `- [x]`, append the ledger line (see Durable Progress), commit the tick as `chore(plan): <slug> task <n> complete` (`<slug>` = plan basename with the `YYYY-MM-DD-` prefix and `.md` stripped), staging the plan file by explicit path and ending the `git commit` command with `-- <plan file>` (without that path list, the commit also takes files that a subagent of a running wave has staged), and sync `state.md` if it has a plan status section.
    - For complex or high-risk tasks, validate the approach against requirements and consider simpler alternatives before or after the implementer's work.
    - For tasks centered on frontend/UI, apply `frontend-design` standards to guide structure, styling, and accessibility.
 4. Run the final whole-branch review loop. If this platform is one where
@@ -523,8 +523,10 @@ the final whole-branch review. When you fill a reviewer template:
   file, and the re-review is dispatched only once the report shows the
   covering tests, the command run, and the output. A fix dispatch for a
   task of a parallel wave also carries the line
-  `You run in a parallel wave.` and a copy of the "Parallel wave only"
-  rules of `./implementer-prompt.md`.
+  `You run in a parallel wave.` and a copy of the whole "Commit Messages"
+  section of `./implementer-prompt.md`, filled in for that task. The
+  "Parallel wave only" rules in that section use the commit command shape
+  that stands above them, so the copy holds both.
 
 ## Durable Progress
 
