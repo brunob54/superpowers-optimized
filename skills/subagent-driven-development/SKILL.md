@@ -220,8 +220,8 @@ When tasks are independent and touch disjoint files, dispatch them as a wave —
 **Decision rule:** Before starting execution, group tasks into waves based on file overlap and state dependencies. Tasks with no shared files and no sequential dependency belong in the same wave.
 
 1. Build a wave of independent tasks.
-2. Dispatch all implementers in a **single message** with multiple parallel Agent tool calls. Do not stagger across multiple messages.
-3. Review each task with the single task-review gate. Build each task's package with `scripts/review-package --commits <that task's reported commit SHAs>` — NEVER a BASE..HEAD range in a wave: commits interleave, so a range would mix sibling tasks' changes into the review. If an implementer's report omits its commit SHAs, ask that implementer for them before reviewing.
+2. Dispatch all implementers in a **single message** with multiple parallel Agent tool calls. Do not stagger across multiple messages. Write the line `You run in a parallel wave.` into each implementer's Context: the implementers of a wave share one working tree and one git index, and the line turns on the "Parallel wave only" commit rules of `./implementer-prompt.md`.
+3. Review each task with the single task-review gate. Build each task's package with `scripts/review-package --commits <that task's reported commit SHAs>` — NEVER a BASE..HEAD range in a wave: commits interleave, so a range would mix sibling tasks' changes into the review. If an implementer's report omits its commit SHAs, ask that implementer for them before reviewing. A fix subagent for a wave task gets the same Context line and the same commit rules (see Constructing Reviewer Prompts).
 4. Run integration verification after the wave completes.
 5. Update all completed task checkboxes in plan.md (`- [ ]` → `- [x]`) and sync state.md if present.
 6. Proceed to the next wave.
@@ -521,7 +521,10 @@ the final whole-branch review. When you fill a reviewer template:
 - Every fix dispatch carries the implementer contract: the fix subagent
   re-runs the tests covering its change, appends results to the report
   file, and the re-review is dispatched only once the report shows the
-  covering tests, the command run, and the output.
+  covering tests, the command run, and the output. A fix dispatch for a
+  task of a parallel wave also carries the line
+  `You run in a parallel wave.` and a copy of the "Parallel wave only"
+  rules of `./implementer-prompt.md`.
 
 ## Durable Progress
 

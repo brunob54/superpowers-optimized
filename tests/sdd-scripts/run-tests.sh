@@ -31,6 +31,18 @@ assert_file_not_contains() { # desc file needle
 assert_file_matches() { # desc file extended-regex
   if grep -qE -- "$3" "$2"; then ok "$1"; else bad "$1 (no match for: $3)"; fi
 }
+assert_contains() { # desc text needle (fixed string)
+  case "$2" in *"$3"*) ok "$1" ;; *) bad "$1 (missing: $3)" ;; esac
+}
+# Join the lines of file $1 into one line — each line trimmed of leading and
+# trailing blanks, lines separated by one space — so that a prose fragment
+# that the text wraps across a line break still matches as one fixed string.
+fold_file() { # file
+  awk '{ line = $0; sub(/^[ \t]+/, "", line); sub(/[ \t]+$/, "", line); if (NR > 1) printf " "; printf "%s", line } END { print "" }' "$1"
+}
+assert_folded_contains() { # desc file needle (fixed string, matched across line breaks)
+  if fold_file "$2" | grep -qF -- "$3"; then ok "$1"; else bad "$1 (missing: $3)"; fi
+}
 # sdd-workspace's arg-less stderr backstops (scoping line / legacy warning) and
 # its archive notices are asserted from $ERRF, not left to scroll past a green
 # run. Capture with `2>"$ERRF"` at the call site, then assert here.
@@ -935,6 +947,202 @@ PACKAGE_READS=$(grep -cE '^ *git (diff|show) ' "$SCRIPTS/review-package")
 PACKAGE_READS_GUARDED=$(grep -cE '^ *git (diff|show) "\$\{no_helpers\[@\]\}" ' "$SCRIPTS/review-package")
 assert_eq "review-package: every diff or show read carries the options array" "$PACKAGE_READS_GUARDED" "$PACKAGE_READS"
 assert_eq "review-package: four diff or show reads" "$PACKAGE_READS" "4"
+
+bold "parallel-wave commit rules (implementer-prompt.md, SKILL.md)"
+
+# Item 17 of the 2026-10-06 design record. The implementers of a parallel wave
+# share one working tree and one git index. The implementer template holds
+# commit rules that apply only in a wave: commit with `git add -- <files>`,
+# then with the task's own commit command ending with ` -- <files>`. Each
+# sentence of those rules is pinned below, and next to it a scratch repository
+# runs the git commands that the sentence prescribes. A change to the command
+# shape or to a quoted git message therefore fails here.
+SDD_DIR="$(dirname "$SCRIPTS")"
+IMPLEMENTER_PROMPT_MD="$SDD_DIR/implementer-prompt.md"
+SDD_SKILL_MD="$SDD_DIR/SKILL.md"
+WAVE_DIR=$(mktemp -d)
+: "${WAVE_DIR:?mktemp failed — refusing to run with an empty folder path}"
+WAVE_DIR=$(cd "$WAVE_DIR" && pwd -P)
+trap 'rm -rf "$REPO" "$ERRF" "$HELPER_REPO" "$WAVE_DIR"' EXIT
+
+# The line that the controller writes into the Context, and the label of the
+# rules that the line turns on. Both files must spell them the same way.
+WAVE_LINE='`You run in a parallel wave.`'
+WAVE_LABEL='Parallel wave only'
+# Messages that git prints (in English: the suite guard sets LC_MESSAGES=C).
+# The rules quote them; the git checks below prove that git prints them.
+GIT_NO_MATCH='did not match any files'
+GIT_NOTHING_TO_COMMIT='nothing to commit'
+GIT_NO_CHANGES_ADDED='no changes added to commit'
+GIT_NOTHING_ADDED='nothing added to commit'
+GIT_LOCK_EXISTS='File exists'
+
+# Each sentence of the rules, in the order of the text. The checks next to
+# the git commands below pin them one by one. The whole-block check pins
+# their order and that the block holds nothing else.
+WAVE_RULE_TRIGGER="**$WAVE_LABEL.** Follow these rules only when your Context holds the line $WAVE_LINE"
+WAVE_RULE_REASON='In a parallel wave, other agents share this working tree and its git index, so a bare `git commit` can commit files that they staged.'
+WAVE_RULE_COMMANDS='Commit with two commands: first `git add -- <files>`, then the task'"'"'s own `git commit` command from above, with its message and trailers unchanged, ending with ` -- <files>`.'
+WAVE_RULE_FILES='`<files>` names each file that this task created, changed or deleted, one by one. It is never empty, never a folder, a glob or `.`, and never built from `git diff --cached`.'
+WAVE_RULE_RENAME='Delete or rename a file with plain `rm` or `mv`, never with `git rm` or `git mv`. For a rename, list both the old path and the new path.'
+WAVE_RULE_REPAIR="If \`git add\` says that a path $GIT_NO_MATCH, drop that path from \`git add\` only and keep it after \`--\`."
+WAVE_RULE_NEVER_ALL='Never run `git add -A`, `git add .` or `git commit -a`.'
+WAVE_RULE_NO_COMMIT="If git makes no commit (it prints \"$GIT_NOTHING_TO_COMMIT\", \"$GIT_NO_CHANGES_ADDED\" or \"$GIT_NOTHING_ADDED\"), report no commit SHA; never report the current HEAD."
+WAVE_RULE_LOCK="If git says it is unable to create \`index.lock\` (\"$GIT_LOCK_EXISTS\"), wait a few seconds and run the same command again, at most three times. If the lock is still there, stop and report BLOCKED with the git message. Never delete \`.git/index.lock\`."
+
+# The rules must stand in the "Commit Messages" section, inside the fenced
+# prompt, so that they reach the implementer. Every wording check of the
+# rules reads this extract, not the whole file.
+WAVE_COMMIT_SECTION="$WAVE_DIR/commit-section.txt"
+awk '/^    ## Code Organization$/ { f = 0 } /^    ## Commit Messages$/ { f = 1 } f' "$IMPLEMENTER_PROMPT_MD" > "$WAVE_COMMIT_SECTION"
+assert_folded_contains "wave rules: labelled, and followed only when the Context holds the wave line" \
+  "$WAVE_COMMIT_SECTION" "$WAVE_RULE_TRIGGER"
+# Everything from the label to the end of the section (blank lines left out)
+# is these sentences in this order and nothing else. An added line that
+# contradicts a rule therefore fails here.
+WAVE_RULES_BLOCK="$WAVE_DIR/wave-rules-block.txt"
+awk -v label="**$WAVE_LABEL.**" 'index($0, label) { f = 1 } f && NF' "$WAVE_COMMIT_SECTION" > "$WAVE_RULES_BLOCK"
+assert_eq "wave rules: from the label to the end of the section, exactly these rules in this order" "$(fold_file "$WAVE_RULES_BLOCK")" \
+  "$WAVE_RULE_TRIGGER $WAVE_RULE_REASON $WAVE_RULE_COMMANDS - $WAVE_RULE_FILES - $WAVE_RULE_RENAME $WAVE_RULE_REPAIR - $WAVE_RULE_NEVER_ALL - $WAVE_RULE_NO_COMMIT - $WAVE_RULE_LOCK"
+# The rules change "the task's own git commit command from above", so they
+# follow the commit command shape of the section directly, after one blank
+# line.
+COMMIT_SHAPE_LINE_NO=$(grep -nF 'git commit -m "<type>(<scope>): <what changed>"' "$WAVE_COMMIT_SECTION" | head -1 | cut -d: -f1)
+WAVE_LABEL_LINE_NO=$(grep -nF "**$WAVE_LABEL.**" "$WAVE_COMMIT_SECTION" | head -1 | cut -d: -f1)
+if [ -n "$COMMIT_SHAPE_LINE_NO" ] && [ -n "$WAVE_LABEL_LINE_NO" ] && [ "$WAVE_LABEL_LINE_NO" -eq $((COMMIT_SHAPE_LINE_NO + 2)) ]; then
+  ok "wave rules: follow the commit command shape directly"
+else
+  bad "wave rules: follow the commit command shape directly (shape line '$COMMIT_SHAPE_LINE_NO', label line '$WAVE_LABEL_LINE_NO')"
+fi
+
+# SKILL.md, Parallel Waves step 2 writes the line; step 3 and the fix dispatch
+# rule give a fix subagent of a wave task the same line and the same rules.
+# Each check compares the whole step or the whole bullet, so that an added
+# sentence that contradicts the rule fails here.
+WAVE_STEP2=$(grep -E '^2\. Dispatch all implementers in a \*\*single message\*\*' "$SDD_SKILL_MD")
+assert_eq "SKILL.md Parallel Waves step 2: writes the wave line into each implementer's Context" "$WAVE_STEP2" \
+  "2. Dispatch all implementers in a **single message** with multiple parallel Agent tool calls. Do not stagger across multiple messages. Write the line $WAVE_LINE into each implementer's Context: the implementers of a wave share one working tree and one git index, and the line turns on the \"$WAVE_LABEL\" commit rules of \`./implementer-prompt.md\`."
+WAVE_STEP3=$(grep -E '^3\. Review each task with the single task-review gate\.' "$SDD_SKILL_MD")
+assert_eq "SKILL.md Parallel Waves step 3: a fix subagent for a wave task gets the same line and rules" "$WAVE_STEP3" \
+  "3. Review each task with the single task-review gate. Build each task's package with \`scripts/review-package --commits <that task's reported commit SHAs>\` — NEVER a BASE..HEAD range in a wave: commits interleave, so a range would mix sibling tasks' changes into the review. If an implementer's report omits its commit SHAs, ask that implementer for them before reviewing. A fix subagent for a wave task gets the same Context line and the same commit rules (see Constructing Reviewer Prompts)."
+FIX_DISPATCH_BULLET="$WAVE_DIR/fix-dispatch-bullet.txt"
+awk 'f && (/^$/ || /^- /) { exit } /^- Every fix dispatch carries the implementer contract/ { f = 1 } f' "$SDD_SKILL_MD" > "$FIX_DISPATCH_BULLET"
+assert_eq "SKILL.md fix dispatch rule: a wave task's fix dispatch carries the line and a copy of the rules" "$(fold_file "$FIX_DISPATCH_BULLET")" \
+  "- Every fix dispatch carries the implementer contract: the fix subagent re-runs the tests covering its change, appends results to the report file, and the re-review is dispatched only once the report shows the covering tests, the command run, and the output. A fix dispatch for a task of a parallel wave also carries the line $WAVE_LINE and a copy of the \"$WAVE_LABEL\" rules of \`./implementer-prompt.md\`."
+
+WAVE_REPO="$WAVE_DIR/repo"
+mkdir "$WAVE_REPO"
+cd "$WAVE_REPO"
+git init --quiet
+git config user.email "test@test"
+git config user.name "test"
+echo "base" > base.txt
+echo "renamed later" > old-name.txt
+git add base.txt old-name.txt && git commit --quiet -m "wave base"
+# The task's own commit command: the shape of the "Commit Messages" section,
+# with its message and trailers, ending with ` -- <files>`.
+WAVE_TRAILERS=(--trailer "Session: wave" --trailer "Stage: task 1/2")
+wave_commit() { # subject file...
+  git commit --quiet -m "$1" "${WAVE_TRAILERS[@]}" -- "${@:2}"
+}
+head_change() { git show -M --name-status --format= HEAD | tr '\t' ' '; }
+
+# The reason: a bare `git commit` takes a sibling's staged file too.
+echo "control sibling" > control-sibling.txt
+git add control-sibling.txt
+echo "control task" > control-task.txt
+git add control-task.txt
+git commit --quiet -m "control: bare commit"
+assert_eq "wave rules control: a bare git commit also takes the sibling's staged file" \
+  "$(git show --name-only --format= HEAD | sort | tr '\n' ' ')" "control-sibling.txt control-task.txt "
+assert_folded_contains "wave rules: name the shared index as the reason" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_REASON"
+
+# The two commands: with a sibling's staged file, the task commit holds only
+# the task's own file, the sibling's file stays staged, and the trailers that
+# stand before ` -- <files>` are in the commit.
+echo "sibling work" > sibling.txt
+git add sibling.txt
+echo "task work" > task.txt
+wave_commit "feat(wave): task file" task.txt >/dev/null 2>&1
+RC=$?
+assert_eq "wave rules control: without git add first, the path-form commit of a new file fails" "$RC" "1"
+git add -- task.txt
+wave_commit "feat(wave): task file" task.txt
+assert_eq "wave rules: the path-form commit holds only the task's own file" "$(head_change)" "A task.txt"
+assert_eq "wave rules: the sibling's file stays staged" "$(git diff --cached --name-only)" "sibling.txt"
+assert_eq "wave rules: the trailers before ' -- <files>' are in the commit" \
+  "$(git log -1 --format='%(trailers:only,unfold)' | sed '/^$/d' | tr '\n' '|')" "Session: wave|Stage: task 1/2|"
+assert_folded_contains "wave rules: git add -- <files>, then the task's own commit command ending with ' -- <files>'" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_COMMANDS"
+assert_folded_contains "wave rules: <files> names each file one by one; never empty, a folder, a glob, '.' or a list from git diff --cached" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_FILES"
+assert_folded_contains "wave rules: never git add -A, git add . or git commit -a" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_NEVER_ALL"
+wave_commit "sibling commits its own file" sibling.txt
+
+# A rename with plain `mv` and both paths listed is one rename commit (R100).
+mv old-name.txt new-name.txt
+git add -- old-name.txt new-name.txt
+wave_commit "refactor(wave): rename with plain mv" old-name.txt new-name.txt
+assert_eq "wave rules: plain mv with both paths listed gives one rename commit (R100)" "$(head_change)" "R100 old-name.txt new-name.txt"
+assert_eq "wave rules: plain mv with both paths listed leaves nothing behind" "$(git status --porcelain)" ""
+# Control: with only the new path listed, the commit makes no rename and the
+# old path stays behind as a deletion.
+mv new-name.txt only-new-listed.txt
+git add -- only-new-listed.txt
+wave_commit "control: only the new path listed" only-new-listed.txt
+assert_eq "wave rules control: with only the new path listed, the commit only adds the new file" "$(head_change)" "A only-new-listed.txt"
+assert_eq "wave rules control: with only the new path listed, the old path stays behind as a deletion" "$(git status --porcelain)" " D new-name.txt"
+git add -- new-name.txt
+wave_commit "control: commit the deletion left behind" new-name.txt
+assert_folded_contains "wave rules: plain rm or mv, never git rm or git mv; a rename lists both paths" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_RENAME"
+
+# After `git mv`, `git add` of the old path fails. The repair drops the old
+# path from `git add` only and keeps it after `--`: one rename commit (R100).
+git mv only-new-listed.txt git-mv-name.txt
+git add -- only-new-listed.txt git-mv-name.txt 2>"$ERRF"
+RC=$?
+assert_eq "wave rules control: after git mv, git add of the old path fails (exit 128)" "$RC" "128"
+assert_stderr_one "wave rules control: git says that the old path $GIT_NO_MATCH" "$GIT_NO_MATCH"
+git add -- git-mv-name.txt
+wave_commit "refactor(wave): rename after git mv" only-new-listed.txt git-mv-name.txt
+assert_eq "wave rules: after git mv, the old path dropped from git add only gives one rename commit (R100)" \
+  "$(head_change)" "R100 only-new-listed.txt git-mv-name.txt"
+assert_folded_contains "wave rules: on 'did not match', drop the path from git add only and keep it after --" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_REPAIR"
+
+# A task with no change: the commit exits 1, makes no commit and takes
+# nothing. Git words its refusal in three ways, by the state of the index and
+# of the working tree, and the rules quote all three.
+assert_no_change_commit() { # desc expected-git-message
+  local head_before staged_before out rc
+  head_before=$(git rev-parse HEAD)
+  staged_before=$(git diff --cached --name-only)
+  git add -- base.txt
+  out=$(wave_commit "feat(wave): no change" base.txt 2>&1)
+  rc=$?
+  assert_eq "$1: the commit exits 1" "$rc" "1"
+  assert_eq "$1: no commit is made" "$(git rev-parse HEAD)" "$head_before"
+  assert_eq "$1: the staged files do not change" "$(git diff --cached --name-only)" "$staged_before"
+  assert_contains "$1: git prints \"$2\"" "$out" "$2"
+}
+echo "sibling new file" > sibling-new.txt
+git add sibling-new.txt
+assert_no_change_commit "wave rules, no change, a sibling's new file staged" "$GIT_NOTHING_ADDED"
+wave_commit "sibling commits its new file" sibling-new.txt
+echo "sibling change" >> task.txt
+git add task.txt
+assert_no_change_commit "wave rules, no change, a sibling's change to a tracked file staged" "$GIT_NO_CHANGES_ADDED"
+wave_commit "sibling commits its change" task.txt
+assert_no_change_commit "wave rules, no change, clean working tree" "$GIT_NOTHING_TO_COMMIT"
+assert_folded_contains "wave rules: when git makes no commit, report no commit SHA and never the current HEAD" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_NO_COMMIT"
+
+# A held index lock: git refuses and names the lock file. This check runs
+# last and leaves the lock file in place; the EXIT trap removes the folder.
+: > .git/index.lock
+echo "changed while the index is locked" >> base.txt
+LOCK_OUT=$(git add -- base.txt 2>&1)
+RC=$?
+assert_eq "wave rules control: git add fails (exit 128) while .git/index.lock exists" "$RC" "128"
+assert_contains "wave rules control: git says it is unable to create index.lock (\"$GIT_LOCK_EXISTS\")" "$LOCK_OUT" "index.lock': $GIT_LOCK_EXISTS."
+assert_folded_contains "wave rules: on a held index.lock, run the same command again at most three times, then report BLOCKED; never delete the lock" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_LOCK"
+cd "$REPO"
 
 bold ""
 bold "Results: $PASS passed, $FAIL failed"

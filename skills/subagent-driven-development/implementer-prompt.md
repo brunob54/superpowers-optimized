@@ -63,6 +63,29 @@ Task tool (general-purpose):
 
         git commit -m "<type>(<scope>): <what changed>" --trailer "Session: [SLUG]" --trailer "Stage: task N/[TASK_TOTAL]"
 
+    **Parallel wave only.** Follow these rules only when your Context
+    holds the line `You run in a parallel wave.` In a parallel wave, other
+    agents share this working tree and its git index, so a bare
+    `git commit` can commit files that they staged. Commit with two
+    commands: first `git add -- <files>`, then the task's own `git commit`
+    command from above, with its message and trailers unchanged, ending
+    with ` -- <files>`.
+    - `<files>` names each file that this task created, changed or
+      deleted, one by one. It is never empty, never a folder, a glob or
+      `.`, and never built from `git diff --cached`.
+    - Delete or rename a file with plain `rm` or `mv`, never with `git rm`
+      or `git mv`. For a rename, list both the old path and the new path.
+      If `git add` says that a path did not match any files, drop that
+      path from `git add` only and keep it after `--`.
+    - Never run `git add -A`, `git add .` or `git commit -a`.
+    - If git makes no commit (it prints "nothing to commit", "no changes
+      added to commit" or "nothing added to commit"), report no commit
+      SHA; never report the current HEAD.
+    - If git says it is unable to create `index.lock` ("File exists"),
+      wait a few seconds and run the same command again, at most three
+      times. If the lock is still there, stop and report BLOCKED with the
+      git message. Never delete `.git/index.lock`.
+
     ## Code Organization
 
     You reason best about code you can hold in context at once, and your edits are more
