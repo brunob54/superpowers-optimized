@@ -29,10 +29,10 @@
  *    archive with the expected bytes.
  * 3. Read the log again. Bytes that were appended since step 2 go to the end
  *    of the new log. Any other change stops the script. A save that lands
- *    after this read and before the end of the log write is lost. This
- *    window measured about 0.15 milliseconds with a log of 250 entries; in
- *    40 runs against a writer that appended once per millisecond, one run
- *    lost one entry.
+ *    after this read and before the end of the log write can be lost.
+ *    Two measurements of this window with a log of 250 entries gave 0.13 to
+ *    0.53 milliseconds; in 40 runs against a writer that appended once per
+ *    millisecond, 0 to 2 entries were lost per round (six rounds).
  * 4. Write the log, and check that it starts with the expected bytes. Bytes
  *    after them come from a save after the write, and they stay.
  * When a step before the log write fails, or the log write fails before it
@@ -233,8 +233,8 @@ function main() {
   }
 
   // Step 3. A save that lands between this read and the end of the log write
-  // below is lost. That window measured about 0.15 milliseconds with a log of
-  // 250 entries, against the tens of milliseconds that git takes.
+  // below can be lost. That window measured 0.13 to 0.53 milliseconds with a
+  // log of 250 entries, against the tens of milliseconds that git takes.
   const current = readOrNull(logPath);
   if (current === null || !current.startsWith(original)) {
     return fail(`${LOG_FILE} changed while the script ran, and not only at its end${undoArchive()}`, 1);

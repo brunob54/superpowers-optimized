@@ -11,9 +11,9 @@
 ## v7.66.0 — a session-log pruning rule that can act, with an archive script
 
 **Problem.** The context-management skill said: keep `session-log.md` under
-200 entries, and prune entries older than 6 months. On a busy project the two
-conditions never meet: this repository's log reached 423 entries in 3
-months, and none was 6 months old.
+200 entries, and prune entries older than 6 months when the log is longer.
+On a busy project this rule cannot act: this repository's log reached 423
+entries in 3 months, and none was 6 months old.
 
 **Change.** After each save, the skill counts the entries; above 200 it
 offers an archive in one line, once per session. When the user agrees, a new
@@ -21,7 +21,7 @@ script keeps the newest 100 entries and moves the older ones, byte for byte,
 to `session-log-archive.md`.
 
 **Effect.** Update the plugin and restart the command-line interface (CLI).
-Nothing to migrate; no entry moves without your yes.
+Nothing to migrate; no entry moves until you agree.
 
 The user decided the design: report but never move without the user,
 archive with a script, keep the newest 100, put the archive next to the log
@@ -32,40 +32,48 @@ session only after an update of the plugin and a restart of the CLI.
 
 ### 1. The skill reports a long log after a save (`skills/context-management/SKILL.md`)
 
-Before: the rule "keep under 200 entries — prune entries older than 6
-months" could act only on a log that was both long and old.
+Before: the rule "Keep under 200 entries — prune entries older than 6
+months when it exceeds this" could act only on a log that was both long and
+old.
 
 Now step 4 of the save procedure ends with a count:
 `grep -c -a -E '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' session-log.md`. Above 200,
 the reply gives the count in one line and offers the archive (for example
 "archive the session log"). The line appears once per session. The skill asks
 no question that waits for an answer, and it moves no entry before the user
-says yes. The `-a` matters: in the Claude Code Bash tool `grep` runs ugrep,
-which prints nothing for a file that holds an invalid UTF-8 byte unless it
-is told to read the file as text (measured).
+says yes. The `-a` matters: in the Claude Code Bash tool, `grep` runs
+ugrep with the option `-I` (skip binary files), so it prints nothing for a
+file that holds a byte that is not valid UTF-8 (the usual text encoding)
+unless `-a` makes it read the file as text (measured).
 
 The keyword searches at the start of a task use `-a` as well, and they
-also read `session-log-archive.md` when `session-log.md` gives no hit. A
-route row and the skill description name "archive the session log", and
-`hooks/skill-rules.json` routes the phrase to the skill (a keyword alone
-scores below the routing threshold; measured).
+also read `session-log-archive.md` when `session-log.md` gives no hit. The
+skill's routing table and its description name "archive the session log".
+`hooks/skill-rules.json` routes the phrase to the skill: a keyword alone
+scores 1, below the minimum score of 2 that the prompt hook needs, so the
+entry also has a pattern (measured).
 
 ### 2. The archive script (`skills/context-management/scripts/archive-session-log.js`)
 
 Run from the folder that holds `session-log.md`:
-`node "<skill-dir>/scripts/archive-session-log.js" [<keep>]`. The script
-keeps the newest `<keep>` entries (default 100) and appends the older ones,
-byte for byte, to `session-log-archive.md` in the same folder. The log gets
-one pointer paragraph that names the archive. It prints one line and exits
-0; it exits 2 for a wrong argument and 1 for a missing log or a failure, and
-then no file is changed.
+`node "<skill-dir>/scripts/archive-session-log.js" [<keep>]`, where
+`<skill-dir>` is the skill's base folder. The script keeps the newest
+`<keep>` entries (default 100) and appends the older ones, byte for byte, to
+`session-log-archive.md` in the same folder. The log gets one pointer
+paragraph that names the archive. On success the script prints one line and
+exits 0. It exits 2 for a wrong argument and 1 for a missing log or a
+failure. When a step before the log write fails, the script removes what it
+appended to the archive (a line it added to `.git/info/exclude` stays). When
+it cannot do that, its message says which file holds the moved entries.
 
-- An entry starts at a line `## YYYY-MM-DD` outside a fenced code block
-  (CommonMark fences, as `task-brief` reads them).
-- A save of another session during the run is kept: the git step runs before
-  the read, and the log is read again just before it is rewritten; entries
-  appended meanwhile go to the end of the new log, and any other change
-  undoes the archive write.
+- An entry starts at a line `## YYYY-MM-DD` outside a fenced code block.
+  Fences follow CommonMark (the Markdown specification), as the
+  `task-brief` script of subagent-driven development reads them.
+- A save of another session during the run is kept, except in a short
+  window (see Accepted limits). The git step runs before the read. The log
+  is read again just before it is rewritten: entries appended meanwhile go
+  to the end of the new log, and any other change undoes the archive
+  write.
 - After each write the script compares the bytes of the file with the
   expected bytes. When the log cannot be written, it undoes the archive
   write.
@@ -73,15 +81,16 @@ then no file is changed.
   `hooks/git-exclude.js`, unless `session-log.md` itself is tracked; then
   the output says to commit the archive together with the log.
 
-The automatic recall of the hooks (the session-start hook and the prompt
-hook, which add matching log entries to the context) does not read the
-archive.
+The automatic recall of the hooks does not read the archive: the
+session-start hook adds the last two `[saved]` entries of the log, and the
+prompt hook adds log entries that match the prompt.
 
 ### Review
 
 One review round of three reviewers (correctness, adversarial, and test
-quality) found 6 Important and 13 Minor findings; a finding that two
-reviewers made counts once. The test-quality reviewer made 66 mutations
+quality) found 6 Important findings (a wrong result in a plausible state, or
+a check that cannot fail) and 13 Minor ones; a finding that two reviewers
+made counts once. The test-quality reviewer made 66 mutations
 (deliberate small defects that a test must catch) on a separate clone; the
 tests caught 45.
 
@@ -89,18 +98,21 @@ The six Important findings: a save of another session during the run was
 lost (found by two reviewers); a second run after a failed log write
 duplicated entries; a heading inside a code block split an entry; archiving
 a git-tracked log took the old entries out of version control; the check
-before writing could never fail; no test used a byte outside ASCII. The fix
-round corrected all 19 findings. The verification pass replayed every
-reviewer input on the reviewed and on the fixed commit: every finding was
-fixed. It found six new Minor findings; a targeted correction fixed
-five of them, and the same verifier's replay passed. The sixth needs a
-state outside the supported environment (last item below).
+before writing could never fail; no test used a byte outside ASCII (the
+basic 7-bit character set). One round of fixes corrected all 19 findings.
+A verifier then replayed every reviewer input on the reviewed and on the
+fixed commit: every finding was fixed. It found six new Minor findings; a
+targeted correction fixed five of them, and the same verifier's replay
+passed. The sixth needs a
+state outside the supported environment (the environments the plugin
+defends, listed in the project's `CLAUDE.md`; last item below).
 
 ### Accepted limits
 
 - A save that lands between the script's last read of the log and the end
-  of its write (measured: about 0.15 milliseconds) can be lost; in 40 runs
-  with one save per millisecond, one entry was lost.
+  of its write can be lost. Two measurements with a log of 250 entries gave
+  0.13 to 0.53 milliseconds for this window. In 40 runs with one save per
+  millisecond, 0 to 2 entries were lost per round (six rounds).
 - The step-4 count also counts a `## YYYY-MM-DD` line inside a fenced code
   block; the script does not.
 - A log write that stops part-way (for example on a full disk) keeps the
@@ -116,10 +128,11 @@ state outside the supported environment (last item below).
 
 ### Suites
 
-All 21 fast suites pass. New: `tests/context-management` (70 checks: the
-script run on fixture folders, fault injection for the race and for wrong
-bytes, and the skill text). Changed: `tests/suite-guard` 134 → 137 (it now
-requires 20 guarded suites).
+All 21 fast suites pass. New: `tests/context-management` (70 checks). It
+runs the script on fixture folders, makes file writes fail or change on
+purpose (to test the concurrent save and wrong bytes), and checks the skill
+text. Changed: `tests/suite-guard` 134 → 137; it now requires 20 suites that
+load the guard against undefined commands.
 
 ## v7.65.0 — seven small corrections: update-check cache, recall folder, git log settings, unfinished tests, task briefs, git status -v, measure checks
 
