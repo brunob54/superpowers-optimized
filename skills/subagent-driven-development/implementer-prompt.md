@@ -72,12 +72,21 @@ Task tool (general-purpose):
     with ` -- <files>`.
     - `<files>` names each file that this task created, changed or
       deleted, one by one. It is never empty, never a folder, a glob or
-      `.`. Build it from your own Edit, Write, `rm` and `mv` calls, never
-      from `git status`, `git diff` or `git diff --cached`: in a wave,
-      these commands also show the files of other agents. List only a
-      path that existed when the task started or that exists now; a path
-      that the task created and later removed with `rm` or `mv` is not
-      listed.
+      `.`. Build it from your own Edit, Write, `rm` and `mv` calls. Also
+      list each file that a program you ran created, changed or deleted,
+      for example a package installer, a code generator or a formatter.
+      Find these files in the program's output or in the files that the
+      program is known to write. Confirm each one with
+      `git status --porcelain -- <path>`; if it prints nothing, the file
+      has no change, so leave it out. Never add a path only because
+      `git status`, `git diff` or `git diff --cached` on the whole tree
+      lists it: in a wave, these commands also show the files of other
+      agents. List only a path that existed when the task started or that
+      exists now; a path that the task created and later removed with
+      `rm` or `mv` is not listed.
+    - Run a formatter or a code generator only on the files of this task.
+      In a wave, a run on the whole tree also rewrites the files of other
+      agents.
     - Delete or rename a file with plain `rm` or `mv`, never with `git rm`
       or `git mv`. For a rename, list both the old path and the new path.
       If `git add` says that a path did not match any files, drop that

@@ -990,8 +990,11 @@ WAVE_RULE_TRIGGER="**$WAVE_LABEL.** Follow these rules only when your Context ho
 WAVE_RULE_REASON='In a parallel wave, other agents share this working tree and its git index, so a bare `git commit` can commit files that they staged.'
 WAVE_RULE_COMMANDS='Commit with two commands: first `git add -- <files>`, then the task'"'"'s own `git commit` command from above, with its message and trailers unchanged, ending with ` -- <files>`.'
 WAVE_RULE_FILES='`<files>` names each file that this task created, changed or deleted, one by one. It is never empty, never a folder, a glob or `.`.'
-WAVE_RULE_FILES_SOURCE='Build it from your own Edit, Write, `rm` and `mv` calls, never from `git status`, `git diff` or `git diff --cached`: in a wave, these commands also show the files of other agents.'
+WAVE_RULE_FILES_SOURCE='Build it from your own Edit, Write, `rm` and `mv` calls.'
+WAVE_RULE_FILES_PROGRAM='Also list each file that a program you ran created, changed or deleted, for example a package installer, a code generator or a formatter. Find these files in the program'"'"'s output or in the files that the program is known to write. Confirm each one with `git status --porcelain -- <path>`; if it prints nothing, the file has no change, so leave it out.'
+WAVE_RULE_FILES_NOT_TREE='Never add a path only because `git status`, `git diff` or `git diff --cached` on the whole tree lists it: in a wave, these commands also show the files of other agents.'
 WAVE_RULE_FILES_EXISTING='List only a path that existed when the task started or that exists now; a path that the task created and later removed with `rm` or `mv` is not listed.'
+WAVE_RULE_FORMATTER='Run a formatter or a code generator only on the files of this task. In a wave, a run on the whole tree also rewrites the files of other agents.'
 WAVE_RULE_RENAME='Delete or rename a file with plain `rm` or `mv`, never with `git rm` or `git mv`. For a rename, list both the old path and the new path.'
 WAVE_RULE_REPAIR="If \`git add\` says that a path $GIT_NO_MATCH, drop that path from \`git add\` only and keep it after \`--\`."
 WAVE_RULE_NEVER_RUN='Never run `git add -A`, `git add .`, `git commit -a`, `git commit --amend`, `git stash` or `git reset`: each of them can take, change or remove the work of another agent. Run `git checkout` or `git restore` only on paths in `<files>`.'
@@ -1011,7 +1014,7 @@ assert_folded_contains "wave rules: labelled, and followed only when the Context
 WAVE_SECTION_LINES="$WAVE_DIR/commit-section-lines.txt"
 awk 'NF' "$WAVE_COMMIT_SECTION" > "$WAVE_SECTION_LINES"
 assert_eq "wave rules: the whole \"$COMMIT_SECTION_NAME\" section is the commit command shape and exactly these rules in this order" "$(fold_file "$WAVE_SECTION_LINES")" \
-  "## $COMMIT_SECTION_NAME $COMMIT_LEAD $COMMIT_SHAPE $WAVE_RULE_TRIGGER $WAVE_RULE_REASON $WAVE_RULE_COMMANDS - $WAVE_RULE_FILES $WAVE_RULE_FILES_SOURCE $WAVE_RULE_FILES_EXISTING - $WAVE_RULE_RENAME $WAVE_RULE_REPAIR - $WAVE_RULE_NEVER_RUN - $WAVE_RULE_NO_COMMIT - $WAVE_RULE_LOCK"
+  "## $COMMIT_SECTION_NAME $COMMIT_LEAD $COMMIT_SHAPE $WAVE_RULE_TRIGGER $WAVE_RULE_REASON $WAVE_RULE_COMMANDS - $WAVE_RULE_FILES $WAVE_RULE_FILES_SOURCE $WAVE_RULE_FILES_PROGRAM $WAVE_RULE_FILES_NOT_TREE $WAVE_RULE_FILES_EXISTING - $WAVE_RULE_FORMATTER - $WAVE_RULE_RENAME $WAVE_RULE_REPAIR - $WAVE_RULE_NEVER_RUN - $WAVE_RULE_NO_COMMIT - $WAVE_RULE_LOCK"
 # Each "phrase|count" argument: the phrase occurs exactly count times in the
 # folded file (a phrase that the text wraps across a line break counts too).
 assert_phrase_counts() { # label file phrase|count...
@@ -1032,7 +1035,8 @@ assert_phrase_counts() { # label file phrase|count...
 # therefore fails here.
 assert_phrase_counts "implementer template" "$IMPLEMENTER_PROMPT_MD" \
   'git add -A|1' 'git commit -a|1' 'git commit --amend|1' 'git stash|1' 'git reset|1' \
-  'git checkout|1' 'git restore|1' 'git status|1' 'git diff|2' 'current HEAD|1' 'index.lock|2'
+  'git checkout|1' 'git restore|1' 'git status|2' 'git diff|2' 'whole tree|2' 'formatter|2' \
+  'current HEAD|1' 'index.lock|2'
 # In the whole SKILL.md, the plan tick and its commit are named only in
 # "Mark task complete", and the wave line only in Parallel Waves step 2 and
 # in the fix dispatch rule. A line added elsewhere that commits the tick
@@ -1119,12 +1123,14 @@ assert_folded_contains "wave rules: name the shared index as the reason" "$WAVE_
 echo "sibling work" > sibling.txt
 git add sibling.txt
 echo "task work" > task.txt
-# A list built from `git status` (or `git diff`) also names the sibling's
-# file, so the rules build `<files>` from the task's own calls.
+# A list built from `git status` (or `git diff`) on the whole tree also names
+# the sibling's file, so the rules build `<files>` from the task's own calls.
 assert_eq "wave rules control: a list built from git status also names the sibling's file" \
   "$(git status --porcelain | cut -c4- | sort | tr '\n' ' ')" "sibling.txt task.txt "
-assert_folded_contains "wave rules: build <files> from your own Edit, Write, rm and mv calls, never from git status or git diff" \
+assert_folded_contains "wave rules: build <files> from your own Edit, Write, rm and mv calls" \
   "$WAVE_COMMIT_SECTION" "$WAVE_RULE_FILES_SOURCE"
+assert_folded_contains "wave rules: never add a path only because git status or git diff on the whole tree lists it" \
+  "$WAVE_COMMIT_SECTION" "$WAVE_RULE_FILES_NOT_TREE"
 wave_commit "feat(wave): task file" task.txt >/dev/null 2>&1
 RC=$?
 assert_eq "wave rules control: without git add first, the path-form commit of a new file fails" "$RC" "1"
@@ -1194,6 +1200,37 @@ wave_commit "feat(wave): a removed new path left out" kept.txt
 assert_eq "wave rules: with the removed new path left out, the commit holds the existing file" "$(head_change)" "A kept.txt"
 assert_folded_contains "wave rules: list only a path that existed when the task started or that exists now" \
   "$WAVE_COMMIT_SECTION" "$WAVE_RULE_FILES_EXISTING"
+
+# A program that the task runs (here a stand-in for a package installer)
+# rewrites the manifest and the lock file. `git status --porcelain -- <path>`
+# confirms each file that the program is known to write: it prints a line for
+# a changed file and nothing for an unchanged one. The task commit then holds
+# the program's files with the task's own file, and a sibling's new file is
+# still not in it.
+printf '{"deps":{}}\n' > package.json
+printf '{"lock":{}}\n' > package-lock.json
+printf '{"lint":{}}\n' > lint-config.json
+git add -- package.json package-lock.json lint-config.json
+wave_commit "setup: package files" package.json package-lock.json lint-config.json
+echo "sibling program work" > sibling-program.txt
+echo 'require("x")' > feature.js
+printf '{"deps":{"x":"1.0"}}\n' > package.json
+printf '{"lock":{"x":"1.0.0"}}\n' > package-lock.json
+assert_eq "wave rules control: git status --porcelain -- <path> prints a line for each file that the program changed" \
+  "$(git status --porcelain -- package.json package-lock.json | tr '\n' '|')" " M package-lock.json| M package.json|"
+assert_eq "wave rules control: git status --porcelain -- <path> prints nothing for a file that the program did not change" \
+  "$(git status --porcelain -- lint-config.json)" ""
+git add -- feature.js package.json package-lock.json
+wave_commit "feat(wave): use library x" feature.js package.json package-lock.json
+assert_eq "wave rules: the task commit holds the files that the program changed and the task's own file" \
+  "$(head_change | sort | tr '\n' '|')" "A feature.js|M package-lock.json|M package.json|"
+assert_eq "wave rules: the sibling's new file is still not in the task commit" \
+  "$(git status --porcelain)" "?? sibling-program.txt"
+assert_folded_contains "wave rules: also list each file that a program you ran created, changed or deleted; confirm each one with git status --porcelain -- <path>" \
+  "$WAVE_COMMIT_SECTION" "$WAVE_RULE_FILES_PROGRAM"
+assert_folded_contains "wave rules: run a formatter or a code generator only on the files of this task" \
+  "$WAVE_COMMIT_SECTION" "$WAVE_RULE_FORMATTER"
+rm sibling-program.txt
 
 # The controller's plan tick: the plan file staged by explicit path and the
 # commit ending with `-- <plan file>`. A file that a fix subagent of a
