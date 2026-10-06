@@ -96,8 +96,11 @@ DOC_PROMPT_MARKER_REASON="$PROMPT_MARKER_LOAD_BEARING (Procedure step 2) $PROMPT
 RESEARCH_MARKER_OPENING='Research reports open with `<!-- research report -->`.'
 RESEARCH_MARKER_REASON="The report verification of \`controller-prompt.md\` discards a researcher's report file when that marker is not the file's first line, and records the discard as an evidence gap."
 RESEARCH_MARKER_FINAL_MESSAGE="No step of this skill tests the marker in a subagent's final message; there it only marks the summary as research output for the invoking skill and the user."
-RESEARCH_MARKER_RULE='Never remove the marker instruction from `research-prompt.md` or `controller-prompt.md`; without it, report files are discarded and assignments degrade to evidence gaps.'
-RESEARCH_MARKER_SECTION="$H_REPORT_MARKER  $RESEARCH_MARKER_OPENING $RESEARCH_MARKER_REASON $RESEARCH_MARKER_FINAL_MESSAGE $RESEARCH_MARKER_RULE"
+# Only the researcher template's marker has a discard step. The marker that
+# the controller template puts on the merged report is tested by no step.
+RESEARCH_MARKER_RULE='Never remove the marker instruction from `research-prompt.md`; without it, researcher report files are discarded and assignments degrade to evidence gaps.'
+RESEARCH_MARKER_MERGED_REPORT='The marker that `controller-prompt.md` puts on the first line of the merged report is not tested by any step, and a merged report without it is not discarded.'
+RESEARCH_MARKER_SECTION="$H_REPORT_MARKER  $RESEARCH_MARKER_OPENING $RESEARCH_MARKER_REASON $RESEARCH_MARKER_FINAL_MESSAGE $RESEARCH_MARKER_RULE $RESEARCH_MARKER_MERGED_REPORT"
 NOTHING_ELSE='**Nothing else may be added to the prompt.**'
 # Pointer-dispatch contracts on multi-code-review SKILL.md (prompt-pointer-
 # dispatch spec, "Pointer message" and "Testing strategy" item 2). Each pointer

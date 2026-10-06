@@ -27,7 +27,6 @@
 | Custom agents (code-reviewer, red-team) | ✅ manual install | ✅ manual install |
 | Bash command compression | ✅ reactive `PostToolUse(Bash)` smart-compress | ❌ |
 | Read/Write interception | ❌ Codex limitation | ❌ |
-| Subagent leakage guard | ❌ Codex limitation | ❌ |
 
 **Skills are expected to work on all platforms. Lifecycle hooks require macOS or Linux.**
 

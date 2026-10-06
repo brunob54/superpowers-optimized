@@ -602,5 +602,8 @@ file when that marker is not the file's first line, and records the
 discard as an evidence gap. No step of this skill tests the marker in a
 subagent's final message; there it only marks the summary as research
 output for the invoking skill and the user. Never remove the marker
-instruction from `research-prompt.md` or `controller-prompt.md`; without
-it, report files are discarded and assignments degrade to evidence gaps.
+instruction from `research-prompt.md`; without it, researcher report
+files are discarded and assignments degrade to evidence gaps. The
+marker that `controller-prompt.md` puts on the first line of the merged
+report is not tested by any step, and a merged report without it is not
+discarded.

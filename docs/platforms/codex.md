@@ -30,7 +30,6 @@ Guide for using Superpowers Orchestrator with OpenAI Codex CLI.
 | Custom agents (code-reviewer, red-team) | ✅ manual install | ✅ manual install |
 | Bash command compression | ✅ reactive `PostToolUse(Bash)` smart-compress | ❌ |
 | Read/Edit/Write interception | ❌ (Codex limitation) | ❌ |
-| Subagent leakage guard | ❌ (Codex limitation) | ❌ |
 
 **Skills work on all platforms including Windows. Lifecycle hooks require macOS or Linux with hooks enabled.**
 
