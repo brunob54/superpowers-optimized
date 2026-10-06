@@ -54,7 +54,7 @@ Open: Verify emoji renders correctly in Claude's context injection
 
 The `session-start` hook automatically injects the **last two `[saved]` entries** into every session before your first message arrives. This means recent decisions are always available without any instruction-following required.
 
-For older history — decisions from earlier in a project's lifetime — Claude can `Grep session-log.md` for keywords relevant to the current task. The log is keyword-searchable, per-project, and stays under 200 entries (entries older than 6 months are pruned when the limit is reached).
+For older history — decisions from earlier in a project's lifetime — Claude can `Grep session-log.md` for keywords relevant to the current task. The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user's request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.
 
 This prevents:
 - Rediscovering the same bug twice

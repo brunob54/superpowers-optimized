@@ -128,8 +128,8 @@
       "skill": "context-management",
       "type": "workflow",
       "priority": "low",
-      "keywords": ["save state", "compress context", "continue later", "pick up later", "cross-session"],
-      "intentPatterns": ["save\\s+(the\\s+)?(state|context|progress)", "continue\\s+(this\\s+)?later", "pick\\s+(this\\s+)?up\\s+(later|tomorrow|next)"]
+      "keywords": ["save state", "compress context", "continue later", "pick up later", "cross-session", "archive the session log"],
+      "intentPatterns": ["save\\s+(the\\s+)?(state|context|progress)", "continue\\s+(this\\s+)?later", "pick\\s+(this\\s+)?up\\s+(later|tomorrow|next)", "archive\\s+(the\\s+)?session.?log"]
     },
     {
       "skill": "using-git-worktrees",
