@@ -112,8 +112,8 @@ EMPTY_HOME="$TMP/home"
 mkdir "$EMPTY_HOME"
 export HOME="$EMPTY_HOME" XDG_CONFIG_HOME="$EMPTY_HOME"
 
-# Fault injection for the archive script, loaded with `node --require`: after
-# the script writes the archive, do the action named in INJECT. Each action
+# Fault injection for the archive script, loaded with `node --require`: around
+# the writes of the script, do the action named in INJECT. Each action
 # stands for an event that a real run can meet: another session appends to
 # the log or rewrites it, or a write does not store the expected bytes.
 INJECT_JS="$TMP/inject.js"
@@ -135,9 +135,16 @@ function wrap(real) {
       const name = typeof file === 'string' ? path.basename(file) : '';
       if (name === 'session-log-archive.md' && action === 'corrupt-archive') data += 'X';
       if (name === 'session-log.md' && action === 'corrupt-log') data = data.slice(0, -1);
+      if (name === 'session-log.md' && action === 'append-then-fail-log-write') {
+        realAppend.call(fs, 'session-log.md', APPENDED_ENTRY);
+        const error = new Error('EACCES: permission denied');
+        error.code = 'EACCES';
+        throw error;
+      }
       const result = real.call(fs, file, data, ...rest);
       if (name === 'session-log-archive.md' && action === 'append-log') realAppend.call(fs, 'session-log.md', APPENDED_ENTRY);
       if (name === 'session-log-archive.md' && action === 'rewrite-log') realWrite.call(fs, 'session-log.md', REWRITTEN_LOG);
+      if (name === 'session-log.md' && action === 'append-after-log-write') realAppend.call(fs, 'session-log.md', APPENDED_ENTRY);
       return result;
     } finally {
       depth--;
@@ -537,6 +544,31 @@ expect_code 1
 expect_one_message "$LOG_NAME does not hold the expected bytes"
 check "the log does not hold the expected bytes after its write: one message, exit 1" "$PROBLEMS"
 
+new_case append-after-log-write
+make_log 103
+header > "$TMP/header-12.txt"
+entries 4 103 > "$TMP/kept-12.txt"
+printf '%s' "$APPENDED_ENTRY" >> "$TMP/kept-12.txt"
+run_injected append-after-log-write
+expect_code 0
+starts_with "$CASE_DIR/$LOG_NAME" "$TMP/header-12.txt" || problem "the log does not start with its header"
+ends_with "$CASE_DIR/$LOG_NAME" "$TMP/kept-12.txt" || problem "the log does not end with entries 4-103 and the entry appended after the write"
+check "an entry appended to the log just after the log write: exit 0, the entry stays" "$PROBLEMS"
+
+new_case append-then-fail-log-write
+make_log 103
+cp "$CASE_DIR.orig" "$TMP/expected-log-13.txt"
+printf '%s' "$APPENDED_ENTRY" >> "$TMP/expected-log-13.txt"
+run_injected append-then-fail-log-write
+expect_code 1
+expect_one_message 'unchanged'
+cmp -s "$CASE_DIR/$LOG_NAME" "$TMP/expected-log-13.txt" || problem "the log is not its old text and the appended entry"
+[ ! -e "$CASE_DIR/$ARCHIVE_NAME" ] || problem "the archive write was not undone"
+run_archive
+expect_code 0
+expect_counts 100 4
+check "an entry appended just before a failed log write: the archive write undone; a second run moves each entry once" "$PROBLEMS"
+
 bold "Archive script: git"
 
 new_case outside-git
@@ -574,7 +606,8 @@ expect_code 0
 if grep -qxF "$EXCLUDE_ENTRY" "$CASE_DIR/.git/info/exclude" 2>/dev/null; then problem "the exclude file hides the archive"; fi
 STATUS="$(git -C "$CASE_DIR" status --porcelain)"
 case "$STATUS" in *"?? $ARCHIVE_NAME"*) ;; *) problem "git status does not list the archive as untracked: $STATUS" ;; esac
-grep -qF "is not hidden from git: commit it together with $LOG_NAME" "$OUTF" || problem "the output does not say to commit the archive: $(cat "$OUTF")"
+grep -qF "$LOG_NAME is tracked by git, so this script did not hide $ARCHIVE_NAME from git: commit it together with $LOG_NAME" "$OUTF" \
+  || problem "the output does not say to commit the archive: $(cat "$OUTF")"
 check "git tracks the log: no exclude entry, and the output says to commit the archive together with the log" "$PROBLEMS"
 
 # A save of another session while git runs: a fake git first appends one
@@ -671,6 +704,51 @@ the route table	STEP0	| "archive the session log" | [session-log.md Format and M
 step 3 of the start-of-task search	STEP3	- **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints.
 step 6 of the save procedure	STEP6	With 0 hits there, grep `session-log-archive.md` too when it exists.
 RULES
+
+KEYWORD_RULE='The option `-a` makes `grep` read the file as text: without it, the `grep` of the Claude Code Bash tool prints nothing for a file that holds a byte that is not valid UTF-8 (Unicode Transformation Format, 8-bit). One case remains: the `grep` of macOS misses a keyword that stands after such a byte on the same line.'
+bold "Skill text: the keyword search commands"
+
+# The commands of the start-of-task search and of step 3 of the save
+# procedure, copied from the skill text, run with the system grep on a log
+# that holds the byte 0xFF on a line without a keyword. Without -a, the grep
+# of the Claude Code Bash tool (ugrep) prints nothing for such a file
+# (measured); the textual check below requires -a. Not checked, an accepted
+# limit: the grep of macOS in a UTF-8 locale misses a keyword that stands
+# after such a byte on the same line, also with -a (measured).
+new_case keyword-search
+printf '# Session Log\n\n## 2026-01-01 10:00 [saved]\nGoal: caf\303\251 \377 note\nDecisions: hook auth bad\n\n## 2026-01-02 10:00 [saved]\nGoal: Hook deploy\nOpen: HOOK bad\n' > "$CASE_DIR/$LOG_NAME"
+# skill_command <placeholder>: the one command of the skill that holds the
+# placeholder, from a code block line or from an inline code span.
+skill_command() {
+  { grep -E "^ *grep .*\"$1\"" "$SKILL" | sed 's/^ *//'
+    grep -o "\`[^\`]*\"$1\"[^\`]*\`" "$SKILL" | tr -d '\`'; }
+}
+# Each line: a placeholder, a tab, the keywords that replace the
+# placeholders of its command (<a>=<b>,...), a tab, the expected line count.
+while IFS="$(printf '\t')" read -r placeholder swaps expected; do
+  PROBLEMS=''
+  COMMAND="$(skill_command "$placeholder")"
+  [ "$(printf '%s\n' "$COMMAND" | grep -c '')" = 1 ] || problem "not exactly one command holds $placeholder: $COMMAND"
+  for swap in $(printf '%s' "$swaps" | tr ',' ' '); do COMMAND="${COMMAND//${swap%%=*}/${swap#*=}}"; done
+  (cd "$CASE_DIR" && LC_ALL=C.UTF-8 bash -c "$COMMAND") > "$OUTF" 2>/dev/null
+  LINES="$(grep -c '' "$OUTF")"
+  [ "$LINES" = "$expected" ] || problem "$COMMAND printed $LINES lines, expected $expected"
+  # Every printed line holds the last keyword (a "binary file matches"
+  # message of grep does not).
+  OTHER="$(LC_ALL=C grep -c -i -a -v -- "${swap#*=}" "$OUTF")"
+  [ "$OTHER" = 0 ] || problem "$COMMAND printed $OTHER lines without \"${swap#*=}\""
+  check "the skill command with $placeholder finds every line with the keyword in a log that holds a byte that is not UTF-8" "$PROBLEMS"
+done <<'COMMANDS'
+<keyword1>	<keyword1>=hook	3
+<keyword2>	<keyword2>=bad	2
+<kw1>	<kw1>=hook,<kw2>=bad	2
+<keyword>	<keyword>=hook	3
+COMMANDS
+PROBLEMS=''
+UNSAFE="$(grep -n 'grep -i "' "$SKILL")"
+[ -z "$UNSAFE" ] || problem "keyword grep without -a: $UNSAFE"
+case "$(fold_text < "$SKILL")" in *"$KEYWORD_RULE"*) ;; *) problem "missing: $KEYWORD_RULE" ;; esac
+check "every keyword grep of the skill reads bytes as text, and the skill says why" "$PROBLEMS"
 
 PROBLEMS=''
 if grep -qF '6 months' "$SKILL"; then problem "found at line $(grep -nF '6 months' "$SKILL" | cut -d: -f1 | tr '\n' ' ')"; fi

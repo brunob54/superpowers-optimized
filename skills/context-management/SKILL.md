@@ -49,15 +49,16 @@ Before diving in, grep `session-log.md` for history relevant to the current task
 
 **Step 2 — Grep each keyword individually first:**
 ```bash
-grep -i "<keyword1>" session-log.md | tail -20
-grep -i "<keyword2>" session-log.md | tail -20
+grep -i -a "<keyword1>" session-log.md | tail -20
+grep -i -a "<keyword2>" session-log.md | tail -20
 ```
+The option `-a` makes `grep` read the file as text: without it, the `grep` of the Claude Code Bash tool prints nothing for a file that holds a byte that is not valid UTF-8 (Unicode Transformation Format, 8-bit). One case remains: the `grep` of macOS misses a keyword that stands after such a byte on the same line.
 Check the hit count before reading results. This tells you whether to narrow or widen before committing to any output.
 
 **Step 3 — Adjust based on hit count:**
 - **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints. Relevant history may have been promoted there instead of staying in the log. If still nothing, proceed without history.
 - **1–10 hits** → read them. Surface past decisions, rejected approaches, and constraints.
-- **>10 hits on one keyword** → narrow with a second term: `grep -i "<kw1>" session-log.md | grep -i "<kw2>" | tail -20`
+- **>10 hits on one keyword** → narrow with a second term: `grep -i -a "<kw1>" session-log.md | grep -i -a "<kw2>" | tail -20`
 
 **Step 4 — Surface what matters.** If relevant entries are found, state them explicitly before proceeding: what was decided, what was rejected, what constraints apply. Don't silently absorb them — make them visible so the user can confirm or override.
 
@@ -84,7 +85,7 @@ Check the hit count before reading results. This tells you whether to narrow or 
 
 3. **Check for superseded entries before appending.** Grep `session-log.md` for 2-3 keywords from the current decision:
    ```bash
-   grep -i "<keyword>" session-log.md
+   grep -i -a "<keyword>" session-log.md
    ```
    Read any matching `[saved]` entries and ask: does the new decision *directly contradict* an old one? If yes, append `[superseded by YYYY-MM-DD]` to the old entry's header line — do not delete it. If the old entry is merely related but not contradicted, leave it unchanged. This is a judgment call, not a mechanical keyword match.
 

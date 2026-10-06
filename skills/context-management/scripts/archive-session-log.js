@@ -20,17 +20,24 @@
  * reads only session-log.md, so the pointer tells a reader where the older
  * entries are.
  *
- * The order of the steps keeps every entry, also when another session saves
- * an entry (appends to session-log.md) while the script runs:
+ * Another session can save an entry (append to session-log.md) while the
+ * script runs. The order of the steps keeps such an entry, except in one
+ * short window (see step 3):
  * 1. Git runs first. It takes tens of milliseconds; a save in that time is
  *    simply part of the log that step 2 reads.
  * 2. Read the log, append the moved entries to the archive, and compare the
  *    archive with the expected bytes.
  * 3. Read the log again. Bytes that were appended since step 2 go to the end
- *    of the new log. Any other change stops the script.
- * 4. Write the log, and compare it with the expected bytes.
- * When a step before the log write fails, the script removes the bytes that
- * it appended to the archive, so neither file changes.
+ *    of the new log. Any other change stops the script. A save that lands
+ *    after this read and before the end of the log write is lost. This
+ *    window measured about 0.15 milliseconds with a log of 250 entries; in
+ *    40 runs against a writer that appended once per millisecond, one run
+ *    lost one entry.
+ * 4. Write the log, and check that it starts with the expected bytes. Bytes
+ *    after them come from a save after the write, and they stay.
+ * When a step before the log write fails, or the log write fails before it
+ * changes the log, the script removes the bytes that it appended to the
+ * archive, so neither file changes.
  *
  * Exit codes: 0 = done, or nothing to archive; 1 = no session-log.md, a
  * folder in place of a file, a failed write or a failed check; 2 = invalid
@@ -73,7 +80,7 @@ const POINTER_TEXT =
 const USAGE = `usage: node archive-session-log.js [<keep>]  (<keep>: the number of entries to keep, a positive integer; default ${DEFAULT_KEEP})`;
 const NO_FILE_CHANGED = `${LOG_FILE} and ${ARCHIVE_FILE} are unchanged`;
 const TRACKED_NOTE =
-  `; ${LOG_FILE} is tracked by git, so ${ARCHIVE_FILE} is not hidden from git: commit it together with ${LOG_FILE}`;
+  `; ${LOG_FILE} is tracked by git, so this script did not hide ${ARCHIVE_FILE} from git: commit it together with ${LOG_FILE}`;
 
 /**
  * Print `message` on standard error and set the exit code to `code`. The
@@ -225,9 +232,9 @@ function main() {
     return fail(`check after writing failed: ${ARCHIVE_FILE} does not hold the expected bytes${undoArchive()}`, 1);
   }
 
-  // Step 3. A save that lands between this read and the log write below is
-  // still lost; that window is some microseconds wide, not the milliseconds
-  // that git takes.
+  // Step 3. A save that lands between this read and the end of the log write
+  // below is lost. That window measured about 0.15 milliseconds with a log of
+  // 250 entries, against the tens of milliseconds that git takes.
   const current = readOrNull(logPath);
   if (current === null || !current.startsWith(original)) {
     return fail(`${LOG_FILE} changed while the script ran, and not only at its end${undoArchive()}`, 1);
@@ -238,14 +245,19 @@ function main() {
   try {
     fs.writeFileSync(logPath, newLog, ENCODING);
   } catch (error) {
-    // Undo the archive only when the log is still complete. A write that
-    // failed after it started (a full disk) leaves the log incomplete, and
-    // the moved entries must then stay in the archive.
-    const logIntact = readOrNull(logPath) === current;
+    // Undo the archive only when the log is still complete: it still starts
+    // with the text of the second read (a save may have appended to it since
+    // then). A write that failed after it started (a full disk) leaves the
+    // log incomplete, and the moved entries must then stay in the archive.
+    const logAfterFailure = readOrNull(logPath);
+    const logIntact = logAfterFailure !== null && logAfterFailure.startsWith(current);
     const end = logIntact ? undoArchive() : `; ${LOG_FILE} may be incomplete, and ${ARCHIVE_FILE} holds the moved entries`;
     return fail(`could not write ${LOG_FILE} (${describe(error)})${end}`, 1);
   }
-  if (readOrNull(logPath) !== newLog) {
+  // A save after the write appends to the log, so the log must start with
+  // the new text, not equal it.
+  const written = readOrNull(logPath);
+  if (written === null || !written.startsWith(newLog)) {
     return fail(`check after writing failed: ${LOG_FILE} does not hold the expected bytes; ` +
       `${ARCHIVE_FILE} holds the moved entries; compare the two files`, 1);
   }
