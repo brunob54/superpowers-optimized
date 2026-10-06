@@ -260,6 +260,24 @@ Body of the level-2 task.
 
 Step text of the level-2 task.
 BRIEF
+cat > "$ENDS/plan-empty-heading.md" << 'PLAN'
+### Task 1: Task followed by an empty heading
+
+Body of the task.
+
+###
+
+Text after an empty heading of the task level.
+
+### Task 2: Next task
+
+Body of the next task.
+PLAN
+assert_brief "an empty heading line '###' of the task level is a heading, so it ends the brief" "$ENDS/plan-empty-heading.md" 1 << 'BRIEF'
+### Task 1: Task followed by an empty heading
+
+Body of the task.
+BRIEF
 
 # CommonMark fence forms. A fence line has 0 to 3 spaces, then 3 or more
 # backticks or 3 or more tildes; only the same character, at least as many
@@ -376,25 +394,91 @@ assert_brief "fences: a longer backtick line followed by text does not close a b
 
 Task text after the fence.
 BRIEF
-# The two limits of the fence form: four spaces of indentation, or a run of
-# only two backticks, is not a fence, so the next task heading still ends the
-# brief.
+# The limits of the fence form: four spaces of indentation, a run of only two
+# backticks, or a run of only two tildes, is not a fence, so the next task
+# heading still ends the brief.
 cat > "$ENDS/plan-not-fences.md" << 'PLAN'
 ### Task 1: Lines that only look like fences
 
     ```
 ``two backticks`` at the start of a line open no fence.
+~~two tildes~~ at the start of a line open no fence.
 
 ### Task 2: Next task
 
 Body of the next task.
 PLAN
-assert_brief "fences: a backtick run indented by four spaces, or a run of two backticks, opens no fence" "$ENDS/plan-not-fences.md" 1 << 'BRIEF'
+assert_brief "fences: a backtick run indented by four spaces, a run of two backticks, or a run of two tildes, opens no fence" "$ENDS/plan-not-fences.md" 1 << 'BRIEF'
 ### Task 1: Lines that only look like fences
 
     ```
 ``two backticks`` at the start of a line open no fence.
+~~two tildes~~ at the start of a line open no fence.
 BRIEF
+
+# A fence that never closes hides every heading after it. The plan below means
+# a "```bash" block inside a "```markdown" block, but by the CommonMark rules
+# the "```" line after "run-x" closes the markdown block, and the last "```"
+# line (line 11) opens a new block that never closes; the "~~~" line inside
+# that block does not close it. The script keeps the brief and the exit
+# status as they are, and prints one warning line that names the line of the
+# fence that never closes.
+cat > "$ENDS/plan-unclosed.md" << 'PLAN'
+### Task 1: Write the skill file
+
+Create the skill file with:
+
+```markdown
+## Usage
+```bash
+run-x
+```
+More text
+```
+
+### Task 2: Second task
+
+~~~
+Body of the second task.
+PLAN
+UNCLOSED_OUT="$ENDS/task-1-of-plan-unclosed.md"
+"$SCRIPTS/task-brief" "$ENDS/plan-unclosed.md" 1 "$UNCLOSED_OUT" > /dev/null 2>"$ERRF"
+assert_eq "a fence that never closes: the exit status stays 0" "$?" "0"
+assert_stderr_eq "a fence that never closes: one warning line names the line of that fence" \
+  "warning: the fence that opens at line 11 of $ENDS/plan-unclosed.md never closes, so no heading after that line can start or end a brief"
+assert_eq "a fence that never closes: the brief stays the whole rest of the plan" "$(cat "$UNCLOSED_OUT")" "$(cat "$ENDS/plan-unclosed.md")"
+arm_stderr
+"$SCRIPTS/task-brief" "$ENDS/plan-two-characters.md" 1 "$ENDS/task-1-of-plan-two-characters.md" > /dev/null 2>"$ERRF"
+assert_stderr_silent "no fence warning on a plan whose fences all close"
+
+# Line endings. A plan checked out with core.autocrlf=true (the Git for
+# Windows default) ends each line with a carriage return (CR) byte before the
+# line feed. For every "Task <number>" heading of every plan above, the brief
+# made from a CRLF copy of the plan must hold the same lines as the brief made
+# from the plan itself, each line still ending with its CR byte, and the exit
+# status must be the same.
+to_crlf() { awk '{ printf "%s\r\n", $0 }' "$1"; }
+CRLF_DIFFS=""
+CRLF_RUNS=0
+for plan in "$ENDS"/plan*.md; do
+  crlf="$ENDS/crlf-${plan##*/}"
+  to_crlf "$plan" > "$crlf"
+  for t in $(sed -nE 's/^#+[[:blank:]]+Task[[:blank:]]+([0-9]+).*/\1/p' "$plan" | sort -un); do
+    "$SCRIPTS/task-brief" "$plan" "$t" "$ENDS/lf-out.md" > /dev/null 2>&1
+    lf_status=$?
+    "$SCRIPTS/task-brief" "$crlf" "$t" "$ENDS/crlf-out.md" > /dev/null 2>&1
+    crlf_status=$?
+    if [ "$lf_status" != "$crlf_status" ] || [ "$(to_crlf "$ENDS/lf-out.md")" != "$(cat "$ENDS/crlf-out.md")" ]; then
+      CRLF_DIFFS="$CRLF_DIFFS ${plan##*/}:task-$t"
+    fi
+    CRLF_RUNS=$((CRLF_RUNS+1))
+  done
+done
+if [ -z "$CRLF_DIFFS" ] && [ "$CRLF_RUNS" -gt 0 ]; then
+  ok "CRLF line endings give the same brief and exit status as LF, for all $CRLF_RUNS tasks of the plans above"
+else
+  bad "CRLF line endings give the same brief and exit status as LF (compared $CRLF_RUNS tasks; different:$CRLF_DIFFS)"
+fi
 
 bold "review-package (range mode)"
 
