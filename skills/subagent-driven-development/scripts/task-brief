@@ -25,15 +25,32 @@ else
 fi
 
 awk -v n="$n" '
-  # CommonMark fencing: a closing fence must be at least as long as its
-  # opener, so a shorter fence nested inside a fenced block is content.
-  /^```/ {
-    match($0, /^`+/)
-    if (!infence) { infence = 1; flen = RLENGTH }
-    else if (RLENGTH >= flen) { infence = 0 }
+  # CommonMark fencing: a fence line has 0 to 3 spaces, then 3 or more
+  # backticks or 3 or more tildes. A closing fence uses the same character
+  # as its opener, at least as many times, followed by blanks only; so a
+  # shorter fence, or a fence of the other character, nested inside a
+  # fenced block is content.
+  /^ ? ? ?(```|~~~)/ {
+    fence = $0
+    sub(/^ +/, "", fence)
+    ch = substr(fence, 1, 1)
+    match(fence, "^" ch "+")
+    if (!infence) { infence = 1; fch = ch; flen = RLENGTH }
+    else if (ch == fch && RLENGTH >= flen && substr(fence, RLENGTH + 1) ~ /^[ \t]*$/) { infence = 0 }
   }
-  !infence && /^#+[ \t]+Task[ \t]+[0-9]+/ {
-    intask = ($0 ~ ("^#+[ \t]+Task[ \t]+" n "([^0-9]|$)"))
+  # A heading is a run of "#" characters followed by a blank or the end of
+  # the line. A "Task <number>" heading of any level starts or ends a brief.
+  # Any other heading ends the brief when it has as many "#" characters as
+  # the task heading, or fewer (a plan section after the last task, or a
+  # phase heading between two tasks, is not part of the brief).
+  !infence && /^#+([ \t]|$)/ {
+    match($0, /^#+/)
+    if ($0 ~ /^#+[ \t]+Task[ \t]+[0-9]+/) {
+      intask = ($0 ~ ("^#+[ \t]+Task[ \t]+" n "([^0-9]|$)"))
+      if (intask) level = RLENGTH
+    } else if (RLENGTH <= level) {
+      intask = 0
+    }
   }
   intask { print }
 ' "$plan" > "$out"
