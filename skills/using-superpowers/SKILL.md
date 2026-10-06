@@ -106,7 +106,18 @@ Anything that doesn't qualify as micro or lightweight.
 
 ## Fresh project gate (Entry Sequence step 2, full text)
 
-When both conditions of Entry Sequence step 2 are true, **pause before proceeding** and tell the user exactly this:
+When both conditions of Entry Sequence step 2 are true, first run this check in the session folder (the folder the session was opened in), before you show the message below:
+
+```bash
+LC_ALL=C git rev-parse --show-toplevel 2>&1
+```
+
+Read the output of the check. It decides the `git init` line of the message and what you run on confirm:
+- **The output contains `not a git repository`:** no git repository holds this folder. Show the message as written.
+- **The output is a folder path:** this folder is already inside the git repository at that path. In the message, replace the `git init` line with this line: "- git: this folder is already inside the git repository at <path>; I will not create another one. If you want a separate repository for this folder, say so." (<path> is the output of the check.) The reason: a `git init` here creates a second repository inside the first one, and later commits go to the wrong repository.
+- **Any other output (an error):** leave the `git init` line out of the message, quote the error to the user, and run no `git init`.
+
+Then **pause before proceeding** and tell the user exactly this, with the `git init` line changed as the check decided:
 
 > Before I start: this directory has no memory files set up yet. That matters for how well I perform across sessions.
 >
@@ -124,7 +135,7 @@ When both conditions of Entry Sequence step 2 are true, **pause before proceedin
 > **Set this up before we build, or start immediately?**
 
 Wait for the user's answer before continuing.
-- **If they confirm:** run `git init --quiet` directly (do not ask again — the user just confirmed), then invoke `context-management` for map generation only. Return to step 3 when done. Note: `context-snapshot.json` will not be created in this session — the context-engine hook already ran at session start before git existed. It will be created on the next session start, provided the session is opened from this project's root directory. If no commits exist yet it will be mostly empty; it populates fully after the first commit.
+- **If they confirm:** run `git init --quiet` only when the check printed `not a git repository` (do not ask again — the user just confirmed). In every other case, run no `git init`, unless the user asked for a separate repository: then run `git init --quiet` and tell the user this: a `git add -A` in the outer repository records this folder as an embedded repository (a pointer to the new repository, without any of its files), unless the outer repository ignores this folder. Then invoke `context-management` for map generation only; it writes `project-map.md` in the session folder. Return to step 3 when done. Only when the check printed `not a git repository`, note: `context-snapshot.json` will not be created in this session — the context-engine hook already ran at session start before git existed. It will be created on the next session start, provided the session is opened from this project's root directory. If no commits exist yet it will be mostly empty; it populates fully after the first commit.
 - **If they decline:** proceed to step 3.
 
 **Step 2b — Existing project memory check** (runs only when step 2 did NOT fire):
