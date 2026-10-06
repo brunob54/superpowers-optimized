@@ -95,6 +95,19 @@ const AGENT_MESSAGE_OPENINGS = [
 // session-log entries after a compaction).
 const RECALL_STATE_PREFIX = 'sp-recall-';
 
+// Claude Code sets this environment variable for every hook: the project root
+// where the session started, which holds session-log.md and known-issues.md.
+// It keeps its value when Claude runs `cd` or enters a git worktree; the `cwd`
+// field of the hook input names the new folder. The save command of the
+// context-management skill appends to session-log.md in the current folder,
+// so an entry saved after Claude entered a git worktree is in the file of the
+// worktree (hooks/track-edits.js accepts the top folder of a worktree for it).
+// The hook therefore reads both files in `cwd` first, then in the project root
+// when it is another folder; the entries of the two folders share the
+// MAX_MEMORY_ENTRIES places of one recall block. Codex does not set the
+// variable.
+const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
+
 // Common English words that produce noisy false-positive matches
 const STOP_WORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -461,6 +474,21 @@ function entryKey(entry) {
 }
 
 /**
+ * Runs one recall search in each folder, in the given order, keeps the first
+ * copy of an entry that several folders hold, and returns at most
+ * MAX_MEMORY_ENTRIES entries in all.
+ */
+function searchFolders(search, folders, keywords) {
+  const seen = new Set();
+  return folders.flatMap(folder => search(folder, keywords)).filter((entry) => {
+    const key = entryKey(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, MAX_MEMORY_ENTRIES);
+}
+
+/**
  * Builds the hook output for one UserPromptSubmit payload: `{}` or
  * `{ hookSpecificOutput }`. Shared by the Claude Code entry point below and by
  * hooks/codex/user-prompt-submit-adapter.js.
@@ -473,6 +501,10 @@ function evaluatePrompt(data) {
   if (!prompt || isMicroTask(prompt) || isAgentMessage(prompt)) return {};
 
   const cwd = typeof data.cwd === 'string' && data.cwd ? data.cwd : process.cwd();
+  // cwd first, then the project root when it is another folder: up to version
+  // 7.64.0 the hook read only cwd, so its recall stays the same when cwd holds
+  // enough matches.
+  const recallFolders = [...new Set([cwd, process.env[PROJECT_DIR_VARIABLE] || cwd])];
   const sessionId = typeof data.session_id === 'string' ? data.session_id : null;
 
   // Run all pipelines independently. The two recall searches keep their own
@@ -482,8 +514,9 @@ function evaluatePrompt(data) {
   const keywords = extractKeywords(prompt);
   const shown = readShownKeys(sessionId);
   const isNew = entry => !shown.has(entryKey(entry));
-  const memoryEntries = searchSessionLog(cwd, keywords).filter(isNew);
-  const knownIssueEntries = searchKnownIssues(cwd, keywords).filter(isNew);
+  const recallNew = search => searchFolders(search, recallFolders, keywords).filter(isNew);
+  const memoryEntries = recallNew(searchSessionLog);
+  const knownIssueEntries = recallNew(searchKnownIssues);
 
   const recalled = [...memoryEntries, ...knownIssueEntries];
   if (recalled.length > 0) {

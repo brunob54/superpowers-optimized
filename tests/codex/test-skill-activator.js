@@ -19,6 +19,18 @@
 const assert = require('assert');
 
 const { evaluatePayload } = require('../../hooks/codex/user-prompt-submit-adapter');
+// The variable name that Claude Code documents for hooks. The test writes it
+// here and does not take it from the hook, so that a wrong name in the hook
+// fails the checks below.
+const PROJECT_DIR_VARIABLE = 'CLAUDE_PROJECT_DIR';
+
+// When CLAUDE_PROJECT_DIR is set, the hook reads the recall files from the
+// folder that it names, and also from the payload's cwd. A caller of this file
+// may have the variable in its environment, so it is removed here, once: the
+// hook function called in this process and every hook process started from it
+// (a child process inherits this environment) then read only the payload's cwd.
+// A check that needs the variable sets it for its own hook process.
+delete process.env[PROJECT_DIR_VARIABLE];
 
 let passed = 0;
 let failed = 0;
@@ -876,6 +888,7 @@ const { recallStatePath } = require('../../hooks/skill-activator');
 const HOOK_SCRIPT = path.join(__dirname, '../../hooks/skill-activator.js');
 const KNOWN_ISSUE_HEADING = '## Flaky deploy script loses the release tag';
 const SAVED_HEADING = '## 2026-01-01 10:00 [saved]';
+const SAVED_GOAL = 'Goal: fix the deploy script that loses the release tag';
 const RECALL_PROMPT = 'there is a bug: the deploy script crashes and loses the release tag, please debug it';
 
 // Runs fn with a temporary project folder that holds the given files
@@ -892,7 +905,7 @@ function withProjectFiles(files, fn) {
 
 const RECALL_PROJECT_FILES = {
   'known-issues.md': `${KNOWN_ISSUE_HEADING}\n\n**Symptom:** the deploy script crashes and the release tag is lost.\n`,
-  'session-log.md': `${SAVED_HEADING}\nGoal: fix the deploy script that loses the release tag\n`,
+  'session-log.md': `${SAVED_HEADING}\n${SAVED_GOAL}\n`,
 };
 const withRecallProject = fn => withProjectFiles(RECALL_PROJECT_FILES, fn);
 
@@ -1064,6 +1077,73 @@ test('a recall record that cannot be read or written does not break the hook', (
 test('an empty cwd falls back to the working folder: the recall comes from that folder', () => withRecallProject((dir) => {
   assertHintAndRecall(runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd: '' }, { cwd: dir }));
 }));
+
+// Runs the hook as Claude Code does after Claude has run `cd`: the payload's
+// cwd and the folder of the hook process are `cwd`, and CLAUDE_PROJECT_DIR is
+// `projectDir`, the folder where the session started.
+function runHookWithProjectDir(projectDir, cwd, sessionId = uniqueSessionId()) {
+  const env = { ...process.env, [PROJECT_DIR_VARIABLE]: projectDir };
+  return runHook({ prompt: RECALL_PROMPT, session_id: sessionId, cwd }, { cwd, env });
+}
+
+test('a cwd in a sub-folder of CLAUDE_PROJECT_DIR: the recall comes from CLAUDE_PROJECT_DIR', () => withRecallProject((dir) => {
+  const subFolder = path.join(dir, 'src', 'deep');
+  fs.mkdirSync(subFolder, { recursive: true });
+  assertHintAndRecall(runHookWithProjectDir(dir, subFolder));
+}));
+
+// A cwd that differs from CLAUDE_PROJECT_DIR is read too: an entry saved
+// after Claude entered a git worktree is in the session-log.md of the
+// worktree, not in the one of the project root.
+test('a cwd that differs from CLAUDE_PROJECT_DIR: the recall comes from cwd when only cwd holds the recall files', () => withRecallProject((dir) => withProjectFiles({}, (emptyProjectDir) => {
+  assertHintAndRecall(runHookWithProjectDir(emptyProjectDir, dir));
+})));
+
+// Recall files in which every entry matches RECALL_PROMPT equally well, so a
+// newer entry ranks first. All entries have the same date-only heading; each
+// one holds the text `[entry <label>]`, which no other entry holds. A label
+// given for both folders makes the same entry in both.
+const recallFilesOf = labels => ({
+  'session-log.md': labels.map(label => `${SAVED_HEADING}\n${SAVED_GOAL} [entry ${label}]\n`).join('\n'),
+  'known-issues.md': labels.map(label => `${KNOWN_ISSUE_HEADING} [entry ${label}]\n\n**Symptom:** the deploy script crashes.\n`).join('\n'),
+});
+
+// Sends RECALL_PROMPT `answers` times in one session, with the entries
+// `rootLabels` in the CLAUDE_PROJECT_DIR folder and the entries `cwdLabels` in
+// the cwd folder, for example the top folder of a git worktree that Claude
+// entered. Returns, for each answer, the labels of the entries of each recall
+// block, in the order of the block.
+function recalledLabels(rootLabels, cwdLabels, answers = 1) {
+  const sessionId = uniqueSessionId();
+  return withProjectFiles(recallFilesOf(rootLabels), projectDir => withProjectFiles(recallFilesOf(cwdLabels), cwd => Array.from({ length: answers }, () => {
+    const output = runHookWithProjectDir(projectDir, cwd, sessionId);
+    const labelsIn = tag => [...recallBlockOf(output, tag).matchAll(/\[entry ([^\]]+)\]/g)].map(match => match[1]);
+    return { memory: labelsIn('session-memory-recall'), knownIssues: labelsIn('known-issues-recall') };
+  })));
+}
+
+// The same labels expected in both recall blocks.
+const inBothBlocks = labels => ({ memory: labels, knownIssues: labels });
+
+// A recall block holds at most MAX_MEMORY_ENTRIES entries in all, the entries
+// of cwd first: before CLAUDE_PROJECT_DIR was read, the hook read only cwd, so
+// its output stays the same when cwd holds enough matches.
+test('a cwd that holds entries which CLAUDE_PROJECT_DIR lacks: both recalls appear, cwd first', () => {
+  assert.deepStrictEqual(recalledLabels(['root-1'], ['cwd-1']), [inBothBlocks(['cwd-1', 'root-1'])]);
+});
+
+test('both folders hold 2 matching entries: each recall block holds the 2 entries of cwd only; the next answer does not show the entries of CLAUDE_PROJECT_DIR in their place', () => {
+  assert.deepStrictEqual(recalledLabels(['root-1', 'root-2'], ['cwd-1', 'cwd-2'], 2), [inBothBlocks(['cwd-2', 'cwd-1']), inBothBlocks([])]);
+});
+
+test('cwd holds 1 matching entry and CLAUDE_PROJECT_DIR 2: the cwd entry, then the better entry of CLAUDE_PROJECT_DIR', () => {
+  assert.deepStrictEqual(recalledLabels(['root-1', 'root-2'], ['cwd-1']), [inBothBlocks(['cwd-1', 'root-2'])]);
+});
+
+// The cwd file holds one entry twice, as a save command run twice writes it.
+test('an entry that CLAUDE_PROJECT_DIR holds once and cwd twice is shown once; the next place goes to another entry', () => {
+  assert.deepStrictEqual(recalledLabels(['shared', 'root-1'], ['shared', 'shared']), [inBothBlocks(['shared', 'root-1'])]);
+});
 
 test('the Codex adapter skips agent messages too', () => withRecallProject((dir) => {
   const output = runActivator({ prompt: AGENT_MESSAGES['a task notification'], session_id: uniqueSessionId(), cwd: dir });

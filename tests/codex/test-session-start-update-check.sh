@@ -29,6 +29,27 @@
 #   6. A clone of the plugin on branch main that also has a tag named main is
 #      fast-forwarded. Git then prints the short name of the branch as
 #      "heads/main", so the hook must compare the full reference name.
+#   7. A marketplace install without network (item 7 of the review of
+#      2026-10-03): a failed version request is cached like a successful one.
+#      The next session start inside the cache interval of 24 hours runs no
+#      curl and announces nothing; the first session start after the interval
+#      asks again and announces the new version.
+#   8. As case 7, for a clone of the plugin whose origin cannot be reached: a
+#      failed fetch is cached, the next session start inside the interval
+#      runs no fetch even when origin can be reached again, and the first
+#      session start after the interval fast-forwards the clone.
+#   9. A clone of the plugin and a marketplace install on one HOME, in both
+#      orders: the check of one path does not stop the check of the other
+#      path inside the cache interval, because each path has its own cache.
+#  10. A marketplace install whose HOME holds a recent, empty
+#      update-check.cache (findings C2 and A5 of the review of 7d174ca..de39a39):
+#      the clone path of older versions created that file with touch. An
+#      empty file is no record of a failed request: the hook asks the remote
+#      version and announces it.
+#  11. A cache whose modification time is in the future (a clock that was set
+#      back; finding A4 of the same review), on both paths: the negative age
+#      counts as old, so the marketplace install asks again after a failed
+#      request, and the clone is fetched and fast-forwarded.
 #
 # No network: every remote is a local bare repository, and a stand-in for
 # curl, first on PATH, answers the version request of the marketplace path.
@@ -58,6 +79,16 @@ OWN_GIT_DIR=".git"
 AVAILABLE_NOTICE="Superpowers Orchestrator v${REMOTE_VERSION} is available"
 UPDATED_NOTICE="Superpowers Orchestrator has been updated to v${NEW_VERSION}** (was v${OLD_VERSION})"
 UPDATED_NOTICE_START="Superpowers Orchestrator has been updated"
+# The end of the marketplace notice for any version, also an empty one.
+AVAILABLE_NOTICE_END="is available**"
+# The files in which the hook records its last update check, relative to
+# HOME: one for a marketplace install and one for a clone of the plugin.
+MARKETPLACE_CACHE=".claude/hooks-logs/update-check.cache"
+CLONE_CACHE=".claude/hooks-logs/update-check-clone.cache"
+# Modification times for a cache, in the format of "touch -t": one older than
+# the cache interval of 24 hours, and one in the future.
+PAST_STAMP="202001010000"
+FUTURE_STAMP="209901010000"
 
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_NOSYSTEM=1
@@ -94,12 +125,16 @@ assert_absent() {
 }
 
 # The stand-in for curl: it records one line for each call in the file named
-# by CURL_LOG and prints a plugin.json with version REMOTE_VERSION.
+# by CURL_LOG. When CURL_OFFLINE is 1, it prints nothing and ends with exit
+# status 6, as curl does when it cannot resolve the host name (no network).
+# Otherwise it prints a plugin.json with version REMOTE_VERSION.
+CURL_OFFLINE=0
 BIN="${TMP}/bin"
 mkdir -p "$BIN"
 cat > "${BIN}/curl" <<EOF
 #!/usr/bin/env bash
 printf 'curl %s\n' "\$*" >> "\$CURL_LOG"
+[ "\$CURL_OFFLINE" = 1 ] && exit 6
 printf '{\n  "name": "superpowers-orchestrator",\n  "version": "${REMOTE_VERSION}"\n}\n'
 EOF
 chmod +x "${BIN}/curl"
@@ -151,16 +186,17 @@ commit_all() {
 }
 
 # origin_one_commit_ahead <repository> <file> <content>: gives the repository
-# a local bare repository as "origin", pushes branch main to it, and then adds
-# one commit to origin's main from a second clone. That commit writes
-# <content> to <file>. The repository is then one commit behind origin/main
-# and has not fetched that commit.
+# a local bare repository as "origin" (its folder is REMOTE), pushes branch
+# main to it, and then adds one commit to origin's main from a second clone.
+# That commit writes <content> to <file>. The repository is then one commit
+# behind origin/main and has not fetched that commit.
 origin_one_commit_ahead() {
-  local remote="${F}/remote.git" other="${F}/other"
-  fx_git init -q --bare "$remote"
-  fx_git -C "$1" remote add origin "$remote"
+  local other="${F}/other"
+  REMOTE="${F}/remote.git"
+  fx_git init -q --bare "$REMOTE"
+  fx_git -C "$1" remote add origin "$REMOTE"
   fx_git -C "$1" push -q origin "$MAIN"
-  fx_git clone -q "$remote" "$other"
+  fx_git clone -q "$REMOTE" "$other"
   printf '%s\n' "$3" > "${other}/$2"
   commit_all "$other" "a change made on another machine"
   fx_git -C "$other" push -q origin "$MAIN"
@@ -173,12 +209,19 @@ new_case() {
   mkdir -p "${F}/home"
 }
 
+# install_from_marketplace: sets PLUG to a marketplace install (a plain copy
+# of the plugin, with no repository of its own) under ~/.claude/plugins/cache
+# of the case.
+install_from_marketplace() {
+  PLUG="${F}/home/.claude/plugins/cache/marketplace/plugin/${OLD_VERSION}"
+  copy_plugin "$PLUG"
+}
+
 # user_repo_fixture <name> [link]: the user's own repository R holds a tracked
 # settings.json, ignores the folders plugins and hooks-logs, and is one commit
 # behind its origin. Without "link", R is ~/.claude itself. With "link", R is
 # a separate folder, and ~/.claude is a symbolic link to its sub-folder
-# "claude". PLUG is a marketplace install (a plain copy of the plugin, with no
-# repository of its own) under ~/.claude/plugins/cache.
+# "claude". PLUG is a marketplace install under ~/.claude/plugins/cache.
 user_repo_fixture() {
   local settings_dir
   new_case "$1"
@@ -196,8 +239,7 @@ user_repo_fixture() {
   printf '{"theme":"dark"}\n' > "${settings_dir}/settings.json"
   commit_all "$R" "first commit"
   origin_one_commit_ahead "$R" .gitignore "$(cat "${R}/.gitignore"; echo 'tmp/')"
-  PLUG="${F}/home/.claude/plugins/cache/marketplace/plugin/${OLD_VERSION}"
-  copy_plugin "$PLUG"
+  install_from_marketplace
 }
 
 # clone_fixture <name>: PLUG is a clone of the plugin with VERSION
@@ -212,6 +254,33 @@ clone_fixture() {
   printf '%s\n' "$OLD_VERSION" > "${PLUG}/VERSION"
   commit_all "$PLUG" "release ${OLD_VERSION}"
   origin_one_commit_ahead "$PLUG" VERSION "$NEW_VERSION"
+}
+
+# marketplace_fixture <name>: PLUG is a marketplace install in no git
+# repository.
+marketplace_fixture() {
+  new_case "$1"
+  install_from_marketplace
+}
+
+# touch_cache <cache> [<stamp>]: gives the update-check cache <cache>
+# (relative to the HOME of the case) the modification time <stamp> (in the
+# format of "touch -t"), or the current time when <stamp> is not given. It
+# creates the cache, empty, when the hook wrote none.
+touch_cache() {
+  local cache="${F}/home/$1"
+  local stamp=()
+  if [ -n "${2:-}" ]; then
+    stamp=(-t "$2")
+  fi
+  mkdir -p "$(dirname "$cache")"
+  touch ${stamp[@]+"${stamp[@]}"} "$cache"
+}
+
+# expire_cache <cache>: gives the update-check cache <cache> a modification
+# time older than the cache interval, as if the last check had run long ago.
+expire_cache() {
+  touch_cache "$1" "$PAST_STAMP"
 }
 
 # checked_out_ref: prints the full reference name of the branch that
@@ -236,16 +305,18 @@ repo_state() {
 # run_hook [<plugin folder>]: runs the hook of the plugin folder (default:
 # PLUG) with the HOME of the case and the update check enabled. Sets CTX to
 # the additionalContext string of the Claude Code output branch and
-# CURL_CALLS to the number of calls of the stand-in for curl. A hook that
-# writes no valid JSON output counts as one failure and leaves CTX empty.
+# CURL_CALLS to the number of calls of the stand-in for curl during this run.
+# A hook that writes no valid JSON output counts as one failure and leaves
+# CTX empty.
 run_hook() {
   local plugin="${1:-$PLUG}"
   local raw="${F}/hook-output.json" curl_log="${F}/curl.log" code=0
   local pass=()
   [ -n "${SYSTEMROOT:-}" ] && pass+=("SYSTEMROOT=$SYSTEMROOT")
   [ -n "${TEMP:-}" ] && pass+=("TEMP=$TEMP")
+  rm -f "$curl_log"
   (cd "$PROJECT" && env -i PATH="${BIN}:${PATH}" HOME="${F}/home" \
-      GIT_CEILING_DIRECTORIES="$TMP" CURL_LOG="$curl_log" \
+      GIT_CEILING_DIRECTORIES="$TMP" CURL_LOG="$curl_log" CURL_OFFLINE="$CURL_OFFLINE" \
       CLAUDE_PLUGIN_ROOT="$plugin" SUPERPOWERS_AUTO_UPDATE=1 \
       ${pass[@]+"${pass[@]}"} bash "${plugin}/hooks/session-start") > "$raw" || code=$?
   CTX=$(node -e '
@@ -265,9 +336,26 @@ assert_user_repo_untouched() {
   before=$(repo_state)
   run_hook
   assert_eq "$1: the user's repository is unchanged, and no fetch ran in it" "$(repo_state)" "$before"
+  assert_marketplace_notice "$1"
+}
+
+# assert_marketplace_notice <label>: asserts that the hook run last took the
+# path of a marketplace install: it asked the remote version once and
+# announced the version that the marketplace offers.
+assert_marketplace_notice() {
   assert_contains "$1: the hook announces the version that the marketplace offers" "$CTX" "$AVAILABLE_NOTICE"
   assert_absent "$1: the hook announces no applied update" "$CTX" "$UPDATED_NOTICE_START"
   assert_eq "$1: the hook asks the remote version once" "$CURL_CALLS" "1"
+}
+
+# assert_marketplace_quiet <label> <curl calls>: runs the hook on the fixture
+# made last by marketplace_fixture and asserts the number of calls of the
+# stand-in for curl and that the hook announces no update of either kind.
+assert_marketplace_quiet() {
+  run_hook
+  assert_eq "$1: the number of curl calls is $2" "$CURL_CALLS" "$2"
+  assert_absent "$1: the hook announces no marketplace update" "$CTX" "$AVAILABLE_NOTICE_END"
+  assert_absent "$1: the hook announces no applied update" "$CTX" "$UPDATED_NOTICE_START"
 }
 
 # assert_clone_updated <label> [<plugin folder>]: runs the hook on the fixture
@@ -289,6 +377,13 @@ assert_clone_untouched() {
   before=$(repo_state)
   run_hook
   assert_eq "$1: the clone is unchanged, and no fetch ran in it" "$(repo_state)" "$before"
+  assert_clone_not_updated "$1"
+}
+
+# assert_clone_not_updated <label>: asserts that the hook run last left the
+# old VERSION file in the clone made last by clone_fixture and wrote no
+# update notice of either kind.
+assert_clone_not_updated() {
   assert_eq "$1: the VERSION file is the old one" "$(cat "${R}/VERSION")" "$OLD_VERSION"
   assert_absent "$1: the hook announces no applied update" "$CTX" "$UPDATED_NOTICE_START"
   assert_absent "$1: the hook announces no marketplace update" "$CTX" "$AVAILABLE_NOTICE"
@@ -329,6 +424,76 @@ assert_clone_untouched "a clone of the plugin with a detached HEAD"
 clone_fixture clone-tag-main
 fx_git -C "$PLUG" tag "$MAIN"
 assert_clone_updated "a clone of the plugin on branch main with a tag named main"
+
+# ── Case 7: a marketplace install without network ──────────────────────────
+# The empty answer of a failed request must not give an update notice, and
+# the cache of a failed request must not stop the check after the interval.
+marketplace_fixture offline-marketplace
+CURL_OFFLINE=1
+assert_marketplace_quiet "no network, first session start" 1
+assert_marketplace_quiet "no network, next session start inside the cache interval" 0
+CURL_OFFLINE=0
+expire_cache "$MARKETPLACE_CACHE"
+run_hook
+assert_marketplace_notice "network again, first session start after the cache interval"
+# The cache of that successful request expires, and the next request fails.
+CURL_OFFLINE=1
+expire_cache "$MARKETPLACE_CACHE"
+assert_marketplace_quiet "no network after an expired check that succeeded" 1
+assert_marketplace_quiet "no network, next session start inside the new cache interval" 0
+CURL_OFFLINE=0
+
+# ── Case 8: a clone of the plugin whose origin cannot be reached ───────────
+clone_fixture offline-clone
+# The failed fetch of the first run writes the file FETCH_HEAD, so only the
+# second run can show that no fetch ran.
+mv "$REMOTE" "${REMOTE}.away"
+run_hook
+assert_clone_not_updated "a clone whose origin cannot be reached, first session start"
+mv "${REMOTE}.away" "$REMOTE"
+assert_clone_untouched "a clone whose origin can be reached again, next session start inside the cache interval"
+expire_cache "$CLONE_CACHE"
+assert_clone_updated "a clone whose origin can be reached again, first session start after the cache interval"
+
+# ── Case 9: a clone and a marketplace install that share one HOME ──────────
+# Each path keeps its own cache: the check of one path, inside the cache
+# interval, must not stop the check of the other path.
+clone_fixture shared-home-clone-first
+assert_clone_updated "one HOME, the clone checks first"
+install_from_marketplace
+run_hook
+assert_marketplace_notice "one HOME, the marketplace install checks inside 24 hours after the clone"
+
+clone_fixture shared-home-marketplace-first
+clone_plugin="$PLUG"
+install_from_marketplace
+run_hook
+assert_marketplace_notice "one HOME, the marketplace install checks first"
+assert_clone_updated "one HOME, the clone checks inside 24 hours after the marketplace install" "$clone_plugin"
+
+# ── Case 10: an empty cache file left by the clone path of older versions ──
+# Up to version 7.64.0 the clone path created update-check.cache, the cache
+# of the marketplace path, with touch. That empty file must not stop the
+# request of the marketplace path for 24 hours.
+marketplace_fixture empty-cache-marketplace
+touch_cache "$MARKETPLACE_CACHE"
+run_hook
+assert_marketplace_notice "a recent, empty cache file left by an older clone path"
+
+# ── Case 11: a cache whose modification time is in the future ──────────────
+# A negative age must count as old, or the check stays silent until the
+# future date plus 24 hours. The first run records a failed request.
+marketplace_fixture future-cache-marketplace
+CURL_OFFLINE=1
+run_hook
+CURL_OFFLINE=0
+touch_cache "$MARKETPLACE_CACHE" "$FUTURE_STAMP"
+run_hook
+assert_marketplace_notice "a failed request whose cache time is in the future, network again"
+
+clone_fixture future-cache-clone
+touch_cache "$CLONE_CACHE" "$FUTURE_STAMP"
+assert_clone_updated "a clone whose cache time is in the future"
 
 echo "  ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

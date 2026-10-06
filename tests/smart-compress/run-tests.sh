@@ -474,6 +474,72 @@ assert_contains     "real git status: the compressed text keeps the changed file
 assert_not_contains "real git status: hint lines are removed"                     "$text" '(use "git'
 assert_contains     "real git status: has [compressed] marker"                    "$text" "[compressed:"
 
+# `git status -v` prints the staged diff after the status text; `-vv` prints
+# the unstaged diff too. A context line of a diff can look like a blank line
+# or like a hint line: the changed files hold two empty lines in a row, a line
+# `(use "git x")` and the line "no changes added to commit". The rule may
+# compress the status text, but the lines of the diff pass unchanged.
+VERBOSE_REPO="$WORK/verbose-repo"
+mkdir "$VERBOSE_REPO"
+# Git reads no global and no system configuration file here: a setting of the
+# user (for example diff.suppressBlankEmpty=true or color.ui=always) changes
+# the output that the checks expect.
+verbose_git() { (cd "$VERBOSE_REPO" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 LC_ALL=C git -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false "$@" 2>&1); }
+# Print the text of a changed file; $1 is its third line. The two empty lines
+# come first, so they follow the hunk header directly.
+verbose_text() { printf '\n\n%s\n(use "git x")\nno changes added to commit\ndelta\n' "$1"; }
+# Print the diff part of a git status output: from the first line
+# "diff --git" to the end. Colour codes are removed first, so the output of a
+# run with colours gives the same text as the output of a run without them.
+diff_part() { printf '%s\n' "$1" | sed -n -e $'s/\x1b\\[[0-9;]*m//g' -e '/^diff --git /,$p'; }
+# The expected text of a check: the diff part of the git status output $1.
+# When the diff part does not hold the context lines named above, print a
+# line that no check expects, so that a check cannot pass without them.
+expected_diff() {
+  local part
+  part=$(diff_part "$1")
+  case "$part" in
+    *$'\n \n \n'*$'\n (use "git x")\n no changes added to commit\n'*) printf '%s\n' "$part" ;;
+    *) echo "the diff of the fixture does not hold the context lines of the check" ;;
+  esac
+}
+# Print the diff part of the text that replaces the output of `git status $1`,
+# without the marker line at its end
+compressed_diff() { diff_part "$(compressed_text "$(run_hook "git status $1" "$2" "verbose-$$-$RANDOM")")" | sed '$d'; }
+verbose_git -c init.defaultBranch=main init -q .
+verbose_text gamma > "$VERBOSE_REPO/staged.txt"
+verbose_text gamma > "$VERBOSE_REPO/unstaged.txt"
+verbose_git add . > /dev/null
+verbose_git commit -q -m first > /dev/null
+verbose_text GAMMA > "$VERBOSE_REPO/staged.txt"
+verbose_git add staged.txt > /dev/null
+verbose_text GAMMA > "$VERBOSE_REPO/unstaged.txt"
+for flag in -v -vv; do
+  real_status=$(verbose_git status "$flag")
+  assert "real git status $flag: the lines of the diff pass unchanged" \
+    "$(compressed_diff "$flag" "$real_status")" "$(expected_diff "$real_status")"
+done
+# Without a staged change, git prints the summary hint "no changes added to
+# commit (use ...)" after the diff of `-vv`, as the last line of the output.
+# The rule removes that line and no line of the diff. With color.ui=always,
+# git writes a colour code before the line "diff --git" and around each line
+# of the diff; the rule finds the diff part all the same. The colour "bold
+# yellow" of that line is one code with two numbers ("\033[1;33m").
+verbose_git commit -q -m second > /dev/null
+for color in never always; do
+  real_status=$(verbose_git -c color.ui="$color" -c color.diff.meta="bold yellow" status -vv)
+  assert "real git status -vv with color.ui=$color, without a staged change: the summary hint after the diff is removed, the lines of the diff pass unchanged" \
+    "$(compressed_diff -vv "$real_status")" "$(expected_diff "$(printf '%s\n' "$real_status" | sed '$d')")"
+done
+# With untracked files and no other change, git ends the output with the
+# summary hint "nothing added to commit but untracked files present (use ...)".
+verbose_git commit -q -a -m third > /dev/null
+touch "$VERBOSE_REPO/untracked-file-one.txt" "$VERBOSE_REPO/untracked-file-two.txt"
+real_status=$(verbose_git status)
+assert "real git status with untracked files only: the hint lines are removed, the file names stay" \
+  "$(compressed_text "$(run_hook "git status" "$real_status" "untracked-$$-$RANDOM")" | sed '$d')" \
+  "$(printf 'On branch main\nUntracked files:\n\tuntracked-file-one.txt\n\tuntracked-file-two.txt\n')"
+
 # A response that the hook cannot prove safe to replace stays as it is
 untouched() { run_hook "${3:-git status}" "${2:-$STATUS_OUT}" "untouched-$$-$RANDOM" "$1"; }
 
@@ -1089,32 +1155,40 @@ bold "\n9. TOKEN SAVINGS MEASUREMENT"
 
 bold "\n  Measuring real token savings on live commands:\n"
 
+# Run the hook on the live output of one command. The size of the output
+# depends on the state of the checkout (a clean tree gives a short
+# `git status`), so the token figures are INFO lines, not checks. The check is
+# a property that holds for every output: the hook ran without error, and it
+# changed nothing or replaced the output with a shorter text that ends with
+# the marker line.
 measure() {
   local desc="$1" cmd="$2"
-  local raw compressed raw_tok comp_tok saved
+  local raw result verdict compressed raw_tok comp_tok saved
 
   raw=$(bash -c "$cmd" 2>&1)
   raw_tok=$(( ${#raw} / 4 ))
+  result=$(run_hook "$cmd" "$raw" "measure-$$-$RANDOM")
+
+  # Empty when the hook output is not JSON, for example after a failed run
+  verdict=$(MEASURE_RAW="$raw" hook_value "$result" '
+    !updated ? "ok"
+    : updated.stdout.length >= process.env.MEASURE_RAW.length ? "replacement not shorter than the output"
+    : !/\n\[compressed: \d+->\d+ lines \| [\w-]+\]$/.test(updated.stdout) ? "replacement without the marker line"
+    : "ok"' 2>/dev/null)
+  assert "$desc: the hook ran without error; a replacement is shorter and has the marker" \
+    "${verdict:-hook output is not JSON: $result}" "ok"
 
   # The text Claude receives: the replacement, or the raw output when the hook
   # replaced nothing
-  compressed=$(compressed_text "$(run_hook "$cmd" "$raw" "measure-$$-$RANDOM")")
+  compressed=$(compressed_text "$result" 2>/dev/null)
   [ -n "$compressed" ] || compressed="$raw"
   comp_tok=$(( ${#compressed} / 4 ))
 
-  if [ "${#raw}" -le 200 ]; then
-    printf "  %-38s output too short (%d chars) — correctly skipped\n" "$desc" "${#raw}"
-    ((PASS++))
-    green "  PASS: $desc (below threshold)"
-  elif [ "$comp_tok" -lt "$raw_tok" ]; then
+  if [ "$comp_tok" -lt "$raw_tok" ]; then
     saved=$(( (raw_tok - comp_tok) * 100 / raw_tok ))
-    printf "  %-38s ~%d tok → ~%d tok  (%d%% saved)\n" "$desc" "$raw_tok" "$comp_tok" "$saved"
-    ((PASS++))
-    green "  PASS: $desc achieves ${saved}% token savings"
+    printf "  INFO: %-38s ~%d tok → ~%d tok  (%d%% saved)\n" "$desc" "$raw_tok" "$comp_tok" "$saved"
   else
-    printf "  %-38s ~%d tok → ~%d tok  (no compression)\n" "$desc" "$raw_tok" "$comp_tok"
-    ((PASS++))
-    green "  PASS: $desc correctly passed through (rule returned null)"
+    printf "  INFO: %-38s ~%d tok  (not compressed)\n" "$desc" "$raw_tok"
   fi
 }
 

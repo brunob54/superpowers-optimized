@@ -119,8 +119,8 @@ These commands produce output where some lines are signal and others are noise. 
 
 | Command | What's removed | What's kept |
 |---|---|---|
-| `git status` | Hint lines ("use git add...", "use git restore..."), "no changes added to commit" | Branch info, file lists |
-| `git log` (>40 lines) | Entries beyond the first 30 | First 30 entries + count of remaining |
+| `git status` | Hint lines ("use git add...", "use git restore...") of the status text, "no changes added to commit" | Branch info, file lists, every line of the diff that `git status -v` or `-vv` prints |
+| `git log` (>40 lines) | Lines beyond the first 30 | First 30 lines (the cut can fall inside a commit) + count of the removed lines |
 | Test runners (passing), only for output with a summary line that the rule reads and with no other line about a test that did not run | Individual "PASS" lines | Summary lines ("Tests: 100 passed, 100 total"; for mocha "8 passing" and "16 pending") + warnings |
 | Build commands (success) | Compilation progress, bundling steps | Summary + warnings |
 | `ls` (>50 entries) | Entries beyond 50 | First 50 + count of remaining |

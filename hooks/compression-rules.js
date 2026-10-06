@@ -70,6 +70,10 @@ const MIN_OUTPUT_LENGTH = 200;
 // in upper or lower case. The test rule never removes such a line.
 const TEST_NOT_RUN_STEM = /skip|pending|todo|ignored/i;
 
+// The summary hint at the end of a `git status` output, for example
+// 'no changes added to commit (use "git add" and/or "git commit -a")'
+const GIT_STATUS_SUMMARY_HINT = /^(no changes|nothing) added to commit\b/;
+
 const RULES = [
   // ═══════════════════════════════════════════
   // Tier 1: Near-lossless (safe to always compress)
@@ -241,15 +245,23 @@ const RULES = [
     compress(stdout, stderr, exitCode) {
       if (exitCode !== 0) return null;
       const lines = stdout.split('\n');
+      // `git status -v` and `-vv` print a diff after the status text. A
+      // context line of the diff can be a single space or can look like a
+      // hint line, so only the status text before the first line
+      // "diff --git" is filtered. With a colour setting (`color.ui=always`),
+      // that line starts with a colour code, which the test does not read.
+      const diffIndex = lines.findIndex(l => l.replace(ANSI_CODE, '').startsWith('diff --git '));
+      const diffStart = diffIndex === -1 ? lines.length : diffIndex;
+      const status = lines.slice(0, diffStart);
+      const diff = lines.slice(diffStart);
       // Remove git hint lines:
       //   - Indented hints: '  (use "git add <file>..." to update...)'
       //   - Summary hints: 'no changes added to commit (use "git add"...)'
       //   - Clean/working tree messages that are noise
-      const filtered = lines.filter(l => {
+      const filtered = status.filter(l => {
         const trimmed = l.trim();
         if (trimmed.startsWith('(use "git ')) return false;
-        if (/^no changes added to commit\b/.test(trimmed)) return false;
-        if (/^nothing added to commit\b/.test(trimmed)) return false;
+        if (GIT_STATUS_SUMMARY_HINT.test(trimmed)) return false;
         return true;
       });
       // Remove consecutive blank lines (left behind after removing hints)
@@ -257,7 +269,10 @@ const RULES = [
         if (l.trim() === '' && i > 0 && arr[i - 1].trim() === '') return false;
         return true;
       });
-      return deduped.join('\n');
+      // Git prints the summary hint after the diff of `-vv` too. It starts
+      // at column 0, and no line of a diff starts with its words.
+      const diffKept = diff.filter(l => !GIT_STATUS_SUMMARY_HINT.test(l));
+      return deduped.concat(diffKept).join('\n');
     },
   },
 

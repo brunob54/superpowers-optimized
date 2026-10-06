@@ -3,6 +3,7 @@
 // failures that scanRuns returns as data.
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const h = require('./helpers');
 
 const STOPPED = '## STOPPED — 2026-09-02 — phase 2 — blocked';
@@ -128,5 +129,45 @@ h.eq('an unresolvable base leaves the run out', badBaseRuns.length, 0);
 h.check('an unresolvable base is recorded as a merge-base failure', badBaseRuns.errors.length >= 1
   && badBaseRuns.errors.every((entry) => entry.command.includes('merge-base') && entry.message.length > 0),
 JSON.stringify(badBaseRuns.errors));
+
+// The repository setting log.showSignature=true makes "git log" print the
+// result of the signature check of a signed commit as extra output lines. The
+// last commit of feature/signed is signed with an SSH key made by ssh-keygen,
+// so no GnuPG (GNU Privacy Guard) is needed. The git commands of git-runs.js
+// must give the same output as without the setting.
+const s = h.repo('signed');
+h.write(s, 'file.txt', 'base\n');
+h.commit(s, 'base', ['file.txt']);
+h.git(s, 'checkout', '-q', '-b', 'feature/signed');
+const signedLog = h.logPath('2026-09-15', 'signed');
+h.write(s, signedLog, h.runLog('signed', ['## Phase 1']));
+h.git(s, 'add', '--', signedLog);
+const signingKey = path.join(h.ROOT, 'signing-key');
+const keygen = spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', signingKey], { encoding: 'utf8' });
+if (keygen.status !== 0) throw new Error(`ssh-keygen failed: ${keygen.stderr || (keygen.error && keygen.error.message)}`);
+h.gitIn(s, ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${signingKey}`, 'commit', '-q', '-S', '-m', 'signed log'], h.OLD_DATE);
+h.git(s, 'checkout', '-q', 'main');
+const signedTime = Number(h.git(s, 'log', '-1', '--format=%ct', 'feature/signed'));
+h.git(s, 'config', 'log.showSignature', 'true');
+h.check('the fixture: with log.showSignature, git log prints more than the formatted line',
+  h.git(s, 'log', '-1', '--format=%ct', 'feature/signed') !== String(signedTime));
+const signedRuns = h.scan(s, { refs: 'local' });
+h.eq('log.showSignature changes neither the last commit date nor the time of a run',
+  signedRuns.map((run) => [run.lastCommitDate, run.lastCommitTime]), [['2026-01-09', signedTime]]);
+// gitRaw is the helper under every other git helper of the module. The
+// trimmed output of gitRaw(['log', '--oneline', <ref>]), run inside <dir>.
+const gitRawOneline = (dir, ref) => h.node(dir, ['-e', `process.stdout.write(require(${JSON.stringify(h.GIT_RUNS)}).gitRaw(['log', '--oneline', process.argv[1]]).raw)`, ref]).out.trim();
+h.eq('log.showSignature adds no line to the output of git log --oneline (gitRaw)', gitRawOneline(s, 'feature/signed').split('\n').length, 2);
+
+// The repository setting color.diff=always colors the commit names that
+// "git log --oneline" prints, and it wins over color.ui=never. The output of
+// gitRaw must hold no escape byte: it must be the output of git without the
+// setting.
+const ESC = '\u001b';
+const plainOneline = h.git(n, 'log', '--oneline', 'trunk');
+h.git(n, 'config', 'color.diff', 'always');
+h.check('the fixture: with color.diff=always, git log --oneline prints an escape byte',
+  h.git(n, '-c', 'color.ui=never', 'log', '--oneline', 'trunk').includes(ESC));
+h.eq('color.diff=always puts no escape byte into git log --oneline (gitRaw)', gitRawOneline(n, 'trunk'), plainOneline);
 
 h.finish();

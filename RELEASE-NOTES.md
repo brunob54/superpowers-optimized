@@ -8,6 +8,198 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.65.0 — seven small corrections: update-check cache, recall folder, git log settings, unfinished tests, task briefs, git status -v, measure checks
+
+**Problem.** Seven confirmed review findings were open. Without network,
+every session start repeated the update check. After a `cd`, the prompt
+recall found no file. `log.showSignature` broke `/pickup` dates and counts.
+A dashboard test that never finished passed. The last task's brief took the
+plan sections after it. The compression of `git status -v` dropped diff
+lines. Four checks could not fail.
+
+**Change.** Each cause is fixed where it starts, with checks that fail on
+the old code. One review round found 3 Important and 12 Minor findings; 13
+are fixed, 2 are accepted limits.
+
+**Effect.** Update the plugin and restart the command-line interface (CLI).
+Nothing to migrate.
+
+These are items 7 to 13 of the findings that the whole-project review of
+2026-10-03 confirmed beyond its limit of 15 (the numbering of v7.63.0). None
+needed a design step. One implementer agent made each correction, tests
+first; the main session replayed each suite and committed each item by
+explicit path.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the CLI.
+
+### 1. A failed update check is cached (`hooks/session-start`, item 7)
+
+Before: the check that looks for a newer plugin version runs at most once in
+24 hours, but only a successful check was cached. Without network, every
+session start ran `git fetch` (a plugin installed as a git clone) or `curl`
+(a marketplace install) again: `curl` waits up to 3 seconds, and the fetch
+has no time limit where no `timeout` command exists (stock macOS).
+
+Now every outcome is cached. The clone path writes its cache before the fetch.
+The marketplace path writes the remote version, or the word `failed` after a
+failed request; a recent cache that holds `failed` means no request and no
+notice, and an empty cache counts as no cache. A cache whose modification time
+lies in the future counts as old on both paths.
+
+The two paths used one cache file, `~/.claude/hooks-logs/update-check.cache`.
+On a home folder with both a clone and a marketplace install, a marketplace
+check stopped the check of the clone path for 24 hours (and the first version
+of this fix made a clone check stop the marketplace check as well). The
+clone path now uses `update-check-clone.cache`; the marketplace path keeps
+`update-check.cache`.
+After this update a clone install checks once more (its new file does not
+exist yet), and on a home folder with only a clone the old file stays unused.
+
+### 2. The prompt recall reads the project folder (`hooks/skill-activator.js`, item 8)
+
+Before: the prompt hook read `session-log.md` and `known-issues.md` from the
+`cwd` field of its input, which follows every `cd` of the session. After a
+`cd` into a sub-folder, no entry was recalled.
+
+Now the hook reads both files in `cwd` first, and then in the folder that
+the environment variable `CLAUDE_PROJECT_DIR` names when that is another
+folder (documented by Claude Code: the project root where the session
+started; it keeps its value after a `cd`). Reading `cwd` keeps the recall of
+entries saved after Claude entered a git worktree: the save command appends
+to the file in the current folder. An entry that both files hold is shown
+once. The limit of 2 entries applies to each recall block across both
+folders, so the output is the old output whenever `cwd` has enough matches,
+and the project root fills the remaining places. Without the variable
+(Codex), the hook reads `cwd` as before.
+
+Not changed: `hooks/stop-reminders.js` (its size warning for
+`session-log.md`) and `hooks/session-start` on the `compact` and `clear`
+events still read the current folder of the moment.
+
+### 3. `log.showSignature` and `color.diff` no longer change the output that `/pickup` and the dashboard read (`skills/pickup/scripts/git-runs.js`, item 9)
+
+Before: with `log.showSignature=true`, `git log` printed a signature line
+before the formatted line of each signed commit. A run's last commit date
+was read as the word "No", and each signed commit took two lines in the
+commit counts of `/pickup`. With `color.diff=always`, the `--oneline`
+lines that `/pickup` prints carried colour codes, although the code comment
+said that colours were off.
+
+Now every git call of these scripts adds `-c log.showSignature=false` and
+`-c color.diff=never`. Measured over the git commands that `git-runs.js`,
+`pickup-scan.js` and `dashboard-extract.js` run: no other `color.*` key
+changes their output. The new test signs a commit with an SSH (Secure Shell)
+key; it needs `ssh-keygen` and git 2.34 or later.
+
+### 4. A dashboard test file that never finishes fails (`tests/dashboard/helpers.js`, item 10)
+
+Before: `finish()` set the exit code. A test file that ended without calling
+it (an early `return`, or an awaited promise that never settles) ended with
+exit code 0, and the suite counted it as passed.
+
+Now an exit listener (a function that Node runs when the process ends)
+decides the exit code. It is 1 when `finish()` was never called (the
+listener prints `FAIL: finish() was never called`) or when any check failed,
+also a check made after `finish()`. This also holds when the file calls
+`process.exit(0)` before `finish()` or after a failed check. The new
+`tests/dashboard/test-13-helpers.js` runs eight small test files as child
+processes, and counts its own failures without these helpers.
+
+### 5. A task brief ends at a plan-level heading (`skills/subagent-driven-development/scripts/task-brief`, item 11)
+
+Before: only a `Task <n>` heading ended a brief. The brief of the last task
+took every section after it (for example `## Verification Summary`), and a
+middle task took a phase heading between two tasks.
+
+Now a brief ends at the next heading, outside a fenced code block, with as
+many `#` characters as its task heading or fewer. Over the 226 briefs of the
+27 files in this repository that hold `Task <n>` headings (26 plans and one
+design specification), 214 are unchanged and 12 are shorter; each
+is an exact prefix of the old brief, cut at a plan-level heading.
+
+Because more headings now end a brief, a fence that the script did not
+recognise could end a brief early. Fences now follow CommonMark (the Markdown
+specification): 0 to 3 spaces, then 3 or more backticks or tildes; a fence
+closes only on the same character, at least as many times, followed by
+blanks only. The script also reads a plan with CRLF line endings (a
+carriage return before each line feed; a plan checked out with
+`core.autocrlf=true`, the Git for Windows default) as it reads plain line
+feeds. The first version of the item 11 fix had broken this; the script
+before this release read such plans correctly. When a plan ends inside a
+fence that never closed, one warning line on standard error names the line
+of that fence; the brief and the exit status do not change.
+
+### 6. The compression of `git status -v` keeps every line of its diff (`hooks/compression-rules.js`, item 12)
+
+Before: the `git-status` rule filtered the whole output. In the diff that
+`git status -v` and `-vv` print, it dropped the second of two blank context
+lines, and context lines that start with `(use "git ` or
+`no changes added to commit`.
+
+Now the rule filters only the status text before the first `diff --git `
+line (colour codes are ignored in that test). In the diff part it removes
+only the summary hint that `-vv` prints at column 0 after the diff.
+`docs/architecture/smart-compress.md` says so; its `git-log` row said
+"entries", but the rule cuts lines, and the cut can fall inside a commit.
+
+### 7. The smart-compress measure checks can fail (`tests/smart-compress/run-tests.sh`, item 13)
+
+Before: each branch of the `measure()` helper counted a PASS, so the four
+measure lines passed even when the hook crashed.
+
+Now each call checks that the hook ran without error (exit 0, nothing on
+standard error, valid JSON (JavaScript Object Notation) output) and either
+changed nothing or returned a replacement that is shorter than the output
+and ends with the `[compressed: N->M lines | rule]` marker line. The token
+figures are `INFO` lines that do not change the PASS count. The item 12
+checks run git without the user's configuration
+(`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`).
+
+### Review
+
+One review round of three reviewers (correctness, adversarial, and test
+quality) found 3 Important and 12 Minor findings; a finding that two
+reviewers made counts once. The test-quality reviewer made 63 mutations
+(deliberate small defects that a test must catch) on a separate clone. The
+tests caught 47; 7 of the 16 that survived change no behaviour.
+
+The three Important findings: a plan with CRLF line endings closed no fence
+in `task-brief`; a broken exit code in the dashboard helpers passed every
+check; a script that took a two-tilde line for a fence passed every check.
+The fix round corrected 13 findings; 2 are accepted limits (the first two
+below). The verification pass replayed every reviewer input on the reviewed
+and on the fixed commit: every finding was fixed. It found one new Minor
+defect: with two folders read, the hook context could exceed the
+10,000-character limit (measured 12,999 characters, against 6,913 before). A
+targeted correction fixed it, and the same verifier's replay passed.
+
+### Accepted limits
+
+The first two come from the review; the implementers and the verifier found
+the other three.
+
+- The measure checks are a basic check: a replacement that keeps the marker
+  line but drops content passes; a rule that throws makes the hook return the
+  output unchanged, which passes; in a clone with 40 commits or fewer and a
+  clean working tree, no measure call is compressed.
+- In the prompt recall, an empty `CLAUDE_PROJECT_DIR` counts as unset (Claude
+  Code never sets an empty value).
+- The OpenCode plugin (`.opencode/plugins/superpowers-orchestrator.js`) still
+  caches only a successful update check; OpenCode is not tested.
+- A cache file made unreadable by hand makes the marketplace path ask at every
+  session start.
+- A fence inside a list item that is indented 4 or more spaces is not a fence
+  for `task-brief`.
+
+### Suites
+
+All 20 fast suites pass. Changed counts: `tests/sdd-scripts` 283 → 297,
+`tests/smart-compress` 276 → 281, `tests/dashboard` 591 → 604 (summed over
+its test files; `test-13-helpers.js` is new); in
+`tests/codex/run-unit-tests.sh` (still 21 suites) the update-check test
+48 → 104 and the skill-activator test 142 → 148.
+
 ## v7.64.0 — no nested git init, wave commits by path, the subagent guard removed, the shared-checkout rule delivered
 
 **Problem.** Four confirmed review findings needed a design step first. The

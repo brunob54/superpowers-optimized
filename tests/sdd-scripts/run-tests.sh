@@ -157,6 +157,329 @@ assert_eq "missing task exits 3" "$?" "3"
 "$SCRIPTS/task-brief" nope.md 1 2>/dev/null
 assert_eq "missing plan exits 2" "$?" "2"
 
+# The brief ends at the next heading of the same or a higher level than the
+# task heading (as many "#" characters or fewer), also when that heading is
+# not a task: a plan section after the last task, or a phase heading between
+# two tasks, is plan-level text and not part of the brief. The fixtures live
+# in the workspace, which ignores itself, so the `git add -A` of a later
+# section never commits them.
+ENDS="$WS/brief-ends"
+mkdir -p "$ENDS"
+assert_brief() { # desc plan task-number; the expected whole brief comes on standard input
+  local expected out="$ENDS/task-$3-of-${2##*/}"
+  expected=$(cat)
+  "$SCRIPTS/task-brief" "$2" "$3" "$out" > /dev/null
+  assert_eq "$1" "$(cat "$out")" "$expected"
+}
+cat > "$ENDS/plan.md" << 'PLAN'
+# Ends Plan
+
+## Phase 1
+
+### Task 1: Middle task
+
+Body of the middle task.
+
+#### Notes of the middle task
+
+Notes text of the middle task.
+
+## Phase 2
+
+Phase two introduction text.
+
+### Task 2: Last task
+
+Body of the last task.
+
+```bash
+# a shell comment, which has the form of a level-1 heading
+## Fenced level-2 heading
+### Fenced level-3 heading
+```
+
+#not-a-heading: no blank follows the number sign
+
+Last task text after the fence.
+
+### Verification
+
+Plan-level verification text.
+
+## Self-Review
+
+Plan-level self-review text.
+PLAN
+assert_brief "brief of a middle task ends at a higher-level heading that is not a task, and keeps its deeper heading" "$ENDS/plan.md" 1 << 'BRIEF'
+### Task 1: Middle task
+
+Body of the middle task.
+
+#### Notes of the middle task
+
+Notes text of the middle task.
+BRIEF
+assert_brief "brief of the last task ends at a same-level heading that is not a task; fenced headings and a '#' line with no blank stay in it" "$ENDS/plan.md" 2 << 'BRIEF'
+### Task 2: Last task
+
+Body of the last task.
+
+```bash
+# a shell comment, which has the form of a level-1 heading
+## Fenced level-2 heading
+### Fenced level-3 heading
+```
+
+#not-a-heading: no blank follows the number sign
+
+Last task text after the fence.
+BRIEF
+cat > "$ENDS/plan-level-2.md" << 'PLAN'
+## Task 1: Level-2 task
+
+Body of the level-2 task.
+
+### Step heading of the level-2 task
+
+Step text of the level-2 task.
+
+## Notes after the level-2 task
+
+Plan-level notes text.
+
+## Task 10: Task whose number starts with 1
+
+Body of task ten.
+PLAN
+assert_brief "the level comes from the task heading: a level-2 task keeps a level-3 heading and ends at a level-2 heading" "$ENDS/plan-level-2.md" 1 << 'BRIEF'
+## Task 1: Level-2 task
+
+Body of the level-2 task.
+
+### Step heading of the level-2 task
+
+Step text of the level-2 task.
+BRIEF
+cat > "$ENDS/plan-empty-heading.md" << 'PLAN'
+### Task 1: Task followed by an empty heading
+
+Body of the task.
+
+###
+
+Text after an empty heading of the task level.
+
+### Task 2: Next task
+
+Body of the next task.
+PLAN
+assert_brief "an empty heading line '###' of the task level is a heading, so it ends the brief" "$ENDS/plan-empty-heading.md" 1 << 'BRIEF'
+### Task 1: Task followed by an empty heading
+
+Body of the task.
+BRIEF
+
+# CommonMark fence forms. A fence line has 0 to 3 spaces, then 3 or more
+# backticks or 3 or more tildes; only the same character, at least as many
+# times, followed by blanks only, closes it. A heading line inside any such
+# fence must not end the brief. Each case has its own plan file, so that a
+# fence that one case leaves open cannot change the result of another case.
+cat > "$ENDS/plan-tilde.md" << 'PLAN'
+### Task 1: First task
+
+Body of the first task.
+
+### Task 2: Last task with a tilde fence
+
+~~~bash
+# a shell comment at column 0
+~~~
+
+Task text after the tilde fence.
+
+## Self-Review
+
+Plan-level self-review text.
+PLAN
+assert_brief "fences: a column-0 '# comment' line inside a '~~~bash' fence of the last task stays in the brief" "$ENDS/plan-tilde.md" 2 << 'BRIEF'
+### Task 2: Last task with a tilde fence
+
+~~~bash
+# a shell comment at column 0
+~~~
+
+Task text after the tilde fence.
+BRIEF
+cat > "$ENDS/plan-indented.md" << 'PLAN'
+### Task 1: Fence indented by three spaces
+
+- [ ] **Step 1: Show the plan text**
+
+   ```markdown
+### Heading line of the task level inside the indented fence
+   ```
+
+Task text after the indented fence.
+
+### Task 2: Next task
+
+Body of the next task.
+PLAN
+assert_brief "fences: a column-0 heading of the task level inside a fence indented by three spaces stays in the brief" "$ENDS/plan-indented.md" 1 << 'BRIEF'
+### Task 1: Fence indented by three spaces
+
+- [ ] **Step 1: Show the plan text**
+
+   ```markdown
+### Heading line of the task level inside the indented fence
+   ```
+
+Task text after the indented fence.
+BRIEF
+cat > "$ENDS/plan-two-characters.md" << 'PLAN'
+### Task 1: Fences of the two characters
+
+```text
+~~~
+### Heading line inside the backtick fence, after a tilde line
+```
+
+~~~text
+```
+### Heading line inside the tilde fence, after a backtick line
+~~~
+
+Task text after the two fences.
+
+## Self-Review
+
+Plan-level self-review text.
+PLAN
+assert_brief "fences: a '~~~' line does not close a backtick fence, and a backtick line does not close a tilde fence" "$ENDS/plan-two-characters.md" 1 << 'BRIEF'
+### Task 1: Fences of the two characters
+
+```text
+~~~
+### Heading line inside the backtick fence, after a tilde line
+```
+
+~~~text
+```
+### Heading line inside the tilde fence, after a backtick line
+~~~
+
+Task text after the two fences.
+BRIEF
+cat > "$ENDS/plan-info-string.md" << 'PLAN'
+### Task 1: Longer fence line with text after it
+
+```text
+````markdown
+### Heading line after a longer fence line that has an info string
+```
+
+Task text after the fence.
+
+## Self-Review
+
+Plan-level self-review text.
+PLAN
+assert_brief "fences: a longer backtick line followed by text does not close a backtick fence" "$ENDS/plan-info-string.md" 1 << 'BRIEF'
+### Task 1: Longer fence line with text after it
+
+```text
+````markdown
+### Heading line after a longer fence line that has an info string
+```
+
+Task text after the fence.
+BRIEF
+# The limits of the fence form: four spaces of indentation, a run of only two
+# backticks, or a run of only two tildes, is not a fence, so the next task
+# heading still ends the brief.
+cat > "$ENDS/plan-not-fences.md" << 'PLAN'
+### Task 1: Lines that only look like fences
+
+    ```
+``two backticks`` at the start of a line open no fence.
+~~two tildes~~ at the start of a line open no fence.
+
+### Task 2: Next task
+
+Body of the next task.
+PLAN
+assert_brief "fences: a backtick run indented by four spaces, a run of two backticks, or a run of two tildes, opens no fence" "$ENDS/plan-not-fences.md" 1 << 'BRIEF'
+### Task 1: Lines that only look like fences
+
+    ```
+``two backticks`` at the start of a line open no fence.
+~~two tildes~~ at the start of a line open no fence.
+BRIEF
+
+# A fence that never closes hides every heading after it. The plan below means
+# a "```bash" block inside a "```markdown" block, but by the CommonMark rules
+# the "```" line after "run-x" closes the markdown block, and the last "```"
+# line (line 11) opens a new block that never closes; the "~~~" line inside
+# that block does not close it. The script keeps the brief and the exit
+# status as they are, and prints one warning line that names the line of the
+# fence that never closes.
+cat > "$ENDS/plan-unclosed.md" << 'PLAN'
+### Task 1: Write the skill file
+
+Create the skill file with:
+
+```markdown
+## Usage
+```bash
+run-x
+```
+More text
+```
+
+### Task 2: Second task
+
+~~~
+Body of the second task.
+PLAN
+UNCLOSED_OUT="$ENDS/task-1-of-plan-unclosed.md"
+"$SCRIPTS/task-brief" "$ENDS/plan-unclosed.md" 1 "$UNCLOSED_OUT" > /dev/null 2>"$ERRF"
+assert_eq "a fence that never closes: the exit status stays 0" "$?" "0"
+assert_stderr_eq "a fence that never closes: one warning line names the line of that fence" \
+  "warning: the fence that opens at line 11 of $ENDS/plan-unclosed.md never closes, so no heading after that line can start or end a brief"
+assert_eq "a fence that never closes: the brief stays the whole rest of the plan" "$(cat "$UNCLOSED_OUT")" "$(cat "$ENDS/plan-unclosed.md")"
+arm_stderr
+"$SCRIPTS/task-brief" "$ENDS/plan-two-characters.md" 1 "$ENDS/task-1-of-plan-two-characters.md" > /dev/null 2>"$ERRF"
+assert_stderr_silent "no fence warning on a plan whose fences all close"
+
+# Line endings. A plan checked out with core.autocrlf=true (the Git for
+# Windows default) ends each line with a carriage return (CR) byte before the
+# line feed. For every "Task <number>" heading of every plan above, the brief
+# made from a CRLF copy of the plan must hold the same lines as the brief made
+# from the plan itself, each line still ending with its CR byte, and the exit
+# status must be the same.
+to_crlf() { awk '{ printf "%s\r\n", $0 }' "$1"; }
+CRLF_DIFFS=""
+CRLF_RUNS=0
+for plan in "$ENDS"/plan*.md; do
+  crlf="$ENDS/crlf-${plan##*/}"
+  to_crlf "$plan" > "$crlf"
+  for t in $(sed -nE 's/^#+[[:blank:]]+Task[[:blank:]]+([0-9]+).*/\1/p' "$plan" | sort -un); do
+    "$SCRIPTS/task-brief" "$plan" "$t" "$ENDS/lf-out.md" > /dev/null 2>&1
+    lf_status=$?
+    "$SCRIPTS/task-brief" "$crlf" "$t" "$ENDS/crlf-out.md" > /dev/null 2>&1
+    crlf_status=$?
+    if [ "$lf_status" != "$crlf_status" ] || [ "$(to_crlf "$ENDS/lf-out.md")" != "$(cat "$ENDS/crlf-out.md")" ]; then
+      CRLF_DIFFS="$CRLF_DIFFS ${plan##*/}:task-$t"
+    fi
+    CRLF_RUNS=$((CRLF_RUNS+1))
+  done
+done
+if [ -z "$CRLF_DIFFS" ] && [ "$CRLF_RUNS" -gt 0 ]; then
+  ok "CRLF line endings give the same brief and exit status as LF, for all $CRLF_RUNS tasks of the plans above"
+else
+  bad "CRLF line endings give the same brief and exit status as LF (compared $CRLF_RUNS tasks; different:$CRLF_DIFFS)"
+fi
+
 bold "review-package (range mode)"
 
 echo "base" > base.txt
