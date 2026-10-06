@@ -30,6 +30,7 @@ process.on('exit', () => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 let passed = 0;
 let failed = 0;
+let finished = false;
 
 function check(desc, condition, detail) {
   if (condition) {
@@ -48,9 +49,19 @@ function eq(desc, actual, expected) {
 }
 
 function finish() {
+  finished = true;
   console.log(`  ${passed} passed, ${failed} failed`);
   process.exitCode = failed ? 1 : 0;
 }
+
+// A test file that ends without calling finish() (an early return, or an
+// awaited promise that never settles) fails: Node uses the exit code that an
+// 'exit' listener sets.
+process.on('exit', () => {
+  if (finished) return;
+  console.log('  FAIL: finish() was never called');
+  process.exitCode = 1;
+});
 
 // Runs git in <dir>; throws on failure. <date> sets both commit dates.
 function gitIn(dir, args, date) {
