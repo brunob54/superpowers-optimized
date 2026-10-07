@@ -1282,6 +1282,10 @@ What you should know as the owner of these files:
   `session-log.md` records what was *chosen and rejected* — the knowledge
   that otherwise evaporates at session end.
 - **`state.md` is disposable once its work is merged**; the others accumulate.
+  Since v7.66.0, when `session-log.md` holds more than 200 entries, the
+  context-management skill says so after a save and offers an archive;
+  when you agree, it keeps the newest 100 entries and moves the older ones
+  to `session-log-archive.md`, which the automatic recall does not read.
 - **`state.md` and `.superpowers/` are git-excluded** (the plugin adds the
   exclude entries itself): they survive crashes on the same machine but not a
   fresh clone or `git clean -fdx` — the recovery caveat from §5.
