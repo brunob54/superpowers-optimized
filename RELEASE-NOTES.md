@@ -16,8 +16,8 @@ only the lines inside the block, so the batch controller never received
 them.
 
 **Change.** Both rules now stand in the block, under `## Resume Answer`. The
-legend copies are deleted. Tests pin each rule as one whole sentence and
-check that the filled prompt holds it.
+legend copies are deleted. Tests pin each rule as one whole sentence in the
+template, and three checks look for the rules in the filled prompt.
 
 **Effect.** Update the plugin and restart the command-line interface (CLI).
 Nothing to migrate.
@@ -28,7 +28,8 @@ session only after an update of the plugin and a restart of the CLI.
 ### The two rules (`skills/orchestrating-development/batch-controller-prompt.md`)
 
 The prompt block is the text between the fences. The legend is the list that
-explains the placeholders; it stood after the closing fence (lines 237-282).
+explains the placeholders; it stood after the closing fence (lines 237-282 of
+the file in v7.66.0).
 `skills/multi-code-review/scripts/fill-prompt.js` writes only the lines of
 the block. A rule that stands in the legend alone is therefore not part of
 the filled prompt.
@@ -73,7 +74,8 @@ Rule B was not pinned (all three reviewers found it); five word weakenings
 of the rules that no pin caught. A verification pass ran 30 mutations on both
 commits. The six that survived before the fix all fail after it. It found 0
 new findings. The commits are `b71a52a` (the fix) and `2a932dc` (the review
-fixes); `git log --oneline f398740..HEAD` lists them.
+fixes); `git log --oneline f398740..HEAD` lists these two commits and the
+release commit.
 
 Accepted limits, unchanged: a quoted clause that holds a newline; a plain
 paragraph after the closing fence. One more limit: the whole-rule pins match
