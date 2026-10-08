@@ -8,6 +8,109 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.68.0 — memory files: the project folder, one hash form, the archive named
+
+**Problem.** After a `cd`, the session-start hook of a compaction read the
+memory files of the new folder, so it injected none or the wrong ones. A map
+written as the skill said was always reported stale. The recall notes never
+named the archive, and two texts promised an automatic session log.
+
+**Change.** Before it reads the memory files, the hook changes to the
+project folder. The map records the short hash, and a hash that is the start
+of HEAD (the current commit) counts as current. The notes name both log
+files, Hot Files comes from `git log`, and the false sentences are corrected.
+
+**Effect.** Update the plugin and restart the command-line interface (CLI).
+Nothing to migrate.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the CLI. They
+are part 2 of the work log `docs/worklogs/group-a-fixes.md` (items A4, A5,
+A10, A11, A12 and two sentences for A13).
+
+### The project folder (A4, `hooks/session-start`)
+
+Claude Code gives every hook the environment variable `CLAUDE_PROJECT_DIR`:
+the folder where the session was started. The session-start hook read
+`project-map.md`, `session-log.md`, `state.md`, `known-issues.md` and
+`context-snapshot.json` in its own process folder. After a `cd` in the
+session, the hook of the `compact` event runs in that new folder. It then
+injected no memory section, or a product document of that folder named
+`known-issues.md`.
+
+The hook now changes to `CLAUDE_PROJECT_DIR` after the work-log notice and
+before it reads the memory files. The git repository check runs after that
+change too, and its notice now says "No git repository detected in the
+project folder." The work-log notice still describes the folder where the
+hook started. When the variable is not set, or names a folder that does not
+exist, the hook stays in its own folder and reads the memory files there,
+as before. `README.md` (the session-start hook) and the guide's recall passage
+name the project folder.
+
+Not changed (accepted limits in the work log): the stop hook reads
+`session-log.md` and `state.md` in its current folder, `context-engine.js`
+writes `context-snapshot.json` into the current folder, and the save command
+of the context-management skill writes into the Bash tool's current folder.
+
+### One hash form for the map (A10)
+
+Step 1 of the map procedure in `skills/context-management/SKILL.md` said to
+record `git rev-parse HEAD` (40 characters), while the template and the hook
+used the short form, and the hook compared the two by equality. A map
+written exactly as the skill said was always reported stale. The short form
+also grows from 7 to 8 characters as a repository grows, which gives one
+false stale note at each length step.
+
+The skill now records `git rev-parse --short HEAD`. The hook reads HEAD with
+`git rev-parse --verify -q HEAD` and reports a stale map only when the map's
+hash is not the start of the full hash of HEAD. The note still shows HEAD in
+the short form.
+
+### The archive named (A5)
+
+The two recall notes said that the full history is searchable in
+`session-log.md`. After an archive, the older entries are in
+`session-log-archive.md`, which no hook reads. Both notes now say "older
+entries: grep session-log.md, then session-log-archive.md" (the note of
+the prompt hook starts with a capital O). `README.md` says
+that archived entries are not recalled, the guide says that the archive step
+hides the archive from `git status` unless git tracks the log, and
+`docs/architecture/project-memory.md` names both files.
+
+### Hot Files from git (A11)
+
+Step 5 of the map procedure built the Hot Files section from the `Files:`
+lines of `session-log.md`; no entry has such a line any more. It now lists
+the files that recent commits changed most often, leaving out release and
+version files; without git, the files edited most in the session.
+
+### No promise of an automatic log (A12)
+
+The fresh-project gate message said that `session-log.md` "auto-captures
+what was built and decided". No hook writes the log: the AI (artificial intelligence) writes a
+`[saved]` entry when you ask, or when the stop hook's decision-log reminder
+asks. The gate line now says so. `docs/architecture/project-memory.md` is
+corrected in every place that described `[auto]` entries written by the stop
+hook.
+
+### Two map sentences (A13)
+
+Step 6 said that the hook finds the map with `ls project-map.md 2>/dev/null`;
+it now names the real test and the folder where the session was started.
+The size rule gains one sentence: the hook injects the map only when it fits
+in the room that the rest of its output leaves; a larger map is read from
+the file at entry step 6. A map that is too large is still not injected (an
+accepted limit).
+
+### Tests
+
+New: `tests/codex/test-session-start-project-dir.sh` and
+`tests/codex/test-session-start-map-hash.sh` (`tests/codex/run-unit-tests.sh`
+now runs 23 suites). Extended: `tests/codex/test-skill-activator.js`,
+`tests/codex/test-session-start-budget.sh`,
+`tests/codex/test-fresh-project-gate.sh` and
+`tests/context-management/run-tests.sh` (70 checks before, 108 now).
+
 ## v7.67.0 — two batch-controller rules move from the legend into the prompt block
 
 **Problem.** Two rules of the batch controller prompt stood only in the

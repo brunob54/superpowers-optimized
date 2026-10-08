@@ -1021,6 +1021,17 @@ const WALRUS_PROMPT = 'what did we decide on the walrus cache';
 const recallBlockOf = (output, tag) => (contextOf(output).match(new RegExp(`<${tag}>[\\s\\S]*</${tag}>`)) || [''])[0];
 const memoryOf = output => recallBlockOf(output, 'session-memory-recall');
 
+// The last line of the session-log recall names both files that hold older
+// entries: an archive moves the oldest entries to session-log-archive.md, and
+// this hook reads only session-log.md.
+const OLDER_ENTRIES_NOTE = '*(Older entries: grep session-log.md, then session-log-archive.md)*';
+test('the session-log recall names session-log.md and session-log-archive.md for older entries', () => withRecallProject((dir) => {
+  const output = runHook({ prompt: RECALL_PROMPT, session_id: uniqueSessionId(), cwd: dir });
+  const memory = memoryOf(output);
+  assert.ok(memory.endsWith(`\n${OLDER_ENTRIES_NOTE}\n</session-memory-recall>`), `Expected the note as the last line, got: ${memory}`);
+  assert.ok(!/full history searchable/i.test(contextOf(output)), `The old note is still there: ${contextOf(output)}`);
+}));
+
 test('entries with the same heading are told apart; a shown entry stays shown across prompts', () => withLogProject(
   [`${SAME_HEADING}\nGoal: zebrafish parser\n`, `${SAME_HEADING}\nGoal: walrus cache\n`],
   (dir) => {

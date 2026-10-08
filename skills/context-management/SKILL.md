@@ -176,7 +176,7 @@ The log contains a single entry type:
    ```bash
    git rev-parse --git-dir 2>/dev/null
    ```
-   - If git exists → record `git rev-parse HEAD` as the staleness hash.
+   - If git exists → record `git rev-parse --short HEAD` as the staleness hash.
    - If git does NOT exist → offer: *"No git repository detected. Shall I run `git init`? It enables precise staleness tracking for `project-map.md` — creates a `.git` folder, touches none of your files. If you'd prefer not to, I'll fall back to file timestamp comparison instead, which works fine but is slightly less precise."*
      - User confirms → run `git init --quiet`, then proceed with git hash.
      - User declines → use generation timestamp as the staleness marker.
@@ -187,9 +187,9 @@ The log contains a single entry type:
 
 4. **Capture critical constraints:** The highest-value section. These are non-obvious facts that are not visible in the code itself — quoting rules, platform differences, version sync requirements, things that caused bugs before. Pull these from `session-log.md` `[saved]` entries and from `known-issues.md` if they exist.
 
-5. **Identify hot files:** From `session-log.md` history, list the files most frequently appearing in `Files:` lines. These are the ones most likely to need freshness checks on future sessions.
+5. **Identify hot files:** With git, list the files that recent commits changed most often, for example with `git log -n 30 --name-only --format= | grep -v '^$' | sort | uniq -c | sort -rn | head -10`. Leave out release and version files (the version file, release notes, package manifests): every release changes them, so they say nothing about the work. Without git, list the files edited most in this session. These are the ones most likely to need freshness checks on future sessions.
 
-6. **Write `project-map.md` at the project root** — same level as `CLAUDE.md` and `package.json`, never in `docs/` or any subdirectory. The session-start hook looks for it with `ls project-map.md 2>/dev/null` from the project root — if it's anywhere else, the hook cannot find it and every future session loses the map. Use this format:
+6. **Write `project-map.md` at the project root** — same level as `CLAUDE.md` and `package.json`, never in `docs/` or any subdirectory. The session-start hook looks for it with `[ -f "project-map.md" ]` in the folder where the session was started (Claude Code gives that folder to hooks as `CLAUDE_PROJECT_DIR`; a Bash command cannot read this variable) — if it's anywhere else, the hook cannot find it and every future session loses the map. Use this format:
 
 ```markdown
 # Project Map
@@ -219,7 +219,7 @@ When the staleness check in the entry sequence flags changed files:
 3. Update the git hash / timestamp in the header.
 4. If any new critical constraints were discovered this session, add them.
 
-Keep `project-map.md` under 150 lines. If it grows beyond that, it is not a map — it is documentation. Prune file entries for things that are now obvious from context.
+Keep `project-map.md` under 150 lines. If it grows beyond that, it is not a map — it is documentation. Prune file entries for things that are now obvious from context. The session-start hook injects the map only when it fits in the room that the rest of its output leaves, because the map comes last in the hook's order of memory sections; a larger map is not injected, and step 6 of the using-superpowers entry sequence reads it from the file.
 
 ## Guardrails
 

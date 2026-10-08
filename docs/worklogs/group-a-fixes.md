@@ -57,8 +57,8 @@ after the run ends.
 
 | # | Part | Status | Since | Commit | Note |
 |---|------|--------|-------|--------|------|
-| 1 | Design step for A1 to A13 | done | 2026-10-08 | | record `tmp/docs/2026-10-08-design-section-a.md` |
-| 2 | Release 1: memory files | not started | | | A4, A5, A10, A11, A12, A13 |
+| 1 | Design step for A1 to A13 | done | 2026-10-08 | a061765 | record `tmp/docs/2026-10-08-design-section-a.md` |
+| 2 | Release 1: memory files | in progress | 2026-10-08 | | A4, A5, A10, A11, A12, A13 |
 | 3 | Release 2: hook patterns and security review | not started | | | A1, A2, A3 (D10) |
 | 4 | Release 3: review prompts | dropped | 2026-10-08 | | A3 moved to part 3 (D10) |
 
@@ -114,6 +114,10 @@ blocks: a part number, or `whole work`.
 - 2026-10-08 item A7: the npm-install rule prints the vulnerabilities line twice (summary and alert lines) — duplicate text only; sibling point of the v7.59.0 reviewer
 - 2026-10-08 item A8: printRemoteUrl prints a token in full for six malformed remote URL forms (a password with /, # or ?; https:/…; https//…; scp-like user:SECRET@host:path) — git cannot use any of these URLs (git ls-remote refuses all six) and prints the token in its own error message; the text never reaches the shared page
 - 2026-10-08 item A9: the four controller templates poll for "the file that subagent was told to write", but the code, doc and SDD task reviewers write no file at a path the controller knows — 0 hand-back failures in 42 nested dispatches since 2026-10-01; reopen when the next orchestrated run shows a failed hand-back or a child's report in the main session
+- 2026-10-08 item A10: a map hash of 1 to 3 characters, or a number read as a hash ("Git: 2026"), counts as fresh when HEAD starts with it (before A10 it always counted as stale) — git never writes a short hash under 4 characters; the chance is 1 in 16 per character; advisory note only
+- 2026-10-08 item A10: a map written after git init and before the first commit has no Git hash, so the hook never reports it stale — older than release 1; named as a risk in the design record; advisory note only
+- 2026-10-08 item A4: after the cd to CLAUDE_PROJECT_DIR the hook output names memory files by bare name (stale note, grep note, not-injected line), and the AI resolves them against its own Bash folder — whole-branch review of release 1; an absolute path would cost characters at every session start; advisory only
+- 2026-10-08 item A13: step 6 of the map procedure says "at the project root … never in any subdirectory", while the hook looks in the folder where the session was started; the two differ when a session starts in a sub-folder — whole-branch review of release 1; the heading is older than release 1
 - 2026-10-08 item A11: without git, Hot Files has no data source — no source exists; the section may stay empty
 - 2026-10-08 item A11: the without-git rule at using-superpowers/SKILL.md:150 can never run, because it sits under the <project-map-stale> tag, which the hook emits only with git — measured by C and R; recorded as a finding outside group A
 - 2026-10-08 item A13: a project-map.md larger than the room left in the session-start output (about 1,900 to 2,600 characters for all memory sections) is never injected, and the skill's size rule counts lines, not characters — by design (v7.31.0 order); README.md:258 documents it; the <not-injected> line names the file and entry step 6 reads it

@@ -16,7 +16,7 @@ Superpowers Orchestrator solves this with three plain markdown files placed at t
 
 | File | Created by | Purpose |
 |---|---|---|
-| `session-log.md` | Stop hook (automatic) + `context-management` skill | Episodic history of what happened across all sessions |
+| `session-log.md` | `context-management` skill, on request or after a stop-hook reminder | Episodic history of what happened across all sessions |
 | `project-map.md` | `context-management` skill (on demand) | Semantic map of the project structure and critical constraints |
 | `state.md` | `context-management` skill (on demand) | Task continuity when work spans multiple sessions |
 
@@ -26,19 +26,16 @@ Superpowers Orchestrator solves this with three plain markdown files placed at t
 
 ### What it is
 
-A chronological log of every meaningful session, built up automatically over time. It lives at the project root alongside `CLAUDE.md` and `package.json`.
+A chronological log of the decisions made in past sessions. The AI writes each entry with the `context-management` skill. It lives at the project root alongside `CLAUDE.md` and `package.json`.
 
 ### How it's written
 
-The `stop-reminders` hook fires at the end of every session and appends a minimal `[auto]` entry if the session had real activity (skills invoked or files edited). Empty or trivial sessions are skipped. No user action required.
+No hook writes to `session-log.md`. The AI writes each entry with the `context-management` skill, in two cases:
 
-```markdown
-## 2026-03-18 14:32 [auto]
-Skills: systematic-debugging (2x), test-driven-development
-Files: hooks/session-start, hooks/stop-reminders.js, tests/opencode/setup.sh
-```
+- You ask for it, for example with "save state".
+- The `stop-reminders` hook reminds it. When files such as skills, hooks, `CLAUDE.md`, specs or plans were edited since the last `[saved]` entry, the hook blocks the end of the turn and asks the AI to write a `[saved]` entry. Set `SUPERPOWERS_STOP_REMINDERS_OFF=decision-log` to switch this reminder off.
 
-When you explicitly invoke the `context-management` skill mid-task, it writes a richer `[saved]` entry containing the goal, decisions made, approaches rejected, and open questions — structured for future recall.
+Each `[saved]` entry contains the goal, decisions made, approaches rejected, and open questions — structured for future recall.
 
 ```markdown
 ## 2026-03-18 16:45 [saved]
@@ -54,7 +51,7 @@ Open: Verify emoji renders correctly in Claude's context injection
 
 The `session-start` hook automatically injects the **last two `[saved]` entries** into every session before your first message arrives. This means recent decisions are always available without any instruction-following required.
 
-For older history — decisions from earlier in a project's lifetime — Claude can `Grep session-log.md` for keywords relevant to the current task. The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user's request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.
+For older history — decisions from earlier in a project's lifetime — Claude can grep `session-log.md`, then `session-log-archive.md`, for keywords relevant to the current task. The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user's request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.
 
 This prevents:
 - Rediscovering the same bug twice
@@ -79,7 +76,7 @@ Invoke the `context-management` skill and ask Claude to "map this project" or "g
 2. Glob the project structure and identify directory purposes
 3. Document 10–20 key files that are non-obvious or frequently referenced
 4. Capture critical constraints — the non-obvious facts that are invisible in the code itself
-5. Identify hot files from `session-log.md` history (most frequently modified)
+5. Identify hot files from `git log --name-only` over recent commits (the most often changed files, without release and version files)
 
 The output is a structured markdown file capped at 150 lines. If it grows larger, it's not a map — it's documentation. Entries for files whose purpose is now obvious are pruned.
 
@@ -104,7 +101,7 @@ hooks/hooks.json — Hook registration; uses \" quoting (not ') for variable exp
 - Every SKILL.md must have YAML frontmatter with name and description fields
 
 ## Hot Files
-hooks/session-start, hooks/stop-reminders.js, .claude-plugin/plugin.json
+hooks/session-start, hooks/stop-reminders.js, hooks/skill-activator.js
 ```
 
 ### How it helps
@@ -126,7 +123,7 @@ A short-lived task continuity file for when work spans multiple sessions. It cap
 
 ### When to use it
 
-When a complex multi-step task will continue in a future session, invoke `context-management` to save state before ending the session. The next session reads `state.md` first to restore context, then greps `session-log.md` for relevant history.
+When a complex multi-step task will continue in a future session, invoke `context-management` to save state before ending the session. The next session reads `state.md` first to restore context. Then it greps `session-log.md` for relevant history, and then `session-log-archive.md`, which holds the older entries after an archive.
 
 Unlike `session-log.md` (which is permanent history), `state.md` represents active in-progress work. Once the task is complete, it can be deleted or left as-is.
 
@@ -146,8 +143,8 @@ Session starts (session-start hook fires automatically)
             ▼
         Work happens
             │
-            ├── For older session history: Grep session-log.md for task keywords
-            ├── [auto] Stop hook appends minimal entry to session-log.md
+            ├── For older session history: Grep session-log.md, then session-log-archive.md, for task keywords
+            ├── [reminder] Stop hook asks for a [saved] entry after edits of skills, hooks, specs or plans
             └── [manual] context-management writes rich [saved] entry + updates state.md
 
 Over time:
@@ -163,9 +160,9 @@ Over time:
 
 **File-based, not database-based.** Everything is plain markdown in the project root. The files are readable by humans, editable with any text editor, searchable with grep, and committable to git. No external services, no embeddings API, no local SQLite — just files.
 
-**Additive, never destructive.** The stop hook only appends to `session-log.md`. It never modifies or deletes existing entries. You can inspect, edit, prune, or delete any of these files at any time without breaking anything.
+**Additive, never destructive.** The save step of the `context-management` skill appends a new `[saved]` entry to `session-log.md` and never deletes an entry: when a new decision contradicts an old one, it only adds `[superseded by YYYY-MM-DD]` to the heading line of the old entry. The archive step runs only when you ask for it; it moves the oldest entries, unchanged, to `session-log-archive.md`. You can inspect, edit, prune, or delete any of these files at any time without breaking anything.
 
-**Zero setup for new projects.** `session-log.md` starts building automatically from the first session that does real work. `project-map.md` is generated on demand, not required for the plugin to function.
+**Zero setup for new projects.** `session-log.md` starts with the first `[saved]` entry, which the AI writes when you say "save state" or when the stop hook reminds it. `project-map.md` is generated on demand, not required for the plugin to function.
 
 **Works on existing projects.** Installing the plugin on a large existing codebase works exactly the same way — the memory files start accumulating from the first session forward. `project-map.md` can be generated at any time to map the existing structure.
 
@@ -182,7 +179,7 @@ This blog post by the original Superpowers author is the direct source for the m
 
 His original implementation used a SQLite database with vector search, a conversation archive, an MCP integration tool, and a Haiku subagent to manage context retrieval — powerful, but with external dependencies.
 
-This fork (superpowers-orchestrator) implements the same episodic memory concept as a lighter-weight, dependency-free variant: plain markdown files, keyword grep instead of vector search, and automatic stop-hook writing instead of a separate archiving process. The tradeoff is that retrieval is lexical rather than semantic — you find entries by keyword, not by meaning — but the system requires no database, no embeddings API, and no extra services. Everything stays in project files.
+This fork (superpowers-orchestrator) implements the same episodic memory concept as a lighter-weight, dependency-free variant: plain markdown files, keyword grep instead of vector search, and entries that the AI writes with the `context-management` skill (on request or after a stop-hook reminder) instead of a separate archiving process. The tradeoff is that retrieval is lexical rather than semantic — you find entries by keyword, not by meaning — but the system requires no database, no embeddings API, and no extra services. Everything stays in project files.
 
 **CLAUDE.md / AGENTS.md pattern.** The broader convention of using project-root markdown files as persistent context for AI coding assistants — established by Anthropic's CLAUDE.md and OpenAI's AGENTS.md guidance — inspired the file-based storage approach. `project-map.md` and `session-log.md` extend this pattern from static human-written configuration to dynamic, session-generated memory.
 
@@ -193,5 +190,5 @@ This fork (superpowers-orchestrator) implements the same episodic memory concept
 ## See Also
 
 - `skills/context-management/SKILL.md` — full procedure for generating maps, saving state, and reading history
-- `hooks/stop-reminders.js` — the stop hook that auto-appends session entries
+- `hooks/stop-reminders.js` — the stop hook: when a turn ends, it reminds the AI about source edits without test changes, uncommitted files of the session, a missing `[saved]` entry (the decision-log reminder), a `state.md` older than the latest edits, and large `session-log.md` entries; it writes no session-log entry
 - `docs/superpowers-orchestrator/2026-03-16-meta-memory-behavioral-self-evolution/specs/meta-memory-behavioral-self-evolution-design.md` — proposed future extension: behavioral preference distillation across sessions

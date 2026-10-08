@@ -283,15 +283,6 @@ Tip: To skip manual steps in future, enable Auto-update for the marketplace in s
 # Run silently — a failure here must never break the session
 check_for_updates 2>/dev/null || true
 
-# ── Git repository check ──────────────────────────────────────────────────────
-# Detects when the working directory has no git repo and injects a quiet note.
-# This lets the AI offer git init during project-map.md generation without
-# announcing it verbally on every session start (no <important-reminder> tag).
-git_notice=""
-if ! git rev-parse --git-dir > /dev/null 2>&1; then
-    git_notice="${nl}${nl}<project-git-status>No git repository detected in the current working directory. When the user generates or updates project-map.md, offer to run 'git init' (creates a .git folder, touches no user files). If they decline, use file timestamps for staleness detection instead. Do not announce this proactively — only act on it when project-map.md is relevant.</project-git-status>"
-fi
-
 # ── Active work logs ──────────────────────────────────────────────────────────
 # Names the active work logs of the project (skills/worklog) in one short
 # notice; the content of a work log is never injected. The lines from ROOT= to
@@ -357,6 +348,27 @@ if [ -n "$LIST" ]; then
     worklog_notice="${nl}${nl}<active-work-logs>Active work logs under ${worklog_root}: ${worklog_paths}${worklog_more}. Before you work on one of them, read it with the Read tool and follow its section \"How to maintain this document\". During an orchestrated run or a whole-branch review, do not write it.</active-work-logs>"
 fi
 
+# ── Project folder ────────────────────────────────────────────────────────────
+# Claude Code sets CLAUDE_PROJECT_DIR to the project folder. This hook process
+# can start in another folder: after a `cd` in the session, the hook of the
+# "compact" event runs in the new folder. The memory files read below
+# (project-map.md, session-log.md, state.md, known-issues.md and
+# context-snapshot.json) live in the project folder, so the hook changes to
+# that folder first; the git repository check below also runs there. The
+# work log notice above stays the notice of the folder where the hook
+# started. With no variable, or with a folder that does not exist, the hook
+# stays in its own folder.
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || true; fi
+
+# ── Git repository check ──────────────────────────────────────────────────────
+# Detects when the working directory has no git repo and injects a quiet note.
+# This lets the AI offer git init during project-map.md generation without
+# announcing it verbally on every session start (no <important-reminder> tag).
+git_notice=""
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    git_notice="${nl}${nl}<project-git-status>No git repository detected in the project folder. When the user generates or updates project-map.md, offer to run 'git init' (creates a .git folder, touches no user files). If they decline, use file timestamps for staleness detection instead. Do not announce this proactively — only act on it when project-map.md is relevant.</project-git-status>"
+fi
+
 # ── Legacy skills warning ──────────────────────────────────────────────────────
 warning_message=""
 legacy_skills_dir="${HOME}/.config/superpowers/skills"
@@ -374,7 +386,8 @@ fi
 # (highest-value sections), with a note pointing to the full file.
 #
 # Staleness check: extracts the git hash from the map header and compares it to
-# the current HEAD. If they differ, a <project-map-stale> warning is prepared
+# the current HEAD. If the map hash is not the start of the full hash of HEAD,
+# a <project-map-stale> warning is prepared
 # as its own section, so it can be injected even when the map itself is not.
 project_map_content=""
 project_map_stale_content=""
@@ -397,10 +410,17 @@ ${project_map_raw}"
         project_map_content="${nl}${nl}<project-map>${nl}${project_map_raw}${nl}</project-map>"
     fi
 
-    # Staleness check — compare map header hash to current git HEAD
+    # Staleness check — compare map header hash to current git HEAD. The map
+    # records `git rev-parse --short HEAD`, whose length grows with the number
+    # of objects in the repository (7 characters, then 8, ...). So the map is
+    # stale only when its hash is not the start of the full hash of HEAD. The
+    # quotes around $map_hash make the shell match it as plain text, not as a
+    # pattern. `--verify -q` prints nothing when there is no commit (without
+    # it, git prints the word HEAD). The note gives HEAD in the short form.
     map_hash=$(grep -oE 'Git: [a-f0-9]+' "project-map.md" 2>/dev/null | head -1 | awk '{print $2}' || echo "")
-    current_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "")
-    if [ -n "$map_hash" ] && [ -n "$current_hash" ] && [ "$map_hash" != "$current_hash" ]; then
+    head_hash=$(git rev-parse --verify -q HEAD 2>/dev/null || echo "")
+    if [ -n "$map_hash" ] && [ -n "$head_hash" ] && [ "${head_hash#"$map_hash"}" = "$head_hash" ]; then
+        current_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "")
         project_map_stale_content="${nl}${nl}<project-map-stale>project-map.md is stale — map records Git: ${map_hash} but current HEAD is ${current_hash}. Run the staleness update (using-superpowers entry sequence step 6) before making any recommendations about project structure or file locations.</project-map-stale>"
     fi
 fi
@@ -421,7 +441,7 @@ if [ -f "session-log.md" ]; then
               for (i = start; i <= n; i++) print saved_entries[i] }
     ' "session-log.md" 2>/dev/null || echo "")
     if [ -n "$saved_raw" ]; then
-        session_log_content="${nl}${nl}<session-log>${nl}*(Last saved decisions from session-log.md — full history searchable at session-log.md)*${nl}${saved_raw}${nl}</session-log>"
+        session_log_content="${nl}${nl}<session-log>${nl}*(Last saved decisions from session-log.md — older entries: grep session-log.md, then session-log-archive.md)*${nl}${saved_raw}${nl}</session-log>"
     fi
 fi
 

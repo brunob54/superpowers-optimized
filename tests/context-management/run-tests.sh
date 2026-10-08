@@ -754,6 +754,23 @@ PROBLEMS=''
 if grep -qF '6 months' "$SKILL"; then problem "found at line $(grep -nF '6 months' "$SKILL" | cut -d: -f1 | tr '\n' ' ')"; fi
 check "the skill has no \"6 months\" rule" "$PROBLEMS"
 
+bold "Skill text: the commit hash that project-map.md records"
+
+# Step 1 of the generation procedure and the header line of the template
+# name the same short form of the hash. The session-start hook accepts any
+# map hash that is the start of the full hash of HEAD.
+STEP1="$(region "$SKILL" '1. **Check for git:**' '2. **Map the structure:**' | fold_text)"
+STEP1_RULE='- If git exists → record `git rev-parse --short HEAD` as the staleness hash.'
+MAP_HEADER='_Generated: YYYY-MM-DD HH:MM | Git: <short-hash> | (or: Staleness: timestamps)_'
+OLD_STEP1='record `git rev-parse HEAD`'
+PROBLEMS=''
+case "$STEP1" in *"$STEP1_RULE"*) ;; *) problem "step 1 does not hold: $STEP1_RULE" ;; esac
+grep -qxF -- "$MAP_HEADER" "$SKILL" || problem "no template header line: $MAP_HEADER"
+check "step 1 records the short hash that the template header names (Git: <short-hash>)" "$PROBLEMS"
+PROBLEMS=''
+case "$(fold_text < "$SKILL")" in *"$OLD_STEP1"*) problem "found" ;; esac
+check "the skill no longer says: $OLD_STEP1" "$PROBLEMS"
+
 bold "Architecture document"
 
 PROBLEMS=''
@@ -761,6 +778,139 @@ if grep -qF '6 months' "$ARCH_DOC"; then problem "\"6 months\" found at line $(g
 DOC_RULE='The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user'"'"'s request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.'
 case "$(fold_text < "$ARCH_DOC")" in *"$DOC_RULE"*) ;; *) problem "the archive rule is missing: $DOC_RULE" ;; esac
 check "docs/architecture/project-memory.md: no \"6 months\" rule; the archive rule names 200, 100 and $ARCHIVE_NAME" "$PROBLEMS"
+
+bold "Documents: where the older entries are"
+
+# After an archive, the older entries are in session-log-archive.md, and the
+# automatic recall reads only session-log.md. Each document names both files.
+# Each line: a document, a tab, the sentence that the document must hold.
+README_DOC="$ROOT/README.md"
+GUIDE_DOC="$ROOT/docs/guide/README.md"
+while IFS="$(printf '\t')" read -r doc sentence; do
+  PROBLEMS=''
+  case "$(fold_text < "$doc")" in *"$sentence"*) ;; *) problem "missing" ;; esac
+  check "${doc#"$ROOT"/} holds: $sentence" "$PROBLEMS"
+done <<EOF
+$ARCH_DOC	For older history — decisions from earlier in a project's lifetime — Claude can grep \`$LOG_NAME\`, then \`$ARCHIVE_NAME\`, for keywords relevant to the current task.
+$README_DOC	Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; entries that an archive moved to \`$ARCHIVE_NAME\` are not surfaced.
+$GUIDE_DOC	The archive step also hides \`$ARCHIVE_NAME\` from \`git status\` with an exclude entry, unless git tracks \`$LOG_NAME\`; then commit the archive together with the log.
+$ARCH_DOC	The next session reads \`state.md\` first to restore context. Then it greps \`$LOG_NAME\` for relevant history, and then \`$ARCHIVE_NAME\`, which holds the older entries after an archive.
+EOF
+# The line of the flow diagram, compared whole: the tree characters and the
+# indentation are part of it.
+DIAGRAM_LINE="            ├── For older session history: Grep $LOG_NAME, then $ARCHIVE_NAME, for task keywords"
+PROBLEMS=''
+grep -qxF -- "$DIAGRAM_LINE" "$ARCH_DOC" || problem "missing"
+check "docs/architecture/project-memory.md holds the diagram line: $DIAGRAM_LINE" "$PROBLEMS"
+# The old wordings, each of which named only session-log.md for older
+# history. A check of the whole document for a grep without the archive name
+# would also match two lines that name no file to grep (the session-log.md
+# line of "Over time" and the "Token-efficient by design" paragraph).
+ARCH_FOLDED="$(fold_text < "$ARCH_DOC")"
+OLD_ARCH_GREPS=(
+  "Claude can \`Grep $LOG_NAME\`"
+  "then greps \`$LOG_NAME\` for relevant history."
+  "Grep $LOG_NAME for task keywords"
+)
+for old in "${OLD_ARCH_GREPS[@]}"; do
+  PROBLEMS=''
+  case "$ARCH_FOLDED" in *"$old"*) problem "found" ;; esac
+  check "docs/architecture/project-memory.md no longer says: $old" "$PROBLEMS"
+done
+
+bold "Hot Files and how $LOG_NAME is written"
+
+# No hook writes session-log.md, and no entry has a `Files:` line: the AI
+# writes each [saved] entry with the skill, when the user asks or when the
+# decision-log reminder of the stop hook asks. Step 5 of the map procedure
+# therefore takes Hot Files from git.
+STEP5="$(region "$SKILL" '5. **Identify hot files:**' '6. **Write `project-map.md`' | fold_text)"
+HOT_FILES_COMMAND="git log -n 30 --name-only --format= | grep -v ${SQ}^\$${SQ} | sort | uniq -c | sort -rn | head -10"
+STEP5_RULE="5. **Identify hot files:** With git, list the files that recent commits changed most often, for example with ${BT}${HOT_FILES_COMMAND}${BT}. Leave out release and version files (the version file, release notes, package manifests): every release changes them, so they say nothing about the work. Without git, list the files edited most in this session. These are the ones most likely to need freshness checks on future sessions."
+OLD_STEP5="${BT}Files:${BT} lines"
+PROBLEMS=''
+case "$STEP5" in *"$STEP5_RULE"*) ;; *) problem "missing between step 5 and step 6" ;; esac
+check "step 5 holds: $STEP5_RULE" "$PROBLEMS"
+PROBLEMS=''
+case "$(fold_text < "$SKILL")" in *"$OLD_STEP5"*) problem "found" ;; esac
+check "the skill no longer says: $OLD_STEP5" "$PROBLEMS"
+
+# docs/architecture/project-memory.md: sentences (searched in the folded
+# text), then lines compared whole (a table row, a list item, a line of the
+# flow diagram), then the old wordings, which said that a hook writes the log.
+ARCH_SENTENCES=(
+  'A chronological log of the decisions made in past sessions. The AI writes each entry with the `context-management` skill.'
+  'No hook writes to `session-log.md`. The AI writes each entry with the `context-management` skill, in two cases:'
+  '- You ask for it, for example with "save state".'
+  '- The `stop-reminders` hook reminds it. When files such as skills, hooks, `CLAUDE.md`, specs or plans were edited since the last `[saved]` entry, the hook blocks the end of the turn and asks the AI to write a `[saved]` entry. Set `SUPERPOWERS_STOP_REMINDERS_OFF=decision-log` to switch this reminder off.'
+  'Each `[saved]` entry contains the goal, decisions made, approaches rejected, and open questions — structured for future recall.'
+  '**Zero setup for new projects.** `session-log.md` starts with the first `[saved]` entry, which the AI writes when you say "save state" or when the stop hook reminds it.'
+  'This fork (superpowers-orchestrator) implements the same episodic memory concept as a lighter-weight, dependency-free variant: plain markdown files, keyword grep instead of vector search, and entries that the AI writes with the `context-management` skill (on request or after a stop-hook reminder) instead of a separate archiving process.'
+  '**Additive, never destructive.** The save step of the `context-management` skill appends a new `[saved]` entry to `session-log.md` and never deletes an entry: when a new decision contradicts an old one, it only adds `[superseded by YYYY-MM-DD]` to the heading line of the old entry. The archive step runs only when you ask for it; it moves the oldest entries, unchanged, to `session-log-archive.md`.'
+)
+for sentence in "${ARCH_SENTENCES[@]}"; do
+  PROBLEMS=''
+  case "$ARCH_FOLDED" in *"$sentence"*) ;; *) problem "missing" ;; esac
+  check "docs/architecture/project-memory.md holds: $sentence" "$PROBLEMS"
+done
+# The Hot Files line of the sample map: the old one listed a manifest, a file
+# that step 5 now leaves out.
+OLD_HOT_FILES_LINE='hooks/session-start, hooks/stop-reminders.js, .claude-plugin/plugin.json'
+NEW_HOT_FILES_LINE='hooks/session-start, hooks/stop-reminders.js, hooks/skill-activator.js'
+ARCH_LINES=(
+  '| `session-log.md` | `context-management` skill, on request or after a stop-hook reminder | Episodic history of what happened across all sessions |'
+  '5. Identify hot files from `git log --name-only` over recent commits (the most often changed files, without release and version files)'
+  '            ├── [reminder] Stop hook asks for a [saved] entry after edits of skills, hooks, specs or plans'
+  "$NEW_HOT_FILES_LINE"
+  '- `hooks/stop-reminders.js` — the stop hook: when a turn ends, it reminds the AI about source edits without test changes, uncommitted files of the session, a missing `[saved]` entry (the decision-log reminder), a `state.md` older than the latest edits, and large `session-log.md` entries; it writes no session-log entry'
+)
+for line in "${ARCH_LINES[@]}"; do
+  PROBLEMS=''
+  grep -qxF -- "$line" "$ARCH_DOC" || problem "missing"
+  check "docs/architecture/project-memory.md holds the line: $line" "$PROBLEMS"
+done
+OLD_ARCH_WRITERS=(
+  '[auto]'
+  'built up automatically'
+  'Stop hook (automatic)'
+  'starts building automatically'
+  'automatic stop-hook writing'
+  "from ${BT}${LOG_NAME}${BT} history"
+  'auto-appends'
+  'The stop hook only appends'
+  "$OLD_HOT_FILES_LINE"
+)
+for old in "${OLD_ARCH_WRITERS[@]}"; do
+  PROBLEMS=''
+  case "$ARCH_FOLDED" in *"$old"*) problem "found" ;; esac
+  check "docs/architecture/project-memory.md no longer says: $old" "$PROBLEMS"
+done
+
+bold "Skill text: where the session-start hook finds the map, and when it injects it"
+
+# The hook tests for the file with `[ -f "project-map.md" ]`, after it has
+# changed to the folder in CLAUDE_PROJECT_DIR. It adds the map last of the
+# memory sections, so a large map is left out of its output. The step names
+# that folder by what the AI can observe: a Bash command cannot read
+# CLAUDE_PROJECT_DIR, so a rule that depends on the variable cannot be
+# followed.
+MAP_STEP6="$(region "$SKILL" '6. **Write `project-map.md` at the project root**' '```markdown' | fold_text)"
+MAP_STEP6_RULE='The session-start hook looks for it with `[ -f "project-map.md" ]` in the folder where the session was started (Claude Code gives that folder to hooks as `CLAUDE_PROJECT_DIR`; a Bash command cannot read this variable) — if it'"'"'s anywhere else, the hook cannot find it and every future session loses the map.'
+OLD_MAP_CONDITION='when Claude Code sets that variable'
+MAP_SIZE="$(region "$SKILL" 'Keep `project-map.md` under 150 lines.' '## Guardrails' | fold_text)"
+MAP_SIZE_RULE='The session-start hook injects the map only when it fits in the room that the rest of its output leaves, because the map comes last in the hook'"'"'s order of memory sections; a larger map is not injected, and step 6 of the using-superpowers entry sequence reads it from the file.'
+OLD_MAP_LOOKUP="${BT}ls project-map.md"
+PROBLEMS=''
+case "$MAP_STEP6" in *"$MAP_STEP6_RULE"*) ;; *) problem "missing in step 6 of the map procedure" ;; esac
+check "step 6 of the map procedure holds: $MAP_STEP6_RULE" "$PROBLEMS"
+PROBLEMS=''
+case "$MAP_SIZE" in *"$MAP_SIZE_RULE"*) ;; *) problem "missing after the size rule" ;; esac
+check "the size rule of the map holds: $MAP_SIZE_RULE" "$PROBLEMS"
+for old in "$OLD_MAP_LOOKUP" "$OLD_MAP_CONDITION"; do
+  PROBLEMS=''
+  case "$(fold_text < "$SKILL")" in *"$old"*) problem "found" ;; esac
+  check "the skill no longer says: $old" "$PROBLEMS"
+done
 
 bold "Skill-activator routing"
 

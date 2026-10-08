@@ -342,7 +342,7 @@ function buildMemoryContext(entries) {
     '',
     entries.join('\n\n'),
     '',
-    '*(Full history searchable in session-log.md)*',
+    '*(Older entries: grep session-log.md, then session-log-archive.md)*',
     '</session-memory-recall>',
   ].join('\n');
 }

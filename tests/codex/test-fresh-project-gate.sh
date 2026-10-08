@@ -59,6 +59,8 @@ GIT_INIT_RUN_COUNT=2
 # Claude Code attaches about the first 20,000 characters of an invoked skill
 # again after a compaction (tests/claude-code/compaction-probe.md).
 REATTACH_LIMIT=20000
+# The word of the earlier gate message that promised an automatic log.
+OLD_LOG_PROMISE='auto-captures'
 # The three outcomes of the check, as the skill text names them.
 OUT_NONE='no repository'
 OUT_FOLDER='folder path'
@@ -140,7 +142,7 @@ Then **pause before proceeding** and tell the user exactly this, with the `git i
 > **A ~30-second setup changes that permanently:**
 > - `git init` — enables staleness tracking so I only re-read files that actually changed *(creates `.git` only, nothing else)*
 > - `project-map.md` — I read this at every future session start instead of re-exploring blind
-> - `session-log.md` — auto-captures what was built and decided, so future sessions start with: *"I see from last session that X was rejected because Y — building with that constraint already applied"* instead of rediscovering it
+> - `session-log.md` — I record decisions and rejected approaches here when you say 'save state' or when a hook reminds me, so future sessions start with: *"I see from last session that X was rejected because Y — building with that constraint already applied"* instead of rediscovering it
 >
 > **Set this up before we build, or start immediately?**
 
@@ -348,6 +350,9 @@ assert_count "the first part of the skill (above the marker line) names no ${GIT
   "$FIRST_PART_FOLDED" "$GIT_INIT" 0
 assert_count "the whole file names ${GIT_INIT} only inside the gate section" \
   "$FILE_FOLDED" "$GIT_INIT" "$(count_in "$GATE_FOLDED" "$GIT_INIT")"
+# No hook writes session-log.md: the AI writes each entry when the user asks
+# or when a hook reminds it. The earlier message promised an automatic log.
+assert_count "the whole file does not say ${OLD_LOG_PROMISE}" "$FILE_FOLDED" "$OLD_LOG_PROMISE" 0
 
 # ── Size ───────────────────────────────────────────────────────────────────
 skill_len=$(node -e 'process.stdout.write(String(require("fs").readFileSync(process.argv[1], "utf8").length));' "$SKILL")

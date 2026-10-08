@@ -45,6 +45,12 @@ NL=$'\n'
 # The map header hash used by every fixture; it never equals the fixture
 # repository's HEAD, so the project-map-stale note is always produced.
 STALE_MAP_HASH="0000000"
+# The first line of the <session-log> section. It names both files that hold
+# older entries: an archive moves the oldest entries to
+# session-log-archive.md. OLD_LOG_NOTE is a part of the earlier line, which
+# named only session-log.md.
+LOG_NOTE='*(Last saved decisions from session-log.md — older entries: grep session-log.md, then session-log-archive.md)*'
+OLD_LOG_NOTE="full history searchable"
 
 TMP_HOME=$(mktemp -d)
 TMP_EMPTY=$(mktemp -d)
@@ -198,6 +204,7 @@ free_room=$(( LIMIT - $(run_hook_in "$TMP_REPO" | js_length) ))
 # ── Case 3: every workspace file fits ──────────────────────────────────────
 # Five small files: all five sections and the stale note must be injected,
 # each wrapper tag on its own line, and no <not-injected> line may appear.
+# The <session-log> section starts with LOG_NOTE.
 (
   cd "$TMP_REPO"
   printf 'Current Goal: STATE-SENTINEL small fixture, active task\n' > state.md
@@ -216,6 +223,15 @@ for s in STATE-SENTINEL SESSION-LOG-SENTINEL KNOWN-ISSUES-SENTINEL PROJECT-MAP-S
   assert_contains "small workspace files: ${s} is injected" "$ctx_small" "$s"
 done
 assert_absent "small workspace files: nothing is reported as not injected" "$ctx_small" "$NOT_INJECTED_TAG"
+assert_contains "small workspace files: the <session-log> section starts with the note that names both log files" \
+  "$ctx_small" "${NL}<session-log>${NL}${LOG_NOTE}${NL}"
+# A search that ignores letter case. A here-string, not a pipe: under
+# pipefail, a printf ended early by grep -q would make the pipeline fail.
+if grep -qiF -- "$OLD_LOG_NOTE" <<< "$ctx_small"; then
+  bad "small workspace files: the output still holds '${OLD_LOG_NOTE}'"
+else
+  ok "small workspace files: the output does not hold '${OLD_LOG_NOTE}' (any letter case)"
+fi
 
 # ── Case 4: priority order ─────────────────────────────────────────────────
 # Three files of 60% of the free room each: any one fits alone, no two fit
