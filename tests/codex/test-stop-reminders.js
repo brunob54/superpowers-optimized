@@ -815,7 +815,7 @@ test('A source edit next to a latest_report.py edit still gets the TDD reminder'
 });
 
 test('A React hook file (src/hooks/useAuth.js) does not ask for a decision-log entry', () => {
-  const result = evaluateStop(({ logDir }) => writeRecentEdit(logDir, '/project/src/hooks/useAuth.js'));
+  const result = evaluateStop(({ logDir, cwdDir }) => writeRecentEdit(logDir, path.join(cwdDir, 'src', 'hooks', 'useAuth.js')));
   assert.ok(!(result.reason || '').includes(DECISION_LOG),
     `Expected no decision-log reminder, got: ${JSON.stringify(result)}`);
 });

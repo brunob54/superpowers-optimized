@@ -59,7 +59,7 @@ Check the hit count before reading results. This tells you whether to narrow or 
 - **Any hit count** → when `session-log-archive.md` exists, run the same `grep` commands on it too (an archive moved the older entries there); the hit counts below add up the two files.
 - **0 hits on all keywords** → fall back to `project-map.md` Critical Constraints. Relevant history may have been promoted there instead of staying in the log. If still nothing, proceed without history.
 - **1–10 hits** → read them. Surface past decisions, rejected approaches, and constraints.
-- **>10 hits on one keyword** → narrow with a second term: `grep -i -a "<kw1>" session-log.md | grep -i -a "<kw2>" | tail -20`
+- **>10 hits on one keyword** → narrow with a second term: `grep -i -a "<kw1>" session-log.md session-log-archive.md | grep -i -a "<kw2>" | tail -20` (name `session-log-archive.md` only when it exists)
 
 **Step 4 — Surface what matters.** If relevant entries are found, state them explicitly before proceeding: what was decided, what was rejected, what constraints apply. Don't silently absorb them — make them visible so the user can confirm or override.
 
