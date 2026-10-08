@@ -189,7 +189,7 @@ The log contains a single entry type:
 
 5. **Identify hot files:** With git, list the files that recent commits changed most often, for example with `git log -n 30 --name-only --format= | grep -v '^$' | sort | uniq -c | sort -rn | head -10`. Leave out release and version files (the version file, release notes, package manifests): every release changes them, so they say nothing about the work. Without git, list the files edited most in this session. These are the ones most likely to need freshness checks on future sessions.
 
-6. **Write `project-map.md` at the project root** — same level as `CLAUDE.md` and `package.json`, never in `docs/` or any subdirectory. The session-start hook looks for it with `ls project-map.md 2>/dev/null` from the project root — if it's anywhere else, the hook cannot find it and every future session loses the map. Use this format:
+6. **Write `project-map.md` at the project root** — same level as `CLAUDE.md` and `package.json`, never in `docs/` or any subdirectory. The session-start hook looks for it with `[ -f "project-map.md" ]` in the project folder (the folder in `CLAUDE_PROJECT_DIR` when Claude Code sets that variable, else the folder where the hook starts) — if it's anywhere else, the hook cannot find it and every future session loses the map. Use this format:
 
 ```markdown
 # Project Map
@@ -219,7 +219,7 @@ When the staleness check in the entry sequence flags changed files:
 3. Update the git hash / timestamp in the header.
 4. If any new critical constraints were discovered this session, add them.
 
-Keep `project-map.md` under 150 lines. If it grows beyond that, it is not a map — it is documentation. Prune file entries for things that are now obvious from context.
+Keep `project-map.md` under 150 lines. If it grows beyond that, it is not a map — it is documentation. Prune file entries for things that are now obvious from context. The session-start hook injects the map only when it fits in the room that the rest of its output leaves, because the map comes last in the hook's order of memory sections; a larger map is not injected, and step 6 of the using-superpowers entry sequence reads it from the file.
 
 ## Guardrails
 

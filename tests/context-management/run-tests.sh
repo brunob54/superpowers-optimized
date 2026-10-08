@@ -886,6 +886,26 @@ for old in "${OLD_ARCH_WRITERS[@]}"; do
   check "docs/architecture/project-memory.md no longer says: $old" "$PROBLEMS"
 done
 
+bold "Skill text: where the session-start hook finds the map, and when it injects it"
+
+# The hook tests for the file with `[ -f "project-map.md" ]`, after it has
+# changed to the folder in CLAUDE_PROJECT_DIR. It adds the map last of the
+# memory sections, so a large map is left out of its output.
+MAP_STEP6="$(region "$SKILL" '6. **Write `project-map.md` at the project root**' '```markdown' | fold_text)"
+MAP_STEP6_RULE='The session-start hook looks for it with `[ -f "project-map.md" ]` in the project folder (the folder in `CLAUDE_PROJECT_DIR` when Claude Code sets that variable, else the folder where the hook starts) — if it'"'"'s anywhere else, the hook cannot find it and every future session loses the map.'
+MAP_SIZE="$(region "$SKILL" 'Keep `project-map.md` under 150 lines.' '## Guardrails' | fold_text)"
+MAP_SIZE_RULE='The session-start hook injects the map only when it fits in the room that the rest of its output leaves, because the map comes last in the hook'"'"'s order of memory sections; a larger map is not injected, and step 6 of the using-superpowers entry sequence reads it from the file.'
+OLD_MAP_LOOKUP="${BT}ls project-map.md"
+PROBLEMS=''
+case "$MAP_STEP6" in *"$MAP_STEP6_RULE"*) ;; *) problem "missing in step 6 of the map procedure" ;; esac
+check "step 6 of the map procedure holds: $MAP_STEP6_RULE" "$PROBLEMS"
+PROBLEMS=''
+case "$MAP_SIZE" in *"$MAP_SIZE_RULE"*) ;; *) problem "missing after the size rule" ;; esac
+check "the size rule of the map holds: $MAP_SIZE_RULE" "$PROBLEMS"
+PROBLEMS=''
+case "$(fold_text < "$SKILL")" in *"$OLD_MAP_LOOKUP"*) problem "found" ;; esac
+check "the skill no longer says: $OLD_MAP_LOOKUP" "$PROBLEMS"
+
 bold "Skill-activator routing"
 
 # route <prompt>: the skill that the skill-activator hook ranks first, or "none".
