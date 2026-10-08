@@ -500,6 +500,11 @@ assert_file_has_line "batch template: empty value keeps the amend-plan paragraph
 batch_fill "$WORK/batch-two.md" '4, 5, 6' "RESUME_ANSWER=@$WORK/task-answers.txt"
 assert_eq "batch template: two-line answer file exits 0" "$STATUS" "0"
 check_resume_section "batch template" "$WORK/batch-empty.md" "$WORK/batch-two.md" "$BATCH_TEMPLATE" "$TASK_FIRST_ANSWER" "$TASK_SECOND_ANSWER"
+# Item 21: two rules must reach the controller. They stand inside the block,
+# not in the placeholder legend, which fill-prompt.js never writes.
+assert_folded_contains "batch template: the filled prompt says quoted text is never a second answer verb" "$WORK/batch-two.md" 'second answer verb'
+assert_folded_contains "batch template: the filled prompt routes a task line to only that task" "$WORK/batch-two.md" 'reaches only task'
+assert_folded_contains "batch template: the filled prompt says a plan governs answer has no effect on the other task" "$WORK/batch-two.md" 'no effect on the other task'
 # The never-rewrite guard: a dispatched name reused with different content
 # exits 5 and leaves the file as it was.
 batch_fill "$WORK/batch-empty.md" '7, 8' 'RESUME_ANSWER='
