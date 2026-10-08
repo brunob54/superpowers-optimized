@@ -176,7 +176,7 @@ The log contains a single entry type:
    ```bash
    git rev-parse --git-dir 2>/dev/null
    ```
-   - If git exists → record `git rev-parse HEAD` as the staleness hash.
+   - If git exists → record `git rev-parse --short HEAD` as the staleness hash.
    - If git does NOT exist → offer: *"No git repository detected. Shall I run `git init`? It enables precise staleness tracking for `project-map.md` — creates a `.git` folder, touches none of your files. If you'd prefer not to, I'll fall back to file timestamp comparison instead, which works fine but is slightly less precise."*
      - User confirms → run `git init --quiet`, then proceed with git hash.
      - User declines → use generation timestamp as the staleness marker.

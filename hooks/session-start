@@ -385,7 +385,8 @@ fi
 # (highest-value sections), with a note pointing to the full file.
 #
 # Staleness check: extracts the git hash from the map header and compares it to
-# the current HEAD. If they differ, a <project-map-stale> warning is prepared
+# the current HEAD. If the map hash is not the start of the full hash of HEAD,
+# a <project-map-stale> warning is prepared
 # as its own section, so it can be injected even when the map itself is not.
 project_map_content=""
 project_map_stale_content=""
@@ -408,10 +409,17 @@ ${project_map_raw}"
         project_map_content="${nl}${nl}<project-map>${nl}${project_map_raw}${nl}</project-map>"
     fi
 
-    # Staleness check — compare map header hash to current git HEAD
+    # Staleness check — compare map header hash to current git HEAD. The map
+    # records `git rev-parse --short HEAD`, whose length grows with the number
+    # of objects in the repository (7 characters, then 8, ...). So the map is
+    # stale only when its hash is not the start of the full hash of HEAD. The
+    # quotes around $map_hash make the shell match it as plain text, not as a
+    # pattern. `--verify -q` prints nothing when there is no commit (without
+    # it, git prints the word HEAD). The note gives HEAD in the short form.
     map_hash=$(grep -oE 'Git: [a-f0-9]+' "project-map.md" 2>/dev/null | head -1 | awk '{print $2}' || echo "")
-    current_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "")
-    if [ -n "$map_hash" ] && [ -n "$current_hash" ] && [ "$map_hash" != "$current_hash" ]; then
+    head_hash=$(git rev-parse --verify -q HEAD 2>/dev/null || echo "")
+    if [ -n "$map_hash" ] && [ -n "$head_hash" ] && [ "${head_hash#"$map_hash"}" = "$head_hash" ]; then
+        current_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "")
         project_map_stale_content="${nl}${nl}<project-map-stale>project-map.md is stale — map records Git: ${map_hash} but current HEAD is ${current_hash}. Run the staleness update (using-superpowers entry sequence step 6) before making any recommendations about project structure or file locations.</project-map-stale>"
     fi
 fi

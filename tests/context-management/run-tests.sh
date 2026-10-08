@@ -754,6 +754,23 @@ PROBLEMS=''
 if grep -qF '6 months' "$SKILL"; then problem "found at line $(grep -nF '6 months' "$SKILL" | cut -d: -f1 | tr '\n' ' ')"; fi
 check "the skill has no \"6 months\" rule" "$PROBLEMS"
 
+bold "Skill text: the commit hash that project-map.md records"
+
+# Step 1 of the generation procedure and the header line of the template
+# name the same short form of the hash. The session-start hook accepts any
+# map hash that is the start of the full hash of HEAD.
+STEP1="$(region "$SKILL" '1. **Check for git:**' '2. **Map the structure:**' | fold_text)"
+STEP1_RULE='- If git exists → record `git rev-parse --short HEAD` as the staleness hash.'
+MAP_HEADER='_Generated: YYYY-MM-DD HH:MM | Git: <short-hash> | (or: Staleness: timestamps)_'
+OLD_STEP1='record `git rev-parse HEAD`'
+PROBLEMS=''
+case "$STEP1" in *"$STEP1_RULE"*) ;; *) problem "step 1 does not hold: $STEP1_RULE" ;; esac
+grep -qxF -- "$MAP_HEADER" "$SKILL" || problem "no template header line: $MAP_HEADER"
+check "step 1 records the short hash that the template header names (Git: <short-hash>)" "$PROBLEMS"
+PROBLEMS=''
+case "$(fold_text < "$SKILL")" in *"$OLD_STEP1"*) problem "found" ;; esac
+check "the skill no longer says: $OLD_STEP1" "$PROBLEMS"
+
 bold "Architecture document"
 
 PROBLEMS=''
