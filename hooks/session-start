@@ -283,15 +283,6 @@ Tip: To skip manual steps in future, enable Auto-update for the marketplace in s
 # Run silently — a failure here must never break the session
 check_for_updates 2>/dev/null || true
 
-# ── Git repository check ──────────────────────────────────────────────────────
-# Detects when the working directory has no git repo and injects a quiet note.
-# This lets the AI offer git init during project-map.md generation without
-# announcing it verbally on every session start (no <important-reminder> tag).
-git_notice=""
-if ! git rev-parse --git-dir > /dev/null 2>&1; then
-    git_notice="${nl}${nl}<project-git-status>No git repository detected in the current working directory. When the user generates or updates project-map.md, offer to run 'git init' (creates a .git folder, touches no user files). If they decline, use file timestamps for staleness detection instead. Do not announce this proactively — only act on it when project-map.md is relevant.</project-git-status>"
-fi
-
 # ── Active work logs ──────────────────────────────────────────────────────────
 # Names the active work logs of the project (skills/worklog) in one short
 # notice; the content of a work log is never injected. The lines from ROOT= to
@@ -363,10 +354,20 @@ fi
 # "compact" event runs in the new folder. The memory files read below
 # (project-map.md, session-log.md, state.md, known-issues.md and
 # context-snapshot.json) live in the project folder, so the hook changes to
-# that folder first. The work log notice above stays the notice of the folder
-# where the hook started. With no variable, or with a folder that does not
-# exist, the hook stays in its own folder.
+# that folder first; the git repository check below also runs there. The
+# work log notice above stays the notice of the folder where the hook
+# started. With no variable, or with a folder that does not exist, the hook
+# stays in its own folder.
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || true; fi
+
+# ── Git repository check ──────────────────────────────────────────────────────
+# Detects when the working directory has no git repo and injects a quiet note.
+# This lets the AI offer git init during project-map.md generation without
+# announcing it verbally on every session start (no <important-reminder> tag).
+git_notice=""
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    git_notice="${nl}${nl}<project-git-status>No git repository detected in the current working directory. When the user generates or updates project-map.md, offer to run 'git init' (creates a .git folder, touches no user files). If they decline, use file timestamps for staleness detection instead. Do not announce this proactively — only act on it when project-map.md is relevant.</project-git-status>"
+fi
 
 # ── Legacy skills warning ──────────────────────────────────────────────────────
 warning_message=""

@@ -25,10 +25,16 @@
 #      project folder, no "project-map.md is stale" text (the map records the
 #      HEAD of the project folder, not of the worktree), and the work log
 #      notice of the worktree.
-#   4. Variable not set: the behaviour of the hook before the variable was
+#   4. The note "No git repository detected" describes the project folder,
+#      like the memory sections: variable set to the git project, hook
+#      started in a folder outside any repository: no note; variable set to
+#      a project folder without git, hook started inside the git project:
+#      the note.
+#   5. Variable not set: the behaviour of the hook before the variable was
 #      read. In src/ and in the worktree no memory section is injected; in
-#      docs/ the known issues of docs/ are injected. A variable that is empty
-#      or that names a missing folder gives the same output as no variable.
+#      docs/ the known issues of docs/ are injected; outside any repository
+#      the git note is injected. A variable that is empty or that names a
+#      missing folder gives the same output as no variable.
 #
 # Self-contained like tests/codex/test-session-start-budget.sh: no network
 # (SUPERPOWERS_AUTO_UPDATE=0), a temporary HOME, CLAUDE_PLUGIN_ROOT set. Every
@@ -40,6 +46,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 HOOK="${REPO_ROOT}/hooks/session-start"
 STALE_TEXT="project-map.md is stale"
+NO_GIT_TEXT="No git repository detected"
 # One text in each memory file of the project folder, and one in the product
 # document docs/known-issues.md.
 MAP_SENTINEL="ROOT-MAP-SENTINEL"
@@ -145,7 +152,11 @@ echo "session-start: memory files of the folder in CLAUDE_PROJECT_DIR"
 PROJECT="${TMP}/project"
 WORKTREE="${TMP}/worktree"
 MISSING="${TMP}/missing-folder"
-mkdir -p "$PROJECT/src" "$PROJECT/docs"
+# Two folders outside any git repository (GIT_CEILING_DIRECTORIES stops the
+# search of git at $TMP): a start folder, and a project folder without git.
+OUTSIDE="${TMP}/outside"
+NO_GIT_PROJECT="${TMP}/no-git-project"
+mkdir -p "$PROJECT/src" "$PROJECT/docs" "$OUTSIDE" "$NO_GIT_PROJECT"
 git -C "$PROJECT" init -q
 commit "$PROJECT" first
 printf '# Project Map\nGenerated: 2026-10-08 | Git: %s\n\n## Critical Constraints\n- %s\n' \
@@ -185,11 +196,20 @@ expect_project_sections "$label"
 assert_contains "${label}: the work log notice names the worktree's work log" "$CTX" \
   "Active work logs under ${WORKTREE}: ${WORKLOG_PATH}."
 
-# ── Case 4: variable not set ───────────────────────────────────────────────
+# ── Case 4: the git note describes the project folder ──────────────────────
+label="variable set to the git project, started outside any repository"
+run_case "$label" "$OUTSIDE" "$MODE_SET" "$PROJECT"
+expect_project_sections "$label"
+assert_absent "${label}: no '${NO_GIT_TEXT}' text" "$CTX" "$NO_GIT_TEXT"
+label="variable set to a project folder without git, started inside the git project"
+run_case "$label" "$PROJECT/src" "$MODE_SET" "$NO_GIT_PROJECT"
+assert_contains "${label}: the '${NO_GIT_TEXT}' text" "$CTX" "$NO_GIT_TEXT"
+
+# ── Case 5: variable not set ───────────────────────────────────────────────
 label="variable not set, started in the project folder"
 run_case "$label" "$PROJECT" "$MODE_UNSET"
 assert_same "${label}: the output equals the output with the variable set" "$CTX" "$BASE_SET"
-for folder in "$PROJECT/src" "$PROJECT/docs" "$WORKTREE"; do
+for folder in "$PROJECT/src" "$PROJECT/docs" "$WORKTREE" "$OUTSIDE"; do
   name="${folder#"$TMP"/}"
   label="variable not set, started in ${name}"
   run_case "$label" "$folder" "$MODE_UNSET"
@@ -199,6 +219,9 @@ for folder in "$PROJECT/src" "$PROJECT/docs" "$WORKTREE"; do
   done
   if [ "$folder" = "$PROJECT/docs" ]; then
     assert_contains "${label}: the known issues of docs/ are injected" "$CTX" "$DOCS_ISSUE_SENTINEL"
+  fi
+  if [ "$folder" = "$OUTSIDE" ]; then
+    assert_contains "${label}: the '${NO_GIT_TEXT}' text" "$CTX" "$NO_GIT_TEXT"
   fi
   # An empty value, then a folder that does not exist: the `cd` of the hook
   # is skipped or fails, and the hook goes on in its own folder.
