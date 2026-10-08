@@ -130,7 +130,7 @@ Then **pause before proceeding** and tell the user exactly this, with the `git i
 > **A ~30-second setup changes that permanently:**
 > - `git init` — enables staleness tracking so I only re-read files that actually changed *(creates `.git` only, nothing else)*
 > - `project-map.md` — I read this at every future session start instead of re-exploring blind
-> - `session-log.md` — auto-captures what was built and decided, so future sessions start with: *"I see from last session that X was rejected because Y — building with that constraint already applied"* instead of rediscovering it
+> - `session-log.md` — I record decisions and rejected approaches here when you say 'save state' or when a hook reminds me, so future sessions start with: *"I see from last session that X was rejected because Y — building with that constraint already applied"* instead of rediscovering it
 >
 > **Set this up before we build, or start immediately?**
 

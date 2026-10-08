@@ -818,6 +818,74 @@ for old in "${OLD_ARCH_GREPS[@]}"; do
   check "docs/architecture/project-memory.md no longer says: $old" "$PROBLEMS"
 done
 
+bold "Hot Files and how $LOG_NAME is written"
+
+# No hook writes session-log.md, and no entry has a `Files:` line: the AI
+# writes each [saved] entry with the skill, when the user asks or when the
+# decision-log reminder of the stop hook asks. Step 5 of the map procedure
+# therefore takes Hot Files from git.
+STEP5="$(region "$SKILL" '5. **Identify hot files:**' '6. **Write `project-map.md`' | fold_text)"
+HOT_FILES_COMMAND="git log -n 30 --name-only --format= | grep -v ${SQ}^\$${SQ} | sort | uniq -c | sort -rn | head -10"
+STEP5_RULE="5. **Identify hot files:** With git, list the files that recent commits changed most often, for example with ${BT}${HOT_FILES_COMMAND}${BT}. Leave out release and version files (the version file, release notes, package manifests): every release changes them, so they say nothing about the work. Without git, list the files edited most in this session. These are the ones most likely to need freshness checks on future sessions."
+OLD_STEP5="${BT}Files:${BT} lines"
+PROBLEMS=''
+case "$STEP5" in *"$STEP5_RULE"*) ;; *) problem "missing between step 5 and step 6" ;; esac
+check "step 5 holds: $STEP5_RULE" "$PROBLEMS"
+PROBLEMS=''
+case "$(fold_text < "$SKILL")" in *"$OLD_STEP5"*) problem "found" ;; esac
+check "the skill no longer says: $OLD_STEP5" "$PROBLEMS"
+
+# docs/architecture/project-memory.md: sentences (searched in the folded
+# text), then lines compared whole (a table row, a list item, a line of the
+# flow diagram), then the old wordings, which said that a hook writes the log.
+ARCH_SENTENCES=(
+  'A chronological log of the decisions made in past sessions. The AI writes each entry with the `context-management` skill.'
+  'No hook writes to `session-log.md`. The AI writes each entry with the `context-management` skill, in two cases:'
+  '- You ask for it, for example with "save state".'
+  '- The `stop-reminders` hook reminds it. When files such as skills, hooks, `CLAUDE.md`, specs or plans were edited since the last `[saved]` entry, the hook blocks the end of the turn and asks the AI to write a `[saved]` entry. Set `SUPERPOWERS_STOP_REMINDERS_OFF=decision-log` to switch this reminder off.'
+  'Each `[saved]` entry contains the goal, decisions made, approaches rejected, and open questions — structured for future recall.'
+  '**Zero setup for new projects.** `session-log.md` starts with the first `[saved]` entry, which the AI writes when you say "save state" or when the stop hook reminds it.'
+  'This fork (superpowers-orchestrator) implements the same episodic memory concept as a lighter-weight, dependency-free variant: plain markdown files, keyword grep instead of vector search, and entries that the AI writes with the `context-management` skill (on request or after a stop-hook reminder) instead of a separate archiving process.'
+  '**Additive, never destructive.** The save step of the `context-management` skill appends a new `[saved]` entry to `session-log.md` and never deletes an entry: when a new decision contradicts an old one, it only adds `[superseded by YYYY-MM-DD]` to the heading line of the old entry. The archive step runs only when you ask for it; it moves the oldest entries, unchanged, to `session-log-archive.md`.'
+)
+for sentence in "${ARCH_SENTENCES[@]}"; do
+  PROBLEMS=''
+  case "$ARCH_FOLDED" in *"$sentence"*) ;; *) problem "missing" ;; esac
+  check "docs/architecture/project-memory.md holds: $sentence" "$PROBLEMS"
+done
+# The Hot Files line of the sample map: the old one listed a manifest, a file
+# that step 5 now leaves out.
+OLD_HOT_FILES_LINE='hooks/session-start, hooks/stop-reminders.js, .claude-plugin/plugin.json'
+NEW_HOT_FILES_LINE='hooks/session-start, hooks/stop-reminders.js, hooks/skill-activator.js'
+ARCH_LINES=(
+  '| `session-log.md` | `context-management` skill, on request or after a stop-hook reminder | Episodic history of what happened across all sessions |'
+  '5. Identify hot files from `git log --name-only` over recent commits (the most often changed files, without release and version files)'
+  '            ├── [reminder] Stop hook asks for a [saved] entry after edits of skills, hooks, specs or plans'
+  "$NEW_HOT_FILES_LINE"
+  '- `hooks/stop-reminders.js` — the stop hook: when a turn ends, it reminds the AI about source edits without test changes, uncommitted files of the session, a missing `[saved]` entry (the decision-log reminder), a `state.md` older than the latest edits, and large `session-log.md` entries; it writes no session-log entry'
+)
+for line in "${ARCH_LINES[@]}"; do
+  PROBLEMS=''
+  grep -qxF -- "$line" "$ARCH_DOC" || problem "missing"
+  check "docs/architecture/project-memory.md holds the line: $line" "$PROBLEMS"
+done
+OLD_ARCH_WRITERS=(
+  '[auto]'
+  'built up automatically'
+  'Stop hook (automatic)'
+  'starts building automatically'
+  'automatic stop-hook writing'
+  "from ${BT}${LOG_NAME}${BT} history"
+  'auto-appends'
+  'The stop hook only appends'
+  "$OLD_HOT_FILES_LINE"
+)
+for old in "${OLD_ARCH_WRITERS[@]}"; do
+  PROBLEMS=''
+  case "$ARCH_FOLDED" in *"$old"*) problem "found" ;; esac
+  check "docs/architecture/project-memory.md no longer says: $old" "$PROBLEMS"
+done
+
 bold "Skill-activator routing"
 
 # route <prompt>: the skill that the skill-activator hook ranks first, or "none".
