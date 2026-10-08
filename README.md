@@ -208,35 +208,59 @@ known-issues.md        ← error→solution map (never re-debug the same thing)
 state.md               ← current task snapshot (never lose mid-work progress)
 ```
 
-### project-map.md — What exists and what it does
+### project-map.md — A guide to the project, written by the AI for the AI
 
-Generate once with "map this project". After that, the session-start hook injects its content directly into every session when it fits the hook's 10,000-character output budget (see **session-start** under Hooks below) — no instruction-following required. When it does not fit, the hook names the file in a `<not-injected>` line and the AI reads it with the Read tool.
+**Why it exists.** A new session knows nothing about your project. To find the file it needs, the AI lists folders and opens files. Each file it opens costs time and uses part of the context window (the limited amount of text the model can hold during one session). `project-map.md` is a short file that describes the project: how it is organised, which files matter and what each one does, and which important facts cannot be seen in the code. You ask for the map once, by saying "map this project", and the AI writes it. After that, a hook (a script that Claude Code runs automatically at a fixed moment) adds the map to each new session. The AI can then go to the right file directly instead of exploring.
+
+The map is an index, not a copy of the code. When the AI must change or debug a file, it still reads that file.
+
+The map does not replace `CLAUDE.md` (the instruction file that Claude Code reads at the start of every session). `CLAUDE.md` holds instructions that you write for the AI: how to work in this project. `project-map.md` holds a description that the AI writes for itself: what exists and where.
+
+**What it contains.** A header line records when the map was written and at which git commit. Four sections follow:
+
+| Section | What it holds |
+|---|---|
+| Directory Structure | One line per top-level folder: what the folder is for |
+| Key Files | 10 to 20 files that other parts depend on, or whose purpose is not clear from the name, with one line each |
+| Critical Constraints | Facts that are not visible in the code and that took time to learn. This is the most valuable section |
+| Hot Files | The files that past sessions changed most often |
+
+Example — a part of the map of this plugin's own repository:
 
 ```markdown
 # Project Map
 _Generated: 2026-03-20 14:32 | Git: a4b9c2d_
 
 ## Directory Structure
-skills/ — 32 skills, each in skills/<name>/SKILL.md
-hooks/ — 9 hooks (JS) + hooks.json registry + skill-rules.json
+skills/ — the skills, one folder each: skills/<name>/SKILL.md
+hooks/ — the hook scripts, hooks.json, skill-rules.json
 
 ## Key Files
-hooks/skill-activator.js — UserPromptSubmit: skill hints via skill-rules.json; memory recall from session-log.md + known-issues.md, each entry at most once per session. Micro-task detection skips all enrichment, and so do task notifications and messages from other agents.
-hooks/skill-rules.json — 29 rules covering 28 skills (context-management has two: map-project and save-state): skill name, keywords, intentPatterns, priority.
+hooks/skill-rules.json — keywords and patterns that decide which skill is suggested for a prompt
+hooks/session-start — runs when a session starts; adds the memory files to the session
 
 ## Critical Constraints
-- hooks.json uses \" not ' around ${CLAUDE_PLUGIN_ROOT} (single quotes break Linux)
-- plugin.json + marketplace.json must always have identical version strings
+- hooks.json must use double quotes around ${CLAUDE_PLUGIN_ROOT}; single quotes break the hooks on Linux
+- plugin.json and marketplace.json must always have identical version strings
 
 ## Hot Files
 hooks/stop-reminders.js, hooks/skill-activator.js, skills/using-superpowers/SKILL.md
 ```
 
-**Staleness is automatic.** The AI checks the git hash (or file timestamps on non-git projects) at every session start and re-reads only files that actually changed since the map was made. No manual invalidation needed.
+**How to create it.** Say "map this project". This plugin's `context-management` skill explores the project and writes `project-map.md` in the project root (the folder in which you open the session). The file must be in that folder, because the hook that reads it looks nowhere else. The skill keeps the map under 150 lines. Git does not commit the map: when git does not already track the file, the `track-edits` hook adds it to git's local exclude file (a list of files that git ignores, kept inside the `.git` folder and never committed), so `git status` does not show it.
 
-Works on any project — git or non-git. If no git is detected during map generation, the AI offers to run `git init` (creates a `.git` folder, touches none of your files). If you decline, it falls back to timestamp comparison instead.
+The AI also offers a map without being asked, in two cases:
+- **A build request in a folder without a map.** Your request contains a word such as "build", "create", "implement" or "write", and the folder has no `project-map.md`. Before it starts the work, the AI asks you whether to set up the memory files: it offers to run `git init` (only when the folder is not inside a git repository) and to generate the map. If you agree, it does both and then continues with your request. If you decline, it starts your request immediately.
+- **Any other task in a project without a map.** The project has 10 or more files and no map, and your task is not a micro task (a typo fix, the rename of one variable, or a one-line configuration change). The AI tells you once per session that you can say "map this project". It does not stop.
 
-**First-build prompt.** You don't need to remember to generate a map. When you type any creation-intent request ("build me X", "create X", "implement X") in a directory with no `project-map.md`, the AI pauses before starting and explains exactly what it will lose without the memory stack. It offers to set everything up in ~30 seconds. Say yes once — every future session on that project starts with full context.
+**How a session uses it.** The `session-start` hook runs when a session starts, after `/clear`, and after a compaction (when Claude Code replaces a long conversation with a summary). It does not run when you resume a session with `--resume` or `--continue`. Each time it runs, it adds the map to the session (the plugin calls this "injecting"):
+- A map of 200 lines or fewer is added whole. A longer map is reduced to its Critical Constraints and Hot Files sections.
+- Everything the hook adds must stay under 10,000 characters (see **session-start** under Hooks below). The hook first adds the first part of the `using-superpowers` skill, and the map is the last memory file in its order. When the map does not fit in the space that is left, the hook adds only a line that names the file, and the AI reads the file itself. A map under 150 lines can still be too large: the limit counts characters, not lines.
+
+**When the map is out of date.** The map is "stale" when the project has changed since the map was written. Each time the hook runs, it compares the commit recorded in the map's header with HEAD. When they differ, the hook adds a `<project-map-stale>` warning. The hook adds this warning even when the map was too large to add. On that warning, the AI lists the files that changed since the recorded commit (`git diff --name-only <commit> HEAD`). It re-reads only those files, updates their entries, and writes the new commit into the header.
+
+- The hook only detects a stale map; it does not update it. The AI normally makes the update when it sees the warning, because the skill instructions tell it to, but it can fail to do so. To be sure that the map is current, say "update project map".
+- Without git, the hook cannot detect a stale map and gives no warning. Only when you ask the AI to update the map does it compare the modification times of the files listed under Hot Files with the time in the map's header. For this reason, when the AI generates a map in a folder without git, it offers to run `git init` first. That command creates only a `.git` folder and changes none of your files.
 
 ### context-snapshot.json — What changed right before this session
 
