@@ -1293,13 +1293,13 @@ result=$(node -e "
 ")
 assert "hooks.json: all original hook sections still present" "$result" "ok"
 
-# README.md states the number of Claude Code hooks in three places. Each of
+# README.md states the number of Claude Code hooks in two places. Each of
 # these numbers must equal the number of commands that hooks/hooks.json starts.
 HOOK_COMMAND_COUNT=$(node -e "
   const h = JSON.parse(require('fs').readFileSync('hooks/hooks.json','utf8')).hooks;
   console.log(Object.values(h).flat().reduce((n, entry) => n + entry.hooks.length, 0));
 ")
-for pattern in 'The [0-9]+ lifecycle hooks' 'full [0-9]+-hook lifecycle' 'hooks/ — [0-9]+ hooks \(JS\)'; do
+for pattern in 'The [0-9]+ lifecycle hooks' 'full [0-9]+-hook lifecycle'; do
   assert "README.md: '$pattern' gives the number of commands in hooks/hooks.json ($HOOK_COMMAND_COUNT)" \
     "$(grep -oE -- "$pattern" README.md | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')" "$HOOK_COMMAND_COUNT "
 done
