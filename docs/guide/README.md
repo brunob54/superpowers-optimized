@@ -1255,6 +1255,9 @@ only up to that size). A file that does not fit is named in one
 `<not-injected>` line, and Claude reads it with the Read tool when the task
 needs it. A stale map is detected via git, and that notice is always small
 enough to be added.
+The hook reads these files in the session's project folder (the folder named
+by the environment variable `CLAUDE_PROJECT_DIR`), also when it runs after a
+`cd` in the session, for example at a compaction (since v7.68.0).
 When you submit a prompt, hooks inject any `known-issues.md` and
 `session-log.md` entries matching it — so a bug you fixed in March resurfaces
 as context the moment you hit it again in August, without you asking. Each
