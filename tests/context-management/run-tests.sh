@@ -779,6 +779,45 @@ DOC_RULE='The log is keyword-searchable and per-project. When it holds more than
 case "$(fold_text < "$ARCH_DOC")" in *"$DOC_RULE"*) ;; *) problem "the archive rule is missing: $DOC_RULE" ;; esac
 check "docs/architecture/project-memory.md: no \"6 months\" rule; the archive rule names 200, 100 and $ARCHIVE_NAME" "$PROBLEMS"
 
+bold "Documents: where the older entries are"
+
+# After an archive, the older entries are in session-log-archive.md, and the
+# automatic recall reads only session-log.md. Each document names both files.
+# Each line: a document, a tab, the sentence that the document must hold.
+README_DOC="$ROOT/README.md"
+GUIDE_DOC="$ROOT/docs/guide/README.md"
+while IFS="$(printf '\t')" read -r doc sentence; do
+  PROBLEMS=''
+  case "$(fold_text < "$doc")" in *"$sentence"*) ;; *) problem "missing" ;; esac
+  check "${doc#"$ROOT"/} holds: $sentence" "$PROBLEMS"
+done <<EOF
+$ARCH_DOC	For older history — decisions from earlier in a project's lifetime — Claude can grep \`$LOG_NAME\`, then \`$ARCHIVE_NAME\`, for keywords relevant to the current task.
+$README_DOC	Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; entries that an archive moved to \`$ARCHIVE_NAME\` are not surfaced.
+$GUIDE_DOC	The archive step also hides \`$ARCHIVE_NAME\` from \`git status\` with an exclude entry, unless git tracks \`$LOG_NAME\`; then commit the archive together with the log.
+$ARCH_DOC	The next session reads \`state.md\` first to restore context. Then it greps \`$LOG_NAME\` for relevant history, and then \`$ARCHIVE_NAME\`, which holds the older entries after an archive.
+EOF
+# The line of the flow diagram, compared whole: the tree characters and the
+# indentation are part of it.
+DIAGRAM_LINE="            ├── For older session history: Grep $LOG_NAME, then $ARCHIVE_NAME, for task keywords"
+PROBLEMS=''
+grep -qxF -- "$DIAGRAM_LINE" "$ARCH_DOC" || problem "missing"
+check "docs/architecture/project-memory.md holds the diagram line: $DIAGRAM_LINE" "$PROBLEMS"
+# The old wordings, each of which named only session-log.md for older
+# history. A check of the whole document for a grep without the archive name
+# would also match two lines that name no file to grep (the session-log.md
+# line of "Over time" and the "Token-efficient by design" paragraph).
+ARCH_FOLDED="$(fold_text < "$ARCH_DOC")"
+OLD_ARCH_GREPS=(
+  "Claude can \`Grep $LOG_NAME\`"
+  "then greps \`$LOG_NAME\` for relevant history."
+  "Grep $LOG_NAME for task keywords"
+)
+for old in "${OLD_ARCH_GREPS[@]}"; do
+  PROBLEMS=''
+  case "$ARCH_FOLDED" in *"$old"*) problem "found" ;; esac
+  check "docs/architecture/project-memory.md no longer says: $old" "$PROBLEMS"
+done
+
 bold "Skill-activator routing"
 
 # route <prompt>: the skill that the skill-activator hook ranks first, or "none".

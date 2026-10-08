@@ -1286,6 +1286,9 @@ What you should know as the owner of these files:
   context-management skill says so after a save and offers an archive;
   when you agree, it keeps the newest 100 entries and moves the older ones
   to `session-log-archive.md`, which the automatic recall does not read.
+  The archive step also hides `session-log-archive.md` from `git status`
+  with an exclude entry, unless git tracks `session-log.md`; then commit the
+  archive together with the log.
 - **`state.md` and `.superpowers/` are git-excluded** (the plugin adds the
   exclude entries itself): they survive crashes on the same machine but not a
   fresh clone or `git clean -fdx` — the recovery caveat from §5.

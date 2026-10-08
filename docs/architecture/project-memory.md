@@ -54,7 +54,7 @@ Open: Verify emoji renders correctly in Claude's context injection
 
 The `session-start` hook automatically injects the **last two `[saved]` entries** into every session before your first message arrives. This means recent decisions are always available without any instruction-following required.
 
-For older history — decisions from earlier in a project's lifetime — Claude can `Grep session-log.md` for keywords relevant to the current task. The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user's request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.
+For older history — decisions from earlier in a project's lifetime — Claude can grep `session-log.md`, then `session-log-archive.md`, for keywords relevant to the current task. The log is keyword-searchable and per-project. When it holds more than 200 entries, the context-management skill says so after a save and offers an archive; on the user's request, a script keeps the newest 100 entries and moves the older ones to `session-log-archive.md`, which the automatic recall does not read.
 
 This prevents:
 - Rediscovering the same bug twice
@@ -126,7 +126,7 @@ A short-lived task continuity file for when work spans multiple sessions. It cap
 
 ### When to use it
 
-When a complex multi-step task will continue in a future session, invoke `context-management` to save state before ending the session. The next session reads `state.md` first to restore context, then greps `session-log.md` for relevant history.
+When a complex multi-step task will continue in a future session, invoke `context-management` to save state before ending the session. The next session reads `state.md` first to restore context. Then it greps `session-log.md` for relevant history, and then `session-log-archive.md`, which holds the older entries after an archive.
 
 Unlike `session-log.md` (which is permanent history), `state.md` represents active in-progress work. Once the task is complete, it can be deleted or left as-is.
 
@@ -146,7 +146,7 @@ Session starts (session-start hook fires automatically)
             ▼
         Work happens
             │
-            ├── For older session history: Grep session-log.md for task keywords
+            ├── For older session history: Grep session-log.md, then session-log-archive.md, for task keywords
             ├── [auto] Stop hook appends minimal entry to session-log.md
             └── [manual] context-management writes rich [saved] entry + updates state.md
 

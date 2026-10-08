@@ -440,7 +440,7 @@ if [ -f "session-log.md" ]; then
               for (i = start; i <= n; i++) print saved_entries[i] }
     ' "session-log.md" 2>/dev/null || echo "")
     if [ -n "$saved_raw" ]; then
-        session_log_content="${nl}${nl}<session-log>${nl}*(Last saved decisions from session-log.md — full history searchable at session-log.md)*${nl}${saved_raw}${nl}</session-log>"
+        session_log_content="${nl}${nl}<session-log>${nl}*(Last saved decisions from session-log.md — older entries: grep session-log.md, then session-log-archive.md)*${nl}${saved_raw}${nl}</session-log>"
     fi
 fi
 

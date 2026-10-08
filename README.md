@@ -307,7 +307,7 @@ Key facts: hooks.json requires \" not ' around ${CLAUDE_PLUGIN_ROOT} — single 
 Open: Monitor whether [saved] entries get used in practice; if not, consider folding key facts into project-map.md Critical Constraints instead
 ```
 
-Write an entry by invoking `context-management`. Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area. **Entry size directly affects your per-session token cost** — the stop-hook monitors this and warns when entries exceed budget. Keep entries under 115 words.
+Write an entry by invoking `context-management`. Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; entries that an archive moved to `session-log-archive.md` are not surfaced. **Entry size directly affects your per-session token cost** — the stop-hook monitors this and warns when entries exceed budget. Keep entries under 115 words.
 
 ### known-issues.md — Error memory
 
