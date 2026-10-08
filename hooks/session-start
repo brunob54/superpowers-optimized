@@ -357,6 +357,17 @@ if [ -n "$LIST" ]; then
     worklog_notice="${nl}${nl}<active-work-logs>Active work logs under ${worklog_root}: ${worklog_paths}${worklog_more}. Before you work on one of them, read it with the Read tool and follow its section \"How to maintain this document\". During an orchestrated run or a whole-branch review, do not write it.</active-work-logs>"
 fi
 
+# ── Project folder ────────────────────────────────────────────────────────────
+# Claude Code sets CLAUDE_PROJECT_DIR to the project folder. This hook process
+# can start in another folder: after a `cd` in the session, the hook of the
+# "compact" event runs in the new folder. The memory files read below
+# (project-map.md, session-log.md, state.md, known-issues.md and
+# context-snapshot.json) live in the project folder, so the hook changes to
+# that folder first. The work log notice above stays the notice of the folder
+# where the hook started. With no variable, or with a folder that does not
+# exist, the hook stays in its own folder.
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || true; fi
+
 # ── Legacy skills warning ──────────────────────────────────────────────────────
 warning_message=""
 legacy_skills_dir="${HOME}/.config/superpowers/skills"

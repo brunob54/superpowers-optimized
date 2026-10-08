@@ -57,8 +57,8 @@ after the run ends.
 
 | # | Part | Status | Since | Commit | Note |
 |---|------|--------|-------|--------|------|
-| 1 | Design step for A1 to A13 | done | 2026-10-08 | | record `tmp/docs/2026-10-08-design-section-a.md` |
-| 2 | Release 1: memory files | not started | | | A4, A5, A10, A11, A12, A13 |
+| 1 | Design step for A1 to A13 | done | 2026-10-08 | a061765 | record `tmp/docs/2026-10-08-design-section-a.md` |
+| 2 | Release 1: memory files | in progress | 2026-10-08 | | A4, A5, A10, A11, A12, A13 |
 | 3 | Release 2: hook patterns and security review | not started | | | A1, A2, A3 (D10) |
 | 4 | Release 3: review prompts | dropped | 2026-10-08 | | A3 moved to part 3 (D10) |
 
