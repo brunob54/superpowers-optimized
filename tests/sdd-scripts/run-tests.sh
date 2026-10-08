@@ -1622,7 +1622,7 @@ awk '/^4\. Run the final whole-branch review loop\./ { exit } /^3\. For each tas
 SECURITY_FLAG_LINE='**Security flag:** `security`'
 assert_folded_contains "SKILL.md step 3: the trigger is a brief line that STARTS with the flag line, and the reviewer runs before the implementer" "$STEP3_TEXT" \
   "- Security review, when a line of the brief STARTS with \`\`$SECURITY_FLAG_LINE \`\` (the flag line of the plan template; a quoted sentence elsewhere in the task does not count): before the implementer, dispatch one reviewer that changes no file"
-assert_folded_contains "SKILL.md step 3: the reviewer runs no writing command and the dispatch names the three severities with the task-reviewer calibration" "$STEP3_TEXT" \
+assert_folded_contains "SKILL.md step 3: the reviewer runs no writing command" "$STEP3_TEXT" \
   'changes no file and runs no command that writes to the checkout, the index, HEAD or branch state, with the brief path'
 assert_folded_contains "SKILL.md step 3: the dispatch names Critical, Important and Minor with the calibration of task-reviewer-prompt.md" "$STEP3_TEXT" \
   'The dispatch names the three severities Critical, Important and Minor, with the calibration of `./task-reviewer-prompt.md` (its severity definitions).'

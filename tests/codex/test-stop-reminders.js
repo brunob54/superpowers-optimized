@@ -818,6 +818,8 @@ test('A React hook file (src/hooks/useAuth.js) does not ask for a decision-log e
   const result = evaluateStop(({ logDir, cwdDir }) => writeRecentEdit(logDir, path.join(cwdDir, 'src', 'hooks', 'useAuth.js')));
   assert.ok(!(result.reason || '').includes(DECISION_LOG),
     `Expected no decision-log reminder, got: ${JSON.stringify(result)}`);
+  assert.ok((result.reason || '').includes(TDD_SCENARIO.text),
+    `Expected the stop to produce a reminder for the source file, got: ${JSON.stringify(result)}`);
 });
 
 test('A hooks/*.js file beside a hooks.json asks for a decision-log entry', () => {

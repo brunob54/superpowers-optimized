@@ -717,6 +717,9 @@ bold "Skill text: the keyword search commands"
 # after such a byte on the same line, also with -a (measured).
 new_case keyword-search
 printf '# Session Log\n\n## 2026-01-01 10:00 [saved]\nGoal: caf\303\251 \377 note\nDecisions: hook auth bad\n\n## 2026-01-02 10:00 [saved]\nGoal: Hook deploy\nOpen: HOOK bad\n' > "$CASE_DIR/$LOG_NAME"
+# The archive holds one entry with both keywords, so the archive half of the
+# two-file command of step 3 is run and counted.
+printf '# Session Log Archive\n\n## 2025-12-01 10:00 [saved]\nOld: hook bad thing\n' > "$CASE_DIR/$ARCHIVE_NAME"
 # skill_command <placeholder>: the one command of the skill that holds the
 # placeholder, from a code block line or from an inline code span.
 skill_command() {
@@ -730,7 +733,9 @@ while IFS="$(printf '\t')" read -r placeholder swaps expected; do
   COMMAND="$(skill_command "$placeholder")"
   [ "$(printf '%s\n' "$COMMAND" | grep -c '')" = 1 ] || problem "not exactly one command holds $placeholder: $COMMAND"
   for swap in $(printf '%s' "$swaps" | tr ',' ' '); do COMMAND="${COMMAND//${swap%%=*}/${swap#*=}}"; done
-  (cd "$CASE_DIR" && LC_ALL=C.UTF-8 bash -c "$COMMAND") > "$OUTF" 2>/dev/null
+  (cd "$CASE_DIR" && LC_ALL=C.UTF-8 bash -c "$COMMAND") > "$OUTF" 2> "$ERRF"
+  # A missing file makes grep print a message on standard error.
+  [ ! -s "$ERRF" ] || problem "$COMMAND wrote to standard error: $(cat "$ERRF")"
   LINES="$(grep -c '' "$OUTF")"
   [ "$LINES" = "$expected" ] || problem "$COMMAND printed $LINES lines, expected $expected"
   # Every printed line holds the last keyword (a "binary file matches"
@@ -741,7 +746,7 @@ while IFS="$(printf '\t')" read -r placeholder swaps expected; do
 done <<'COMMANDS'
 <keyword1>	<keyword1>=hook	3
 <keyword2>	<keyword2>=bad	2
-<kw1>	<kw1>=hook,<kw2>=bad	2
+<kw1>	<kw1>=hook,<kw2>=bad	3
 <keyword>	<keyword>=hook	3
 COMMANDS
 PROBLEMS=''
