@@ -366,7 +366,7 @@ if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then cd "$CLAUDE_PROJECT_DIR" 2>/dev/null |
 # announcing it verbally on every session start (no <important-reminder> tag).
 git_notice=""
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
-    git_notice="${nl}${nl}<project-git-status>No git repository detected in the current working directory. When the user generates or updates project-map.md, offer to run 'git init' (creates a .git folder, touches no user files). If they decline, use file timestamps for staleness detection instead. Do not announce this proactively — only act on it when project-map.md is relevant.</project-git-status>"
+    git_notice="${nl}${nl}<project-git-status>No git repository detected in the project folder. When the user generates or updates project-map.md, offer to run 'git init' (creates a .git folder, touches no user files). If they decline, use file timestamps for staleness detection instead. Do not announce this proactively — only act on it when project-map.md is relevant.</project-git-status>"
 fi
 
 # ── Legacy skills warning ──────────────────────────────────────────────────────

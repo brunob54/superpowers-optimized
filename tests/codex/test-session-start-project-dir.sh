@@ -47,6 +47,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 HOOK="${REPO_ROOT}/hooks/session-start"
 STALE_TEXT="project-map.md is stale"
 NO_GIT_TEXT="No git repository detected"
+# The note names the folder it checks: the project folder, which can differ
+# from the current folder of the AI after a `cd`.
+NO_GIT_NOTE="${NO_GIT_TEXT} in the project folder."
+OLD_NO_GIT_PLACE="in the current working directory"
 # One text in each memory file of the project folder, and one in the product
 # document docs/known-issues.md.
 MAP_SENTINEL="ROOT-MAP-SENTINEL"
@@ -140,6 +144,13 @@ expect_project_sections() {
   assert_absent "$1: no '${STALE_TEXT}' text" "$CTX" "$STALE_TEXT"
 }
 
+# expect_no_git_note <label>: $CTX holds the git note, which names the
+# project folder, not the current working directory.
+expect_no_git_note() {
+  assert_contains "$1: the note '${NO_GIT_NOTE}'" "$CTX" "$NO_GIT_NOTE"
+  assert_absent "$1: no '${OLD_NO_GIT_PLACE}' text" "$CTX" "$OLD_NO_GIT_PLACE"
+}
+
 # commit <dir> <message>: one more commit in <dir> with what is staged.
 commit() {
   git -C "$1" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false \
@@ -203,7 +214,7 @@ expect_project_sections "$label"
 assert_absent "${label}: no '${NO_GIT_TEXT}' text" "$CTX" "$NO_GIT_TEXT"
 label="variable set to a project folder without git, started inside the git project"
 run_case "$label" "$PROJECT/src" "$MODE_SET" "$NO_GIT_PROJECT"
-assert_contains "${label}: the '${NO_GIT_TEXT}' text" "$CTX" "$NO_GIT_TEXT"
+expect_no_git_note "$label"
 
 # ── Case 5: variable not set ───────────────────────────────────────────────
 label="variable not set, started in the project folder"
@@ -221,7 +232,7 @@ for folder in "$PROJECT/src" "$PROJECT/docs" "$WORKTREE" "$OUTSIDE"; do
     assert_contains "${label}: the known issues of docs/ are injected" "$CTX" "$DOCS_ISSUE_SENTINEL"
   fi
   if [ "$folder" = "$OUTSIDE" ]; then
-    assert_contains "${label}: the '${NO_GIT_TEXT}' text" "$CTX" "$NO_GIT_TEXT"
+    expect_no_git_note "$label"
   fi
   # An empty value, then a folder that does not exist: the `cd` of the hook
   # is skipped or fails, and the hook goes on in its own folder.
