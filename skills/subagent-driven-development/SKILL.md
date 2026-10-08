@@ -66,7 +66,7 @@ digraph sdd_process {
 3. For each task:
 - Record BASE: `git rev-parse HEAD` before dispatching.
 - Run `scripts/task-brief PLAN_FILE N`.
-- Security review, when a line of the brief STARTS with ``**Security flag:** `security` `` (the flag line of the plan template; a quoted sentence elsewhere in the task does not count): before the implementer, dispatch one reviewer that changes no file, with the brief path, the plan's `**Global Constraints:**` block copied verbatim, and the files the task changes. It writes its report to `task-N-security-review.md` beside the brief (written again at every first implementer dispatch of the task; a fix dispatch runs no review) and returns at most 10 lines: the number of findings per severity and the report path. Your resolution of each Critical and Important finding goes to the implementer as item (4) of the dispatch (see File Handoffs); each Minor finding goes to the ledger (see Durable Progress). A plan-bound finding — one whose fix contradicts what the plan's text requires; the plan's `**Body authority:**` note says what binds: a Global Constraint, an `**Exact content:**` block or a stated `**Contract:**` — follows the plan-conflict rule of Constructing Reviewer Prompts (interactive: ask the user which governs; Batched Autonomous Mode: journal it and end the batch). You never lower its severity.
+- Security review, when a line of the brief STARTS with ``**Security flag:** `security` `` (the flag line of the plan template; a quoted sentence elsewhere in the task does not count): before the implementer, dispatch one reviewer that changes no file, with the brief path, the plan's `**Global Constraints:**` block copied verbatim, and the files the task changes. It writes its report to `task-N-security-review.md` beside the brief (written again at every implementer dispatch of the task, a retry included; a fix dispatch runs no review) and returns at most 10 lines: the number of findings per severity and the report path. Your resolution of each Critical and Important finding goes to the implementer as item (4) of the dispatch (see File Handoffs); each Minor finding goes to the ledger (see Durable Progress). A plan-bound finding — one whose fix contradicts what the plan's text requires; the plan's `**Body authority:**` note says what binds: a Global Constraint, an `**Exact content:**` block or a stated `**Contract:**` — follows the plan-conflict rule of Constructing Reviewer Prompts (interactive: ask the user which governs; Batched Autonomous Mode: journal it and end the batch). You never lower its severity.
 - Then dispatch the implementer (`./implementer-prompt.md`) with the brief path, a report-file path (`task-N-report.md` beside the brief), and an explicit model.
 - Resolve implementer questions before coding.
 - Require the implementer's ≤15-line status return; the detail lives in its report file.
@@ -468,7 +468,8 @@ workspace (`scripts/sdd-workspace` prints its path):
   brief path, introduced as "read this first — it is your requirements,
   with the exact values to use verbatim"; (3) interfaces and decisions
   from earlier tasks that the brief cannot know; (4) your resolution of
-  any ambiguity you noticed in the brief; (5) the report-file path and
+  any ambiguity you noticed in the brief, and of each Critical and Important
+  finding of the task's security review; (5) the report-file path and
   report contract. Exact values (numbers, magic strings, signatures, test
   cases) appear only in the brief.
 - **Report file:** name the implementer's report file after the brief

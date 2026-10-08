@@ -151,6 +151,7 @@ These commands always pass through with raw, unmodified output — regardless of
 | `echo`, `printf` | User is constructing specific output |
 | `node -e`, `python -e`, `ruby -e` | Inline script output is the point |
 | A dry run: any command with an option that starts with `--dry` (`git push --dry-run`, `npm install --dry-run`, `git add --dry`), and `git add -n` (also in a group of short options such as `-An`) | The command changes nothing, so the result that a rule states (`ok`, `added 25 packages`) would be false. Quotes are not parsed, so a commit message that holds ` --dry` also stops compression. |
+| `make` output | A target can run any program, so no rule can read its output |
 | Lint output (eslint, pylint, ruff and others) | No rule matches a lint command called by its own name (see "Lint output is not compressed") |
 | A test run whose output holds no summary line that the test rule reads, or holds a removed line about a test that did not run; `git commit` output without the commit line | The rule cannot read the result, and exit status 0 does not prove it (see "A rule states only what the output states") |
 | **Any command that fails** (non-zero exit code) | Error output must be seen in full |

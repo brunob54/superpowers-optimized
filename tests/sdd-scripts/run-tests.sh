@@ -1626,8 +1626,8 @@ assert_folded_contains "SKILL.md step 3: the review stands after the task-brief 
   '- Run `scripts/task-brief PLAN_FILE N`. - Security review, when'
 assert_folded_contains "SKILL.md step 3: the implementer dispatch stands after the review" "$STEP3_TEXT" \
   'You never lower its severity. - Then dispatch the implementer (`./implementer-prompt.md`) with the brief path'
-assert_folded_contains "SKILL.md step 3: the report file is task-N-security-review.md beside the brief, written again at every first implementer dispatch" "$STEP3_TEXT" \
-  'It writes its report to `task-N-security-review.md` beside the brief (written again at every first implementer dispatch of the task; a fix dispatch runs no review)'
+assert_folded_contains "SKILL.md step 3: the report file is task-N-security-review.md beside the brief, written again at every implementer dispatch, a retry included" "$STEP3_TEXT" \
+  'It writes its report to `task-N-security-review.md` beside the brief (written again at every implementer dispatch of the task, a retry included; a fix dispatch runs no review)'
 assert_folded_contains "SKILL.md step 3: a plan-bound finding follows the plan-conflict rule of Constructing Reviewer Prompts and keeps its severity" "$STEP3_TEXT" \
   'follows the plan-conflict rule of Constructing Reviewer Prompts (interactive: ask the user which governs; Batched Autonomous Mode: journal it and end the batch). You never lower its severity.'
 assert_folded_contains "SKILL.md Parallel Waves: a flagged task gets the review before the wave's implementers are dispatched" "$SDD_SKILL_MD" \
