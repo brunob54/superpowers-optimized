@@ -701,8 +701,8 @@ while IFS="$(printf '\t')" read -r label text rule; do
 done <<'RULES'
 the frontmatter description	FRONTMATTER	"create project map", "archive the session log", cross-session handoff needed
 the route table	STEP0	| "archive the session log" | [session-log.md Format and Maintenance](#session-logmd-format-and-maintenance) section |
-step 3 of the start-of-task search	STEP3	- **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints.
-step 6 of the save procedure	STEP6	With 0 hits there, grep `session-log-archive.md` too when it exists.
+step 3 of the start-of-task search	STEP3	- **Any hit count** → when `session-log-archive.md` exists, run the same `grep` commands on it too (an archive moved the older entries there); the hit counts below add up the two files. - **0 hits on all keywords** → fall back to `project-map.md` Critical Constraints.
+step 6 of the save procedure	STEP6	then grep `session-log.md` for relevant history, and `session-log-archive.md` too when it exists.
 RULES
 
 KEYWORD_RULE='The option `-a` makes `grep` read the file as text: without it, the `grep` of the Claude Code Bash tool prints nothing for a file that holds a byte that is not valid UTF-8 (Unicode Transformation Format, 8-bit). One case remains: the `grep` of macOS misses a keyword that stands after such a byte on the same line.'

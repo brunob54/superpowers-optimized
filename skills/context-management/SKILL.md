@@ -56,7 +56,8 @@ The option `-a` makes `grep` read the file as text: without it, the `grep` of th
 Check the hit count before reading results. This tells you whether to narrow or widen before committing to any output.
 
 **Step 3 — Adjust based on hit count:**
-- **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints. Relevant history may have been promoted there instead of staying in the log. If still nothing, proceed without history.
+- **Any hit count** → when `session-log-archive.md` exists, run the same `grep` commands on it too (an archive moved the older entries there); the hit counts below add up the two files.
+- **0 hits on all keywords** → fall back to `project-map.md` Critical Constraints. Relevant history may have been promoted there instead of staying in the log. If still nothing, proceed without history.
 - **1–10 hits** → read them. Surface past decisions, rejected approaches, and constraints.
 - **>10 hits on one keyword** → narrow with a second term: `grep -i -a "<kw1>" session-log.md | grep -i -a "<kw2>" | tail -20`
 
@@ -144,7 +145,7 @@ SAVED_ENTRY_END_7Q
    ```
    Without this command the stop hook repeats the decision-log reminder on every later stop in the same session.
 
-6. In a new session, read `state.md` first to restore task context, then grep `session-log.md` for relevant history. With 0 hits there, grep `session-log-archive.md` too when it exists.
+6. In a new session, read `state.md` first to restore task context, then grep `session-log.md` for relevant history, and `session-log-archive.md` too when it exists.
 
 ## session-log.md Format and Maintenance
 
