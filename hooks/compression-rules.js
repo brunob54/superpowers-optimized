@@ -352,7 +352,7 @@ const RULES = [
 
   {
     type: 'build-success',
-    match: /^(npm\s+run\s+build|yarn\s+build|pnpm\s+build|cargo\s+build|make\b|go\s+build|tsc\b|next\s+build|dotnet\s+build|gradle\s+build|mvn\s+(compile|package))\b/,
+    match: /^(npm\s+run\s+build|yarn\s+build|pnpm\s+build|cargo\s+build|go\s+build|tsc\b|next\s+build|dotnet\s+build|gradle\s+build|mvn\s+(compile|package))\b/,
     tier: 2,
     compress(stdout, stderr, exitCode) {
       // Only compress successful builds — errors need full context

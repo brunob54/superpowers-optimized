@@ -58,8 +58,8 @@ after the run ends.
 | # | Part | Status | Since | Commit | Note |
 |---|------|--------|-------|--------|------|
 | 1 | Design step for A1 to A13 | done | 2026-10-08 | a061765 | record `tmp/docs/2026-10-08-design-section-a.md` |
-| 2 | Release 1: memory files | in progress | 2026-10-08 | | A4, A5, A10, A11, A12, A13 |
-| 3 | Release 2: hook patterns and security review | not started | | | A1, A2, A3 (D10) |
+| 2 | Release 1: memory files | done | 2026-10-08 | 7aea188 | A4, A5, A10, A11, A12, A13; v7.68.0, merge 2a42184 |
+| 3 | Release 2: hook patterns and security review | in progress | 2026-10-08 | | A1, A2, A3 (D10); archive search rule (decision of 2026-10-08) |
 | 4 | Release 3: review prompts | dropped | 2026-10-08 | | A3 moved to part 3 (D10) |
 
 Status is one of: `not started`, `in progress`, `done`, `dropped`. A part that
@@ -84,7 +84,8 @@ merge or a rebase it no longer exists, and nobody has to correct it.
 - (part 1) The place of the A3 step inside SDD Core Flow step 3 is still
   open: the review runs between `task-brief` and the implementer dispatch,
   which `skills/subagent-driven-development/SKILL.md:68` holds together;
-  batch-template item 5 keeps its opening "5. A task with".
+  batch-template item 5 keeps its opening "5. A task with". Decided on
+  2026-10-08 at the start of part 3 (see `## Decisions`).
 
 ## Open items
 
@@ -147,3 +148,17 @@ blocks: a part number, or `whole work`.
 - 2026-10-08 (part 1): After release 1, prune this repository's untracked
   `project-map.md` to the skill's own size rules (D9 b: 41 Key Files
   against "10-20"). This is not a release.
+- 2026-10-08 (part 2): The whole-branch review of release 1 found that the
+  new recall notes say "grep session-log.md, then session-log-archive.md",
+  while `skills/context-management/SKILL.md:59` and `:147` grep the archive
+  only when the log gives 0 hits. The user chose: always search the archive
+  too. The two skill sentences change; the notes stay as decided in D2. The
+  change goes into part 3.
+- 2026-10-08 (part 3): The A3 security-review step goes between the
+  task-brief script and the implementer dispatch of SDD Core Flow step 3.
+  The bullet at `skills/subagent-driven-development/SKILL.md:68` is split
+  into two bullets ("Run `scripts/task-brief …`" and "Dispatch the
+  implementer …"), and the new bullet stands between them. The user chose
+  this over the three lens positions (before the bullet; after it, twice):
+  it is the only place that reads in run order, and the only pin on that
+  line is a folded one (`tests/reviewer-templates/run-tests.sh:827`).

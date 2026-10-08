@@ -282,6 +282,10 @@ assert "cargo test → test-pass rule"         "$(check_rule 'cargo test' "$(fix
 assert "pytest → test-pass rule"             "$(check_rule 'pytest' "$JEST_OUT")"   "test-pass"
 assert "ls → ls-large rule"                  "$(check_rule 'ls')"                   "ls-large"
 assert "cargo build → build-success rule"    "$(check_rule 'cargo build')"          "build-success"
+# `make` output is never compressed: a target can run any program (a report
+# script, a lint tool, a test run), so no rule can read its output.
+assert "make measure-context → no rule"      "$(check_rule 'make measure-context TRANSCRIPT=x')" "none"
+assert "make lint → no rule"                 "$(check_rule 'make lint')"            "none"
 assert "docker build → docker-build rule"    "$(check_rule 'docker build .')"       "docker-build"
 # Redirects contain '&' but join no commands, so they do not stop compression.
 assert "npm test 2>&1 → compressed"          "$(check_rule 'npm test 2>&1' "$JEST_OUT")"       "test-pass"
