@@ -791,7 +791,9 @@ const PYTHON_TEST_FILE_CASES = [
   ['/p/src/latest_report.py', false],
   ['/p/contest_utils.py', false],
   ['test_x.py', true],
+  // The tests/ folder pattern decides this case, not the test_ file pattern.
   ['/r/tests/test_x.py', true],
+  ['/r/src/test_x.py', true],
   ['C:\\r\\test_x.py', true],
 ];
 

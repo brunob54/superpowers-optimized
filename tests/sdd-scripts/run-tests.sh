@@ -1638,6 +1638,8 @@ assert_folded_contains "SKILL.md Parallel Waves: a flagged task gets the review 
   'A task of the wave that carries the security flag gets the security review of Core Flow step 3 before the wave'"'"'s implementers are dispatched; your resolutions of its findings go into that implementer'"'"'s dispatch, as in the sequential flow.'
 assert_folded_contains "SKILL.md Batched Autonomous Mode: the review gate points to the security review of Core Flow step 3" "$SDD_SKILL_MD" \
   'and the security review of Core Flow step 3 for `security`-flagged tasks'
+assert_folded_contains "SKILL.md File Handoffs: item (4) of the implementer dispatch carries the resolution of each Critical and Important finding of the security review" "$SDD_SKILL_MD" \
+  'and of each Critical and Important finding of the task'"'"'s security review; (5) the report-file path'
 
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
