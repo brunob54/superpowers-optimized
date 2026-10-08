@@ -189,7 +189,7 @@ The log contains a single entry type:
 
 5. **Identify hot files:** With git, list the files that recent commits changed most often, for example with `git log -n 30 --name-only --format= | grep -v '^$' | sort | uniq -c | sort -rn | head -10`. Leave out release and version files (the version file, release notes, package manifests): every release changes them, so they say nothing about the work. Without git, list the files edited most in this session. These are the ones most likely to need freshness checks on future sessions.
 
-6. **Write `project-map.md` at the project root** — same level as `CLAUDE.md` and `package.json`, never in `docs/` or any subdirectory. The session-start hook looks for it with `[ -f "project-map.md" ]` in the project folder (the folder in `CLAUDE_PROJECT_DIR` when Claude Code sets that variable, else the folder where the hook starts) — if it's anywhere else, the hook cannot find it and every future session loses the map. Use this format:
+6. **Write `project-map.md` at the project root** — same level as `CLAUDE.md` and `package.json`, never in `docs/` or any subdirectory. The session-start hook looks for it with `[ -f "project-map.md" ]` in the folder where the session was started (Claude Code gives that folder to hooks as `CLAUDE_PROJECT_DIR`; a Bash command cannot read this variable) — if it's anywhere else, the hook cannot find it and every future session loses the map. Use this format:
 
 ```markdown
 # Project Map
