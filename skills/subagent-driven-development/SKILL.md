@@ -65,7 +65,9 @@ digraph sdd_process {
 2. Create task tracking for all tasks. Run the Pre-Flight Plan Review (below) before dispatching Task 1.
 3. For each task:
 - Record BASE: `git rev-parse HEAD` before dispatching.
-- Run `scripts/task-brief PLAN_FILE N` and dispatch the implementer (`./implementer-prompt.md`) with the brief path, a report-file path (`task-N-report.md` beside the brief), and an explicit model.
+- Run `scripts/task-brief PLAN_FILE N`.
+- Security review, when a line of the brief STARTS with ``**Security flag:** `security` `` (the flag line of the plan template; a quoted sentence elsewhere in the task does not count): before the implementer, dispatch one reviewer that changes no file, with the brief path, the plan's `**Global Constraints:**` block copied verbatim, and the files the task changes. It writes its report to `task-N-security-review.md` beside the brief (written again at every first implementer dispatch of the task; a fix dispatch runs no review) and returns at most 10 lines: the number of findings per severity and the report path. Your resolution of each Critical and Important finding goes to the implementer as item (4) of the dispatch (see File Handoffs); each Minor finding goes to the ledger (see Durable Progress). A plan-bound finding — one whose fix contradicts what the plan's text requires; the plan's `**Body authority:**` note says what binds: a Global Constraint, an `**Exact content:**` block or a stated `**Contract:**` — follows the plan-conflict rule of Constructing Reviewer Prompts (interactive: ask the user which governs; Batched Autonomous Mode: journal it and end the batch). You never lower its severity.
+- Then dispatch the implementer (`./implementer-prompt.md`) with the brief path, a report-file path (`task-N-report.md` beside the brief), and an explicit model.
 - Resolve implementer questions before coding.
 - Require the implementer's ≤15-line status return; the detail lives in its report file.
 - Run `scripts/review-package BASE HEAD` (never `HEAD~1` — it silently drops all but the last commit of a multi-commit task) and dispatch the single task reviewer (`./task-reviewer-prompt.md`) with the brief, report, and package paths.
@@ -227,6 +229,8 @@ When tasks are independent and touch disjoint files, dispatch them as a wave —
 6. Proceed to the next wave.
 
 If any overlap or shared-state risk exists within a wave, move the conflicting task to the next sequential wave.
+
+A task of the wave that carries the security flag gets the security review of Core Flow step 3 before the wave's implementers are dispatched; your resolutions of its findings go into that implementer's dispatch, as in the sequential flow.
 
 **Why single-message dispatch matters for cost:** All subagents share the same cached system prompt prefix. Dispatching them simultaneously in one message means every agent gets a cache hit on that prefix and only pays for its small unique task prompt. Staggered dispatch provides no additional benefit and wastes wall-clock time.
 
@@ -401,7 +405,7 @@ implementer statuses for the duration of a batch:
   attempted first, but escalating to the user (item 4) and skip-and-advance
   (item 5) are replaced by end-batch-and-journal.
 
-Review gates are NOT relaxed: the full task review (spec-compliance AND code-quality verdicts) per task, and pre-implementation security review for `security`-flagged tasks. A conflict found by the Pre-Flight Plan Review is a blocker: journal it under `## Open Issues` and end the batch — never best-guess a plan conflict.
+Review gates are NOT relaxed: the full task review (spec-compliance AND code-quality verdicts) per task, and the security review of Core Flow step 3 for `security`-flagged tasks. A conflict found by the Pre-Flight Plan Review is a blocker: journal it under `## Open Issues` and end the batch — never best-guess a plan conflict.
 
 ### Resume Procedure (fresh session after /clear)
 

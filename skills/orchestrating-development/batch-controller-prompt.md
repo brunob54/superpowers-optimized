@@ -224,9 +224,15 @@ Agent tool (general-purpose):
        package from REVIEW_BASE — orphan commits are reviewed with the
        completion. Never apply SDD's crash shortcut ("commits present →
        mark complete"): it skips the review gate.
-    5. A task with **Security flag:** `security` gets the
-       pre-implementation security review SDD mandates before its
-       implementer is dispatched.
+    5. A task with **Security flag:** `security` gets the security
+       review of SDD's Core Flow step 3 before its implementer is
+       dispatched. A plan-bound finding of that review (its fix
+       contradicts what the plan's text requires) is a plan conflict:
+       return `BLOCKED task=<n>` with a `### Conflict <k>` section in
+       the task's report file (Deviation 1). A finding that an answer
+       line `[task <n>/<k>]` of this task in `## Resume Answer` already
+       settles is not a new conflict: apply that answer, as Deviation 1
+       says for a pre-flight conflict.
     6. Any task that cannot reach completed-with-clean-review makes your
        whole return BLOCKED for that task; earlier completed tasks keep
        their checkboxes, commits, and ledger lines.

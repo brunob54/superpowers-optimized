@@ -527,6 +527,23 @@ assert_folded_contains "batch-controller-prompt.md: a worker prompt is never com
 assert_folded_not_contains "batch-controller-prompt.md: the verb-less template fragment is gone" \
   "$BATCH_BLOCK" '[TASK_REVIEWER_PROMPT_PATH]. Scripts'
 
+bold "5e. Deviation item 5: the security review is the one of SDD's Core Flow step 3; a plan-bound finding is a Deviation 1 conflict"
+# Item 5 asked for "the pre-implementation security review SDD mandates",
+# and SDD defined none. It now points to the review of SDD's Core Flow
+# step 3 and says what a finding does: a plan-bound finding returns
+# BLOCKED with a Conflict section, and a finding that an answer line of
+# this task already settles is not a new conflict (no stop loop after a
+# "plan governs" ruling). The opening "5. A task with" stays: the
+# in-run-rulings suite finds the end of Deviation 4 by it.
+assert_folded_contains "batch-controller-prompt.md item 5: the review is the one of SDD's Core Flow step 3, before the implementer" \
+  "$BATCH_BLOCK" '5. A task with **Security flag:** `security` gets the security review of SDD'"'"'s Core Flow step 3 before its implementer is dispatched.'
+assert_folded_contains "batch-controller-prompt.md item 5: a plan-bound finding returns BLOCKED with a Conflict section" \
+  "$BATCH_BLOCK" 'A plan-bound finding of that review (its fix contradicts what the plan'"'"'s text requires) is a plan conflict: return `BLOCKED task=<n>` with a `### Conflict <k>` section in the task'"'"'s report file (Deviation 1).'
+assert_folded_contains "batch-controller-prompt.md item 5: a finding that an answer line of this task settles is not a new conflict" \
+  "$BATCH_BLOCK" 'A finding that an answer line `[task <n>/<k>]` of this task in `## Resume Answer` already settles is not a new conflict: apply that answer, as Deviation 1 says for a pre-flight conflict.'
+assert_folded_not_contains "batch-controller-prompt.md item 5: no longer says 'SDD mandates'" \
+  "$BATCH_BLOCK" 'SDD mandates'
+
 bold "6. The Resume Answer section: heading without a parenthetical, the fixed sentence, the placeholder below it"
 for t in "${RESUME_TEMPLATES[@]}"; do
   f="$ORCH_DIR/$t"
