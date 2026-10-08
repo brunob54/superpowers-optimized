@@ -8,6 +8,107 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.69.0 — make output stays raw, two reminder patterns, the security review defined, the archive always searched
+
+**Problem.** The compression hook treated every `make` output as a build; a
+target can run any program. The test-file pattern took `latest_report.py`
+for a test file, and every `hooks/*.js` edit asked for a decision-log entry.
+Two skills and the batch-controller template named a security review that
+none defined. The context-management skill searched the archive only on 0
+hits.
+
+**Change.** `make` leaves the build rule. The Python test pattern needs a
+file name starting with `test_`; the hook pattern needs `.claude/hooks/` or
+a `hooks` folder that holds `hooks.json`. Core Flow step 3 of the subagent-
+driven-development skill defines the security review. The skill always
+searches `session-log-archive.md` too when it exists.
+
+**Effect.** Update the plugin and restart the CLI. Nothing to migrate.
+
+A session runs the installed copy of the plugin. The changes below reach a
+session only after an update of the plugin and a restart of the
+command-line interface (CLI). They are part 3 of the work log
+`docs/worklogs/group-a-fixes.md` (items A1, A2, A3 and the archive-search
+decision of 2026-10-08).
+
+### 1. `make` output is never compressed (A2)
+
+The `build-success` rule of `hooks/compression-rules.js` matched `make`, so
+the output of any `make` target was cut to the shape of a build: real
+`make measure-context` output of 50 non-empty lines became 6. A target can
+run any program, so no rule can read its output. The alternation `make\b|`
+is removed from the rule; `cargo build`, `go build` and the other build
+commands keep it. The three sentences that stated the old limit
+(`README.md`, `docs/architecture/smart-compress.md`,
+`skills/token-efficiency/SKILL.md`) are corrected, and the architecture
+document's "What Is NEVER Compressed" table gains a `make` row. Two checks in
+`tests/smart-compress/run-tests.sh` pin `make lint` and
+`make measure-context` as uncompressed (282 checks).
+
+### 2. Two file patterns of the stop reminders (A1)
+
+`hooks/stop-reminders.js` took every Python file whose name holds `test_`
+for a test file (`latest_report.py`, `contest_utils.py`), so an edit of such
+a file silenced the test-first reminder. The pattern is now
+`/(?:^|[/\\])test_[^/\\]+\.py$/`: the file name itself must start with
+`test_`. The decision-log reminder fired for every `.js` file in a folder
+named `hooks`, also `src/hooks/useAuth.js` of a React project. It now fires
+for a `.js` file directly in `.claude/hooks/`, or directly in a folder named
+`hooks` that holds `hooks.json` (the function `isPluginHookScript`, which
+reads the project tree and never the installed copy of this plugin).
+Measured on 310 distinct real edited paths: the old and the new test pattern
+differ on none of them. Ten tests added to
+`tests/codex/test-stop-reminders.js` (154 tests).
+
+### 3. The security review of a security-flagged task (A3)
+
+`skills/writing-plans/SKILL.md`, the batch-controller template and the
+subagent-driven-development (SDD) skill all named a pre-implementation
+security review for a task with `**Security flag:** \`security\``, and none
+defined it. Core Flow step 3 of the SDD skill now holds the review as its own
+bullet, between the task-brief script and the implementer dispatch (the
+former single bullet is split in two). The trigger is a line of the brief
+that starts with the flag line; one reviewer that changes no file and runs
+no command that writes to the checkout gets the brief path, the plan's
+Global Constraints and the files the task changes; its findings are graded
+Critical, Important or Minor with the calibration of
+`task-reviewer-prompt.md`; it writes `task-N-security-review.md` beside the
+brief and returns at most 10 lines. The controller's resolution of each
+Critical and Important finding goes to the implementer as File Handoffs
+item (4); each Minor finding goes to the ledger. A plan-bound finding (its
+fix contradicts what the plan's text requires) follows the plan-conflict
+rule of "Constructing Reviewer Prompts", and its severity is never lowered.
+Parallel Waves and the Batched Autonomous Mode gate point to that bullet;
+item 5 of `batch-controller-prompt.md` returns `BLOCKED task=<n>` with a
+`### Conflict <k>` section for a plan-bound finding, and a finding that an
+answer line of the task in `## Resume Answer` already settles is not a new
+conflict. No new template and no placeholder (the user's decision D8).
+Fourteen folded pins added (`tests/sdd-scripts` 307 checks,
+`tests/orchestrating-development` 239 checks).
+
+### 4. The archive is always searched
+
+The hook notes of v7.68.0 say "grep session-log.md, then
+session-log-archive.md", while `skills/context-management/SKILL.md` searched
+the archive only when `session-log.md` gave 0 hits. The user decided: the
+skill always runs the same search on `session-log-archive.md` too when it
+exists, in the start-of-task search (step 3, also the narrowing command for
+more than 10 hits) and in step 6 of the save procedure; the fallback to
+`project-map.md` now applies to 0 hits in both files. The two whole-sentence
+pins of `tests/context-management/run-tests.sh` are changed in place, and
+the keyword-search case now writes an archive file and fails on a missing
+one (108 checks).
+
+### Review
+
+Whole-branch review (`multi-code-review`, N=4, M=1; log
+`.superpowers/reviews/fix-group-a-release-2-review-log.md`): rounds 1 to 4
+found 0 Critical, 3 Important and 9 Minor findings; two verification cycles
+of the round 4 lens found 1 Important and 4 Minor. One Important finding was
+rejected (the release bump is made after the review); the other three and
+eight Minor findings are fixed in four review-fix commits; five Minor
+findings are carried as accepted limits in the work log.
+
 ## v7.68.0 — memory files: the project folder, one hash form, the archive named
 
 **Problem.** After a `cd`, the session-start hook of a compaction read the

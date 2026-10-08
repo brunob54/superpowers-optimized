@@ -797,7 +797,7 @@ while IFS="$(printf '\t')" read -r doc sentence; do
   check "${doc#"$ROOT"/} holds: $sentence" "$PROBLEMS"
 done <<EOF
 $ARCH_DOC	For older history — decisions from earlier in a project's lifetime — Claude can grep \`$LOG_NAME\`, then \`$ARCHIVE_NAME\`, for keywords relevant to the current task.
-$README_DOC	Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; entries that an archive moved to \`$ARCHIVE_NAME\` are not surfaced.
+$README_DOC	Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; the hooks never inject entries that an archive moved to \`$ARCHIVE_NAME\`; the keyword search of the context-management skill reads that file too.
 $GUIDE_DOC	The archive step also hides \`$ARCHIVE_NAME\` from \`git status\` with an exclude entry, unless git tracks \`$LOG_NAME\`; then commit the archive together with the log.
 $ARCH_DOC	The next session reads \`state.md\` first to restore context. Then it greps \`$LOG_NAME\` for relevant history, and then \`$ARCHIVE_NAME\`, which holds the older entries after an archive.
 EOF

@@ -122,6 +122,10 @@ blocks: a part number, or `whole work`.
 - 2026-10-08 item A11: without git, Hot Files has no data source — no source exists; the section may stay empty
 - 2026-10-08 item A11: the without-git rule at using-superpowers/SKILL.md:150 can never run, because it sits under the <project-map-stale> tag, which the hook emits only with git — measured by C and R; recorded as a finding outside group A
 - 2026-10-08 item A13: a project-map.md larger than the room left in the session-start output (about 1,900 to 2,600 characters for all memory sections) is never injected, and the skill's size rule counts lines, not characters — by design (v7.31.0 order); README.md:258 documents it; the <not-injected> line names the file and entry step 6 reads it
+- 2026-10-08 item A1: a plugin whose hooks are registered inline in .claude-plugin/plugin.json keeps hooks/*.js with no hooks.json beside them, so the decision-log reminder no longer fires for its hook scripts — whole-branch review of release 2; outside decision D4 (the registry is hooks.json); advisory reminder only
+- 2026-10-08 item A1: the test for a hooks/*.js file beside hooks.json repeats the updated "Detects hooks/*.js edits" case, and a top-level hooks/x.js without hooks.json has no negative case — whole-branch review of release 2; the pattern is proven by the .claude/hooks and src/hooks cases; advisory reminder only
+- 2026-10-08 item A3: a flag line at the start of a line inside a fenced block of the brief triggers the security review, and a flag written as a sub-bullet or indented never triggers it — whole-branch review of release 2; cost one reviewer dispatch, no lost work
+- 2026-10-08 item A3: the Parallel Waves pin searches the whole SDD skill file, not the section, and no executable case runs task-brief on a plan with the flag line to assert that the brief holds it at the start of a line — whole-branch review of release 2; task-brief prints task lines verbatim; the sentence names "A task of the wave"
 
 ## Decisions
 
