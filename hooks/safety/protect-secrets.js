@@ -71,6 +71,9 @@ const ENV_DUMP_RULE = 'env-dump';
 const ECHO_SECRET_VAR_RULE = 'echo-secret-var';
 // The refusal for hardcoded content shows this text before the `id` of the content pattern.
 const HARDCODED_PREFIX = 'hardcoded-';
+// The last sentence of every refusal reason of this hook. It names no variable: a refusal reason goes to the
+// model, and a model that learns the name of the switch could set it to avoid its own refusal.
+const NO_SETTINGS_CHANGE = 'Never change Claude Code settings or hook files to get past this refusal; ask the user.';
 
 // Files explicitly safe to access (templates, examples)
 const ALLOWLIST = [
@@ -503,16 +506,22 @@ function checkOne(c, lastXargs) {
   return null;
 }
 
+// Ends the reason of a refusal with NO_SETTINGS_CHANGE. A result that is not a refusal is returned as it is.
+function finishRefusal(result) {
+  if (!result.blocked) return result;
+  return { ...result, pattern: { ...result.pattern, reason: `${result.pattern.reason} ${NO_SETTINGS_CHANGE}` } };
+}
+
 function checkBashCommand(cmd) {
   if (!cmd) return ALLOWED;
-  return decideCommand(cmd, (commands) => {
+  return finishRefusal(decideCommand(cmd, (commands) => {
     // Found once for the whole call, so that the time for a long list of commands grows with its length.
     const lastXargs = new Map();
     for (const c of commands) {
       if (c.prefixes.includes(XARGS) && !(lastXargs.get(c.pipeline) > c.order)) lastXargs.set(c.pipeline, c.order);
     }
     return firstRefusal(commands, (c) => checkOne(c, lastXargs));
-  });
+  }));
 }
 
 function isContentScanAllowlisted(filePath) {
@@ -569,7 +578,7 @@ function check(toolName, toolInput) {
   if (toolName === BASH_TOOL) return checkBashCommand(toolInput?.command);
   const pathResult = checkToolPaths(toolName, toolInput);
   // Also scan content being written for hardcoded secrets
-  return pathResult.blocked ? pathResult : checkWriteContent(toolName, toolInput);
+  return finishRefusal(pathResult.blocked ? pathResult : checkWriteContent(toolName, toolInput));
 }
 
 if (require.main === module) {

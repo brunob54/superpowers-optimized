@@ -511,6 +511,24 @@ const SWITCH_CASES = [
   switchedBash('a name from block-dangerous-commands switches nothing off', 'git-clean', `cat ${ENV}`, DENY, ENV_FILE),
 ];
 
+// The last sentence of every refusal reason of this hook.
+const NO_SETTINGS_CHANGE = 'Never change Claude Code settings or hook files to get past this refusal; ask the user.';
+const REFUSED_FORMS = [
+  bash('a file in a command', `cat ${ENV}`, DENY, ENV_FILE),
+  bash('the environment', 'env', DENY, ENV_DUMP),
+  bash('a secret variable', 'echo $API_KEY', DENY, SECRET_VAR),
+  bash('a command that cannot be read to its end', `echo "abc; cat ${ENV}`, DENY, UNREADABLE),
+  tool('Read of a file', 'Read', { file_path: `/proj/${ENV}` }, DENY, ENV_FILE),
+  tool('Grep with a glob', 'Grep', { pattern: 'KEY', glob: '*.pem' }, DENY, 'pem-key'),
+  tool('Write of a hardcoded token', 'Write', writeOf(`const t = "${fakeToken}";`), DENY, 'hardcoded-github-token'),
+];
+// No refusal reason names the switch variable, except when the refused command names it itself.
+const HIDDEN_NAME = [
+  bash('echo of the variable: the command names it, so the reason may', `echo $${SECRETS_SWITCH}`, DENY, SECRET_VAR),
+  bash('printenv of the variable', `printenv ${SECRETS_SWITCH}`, DENY, SECRET_VAR),
+  bash('the form that shows only whether it is set', `echo "\${${SECRETS_SWITCH}:+set}"`, ALLOW),
+];
+
 async function runSwitched(report, title, cases) {
   report.section(title);
   const results = await runAll(cases, (c) => runHook(HOOK, c.input, hookEnv(home, { [SECRETS_SWITCH]: c.list }), { allowSystemMessage: true }));
@@ -546,10 +564,26 @@ async function main() {
   await runNamed(report, 'neighbours of the corrections, on both sides', NEIGHBOURS);
   await runSwitched(report, 'the switch SUPERPOWERS_SECRETS_RULES_OFF', SWITCH_CASES);
 
+  report.section('every refusal reason ends with the sentence that tells an assistant to ask the user');
+  const endings = await runAll(REFUSED_FORMS, (c) => runHook(HOOK, c.input, env));
+  REFUSED_FORMS.forEach((c, k) => {
+    const problem = compare(endings[k], c.expect, c.rule)
+      || (endings[k].reason.endsWith(` ${NO_SETTINGS_CHANGE}`) ? '' : `reason: ${endings[k].reason}`);
+    report.check(`${c.label} → ends with the sentence`, problem && `${problem}\n    input: ${JSON.stringify(c.shown)}`);
+  });
+
+  await runNamed(report, 'the name of the switch in a refusal reason', HIDDEN_NAME);
+  const naming = await runHook(HOOK, bashInput(`echo $${SECRETS_SWITCH}`), env);
+  report.check('the one allowed exception: the reason names the variable when the command names it',
+    naming.reason.includes(SECRETS_SWITCH) ? '' : `reason: ${naming.reason}`);
+  const keyRefusal = await runHook(HOOK, bashInput('cat ~/.ssh/id_rsa'), hookEnv(home, { [SECRETS_SWITCH]: ENV_FILE }));
+  report.check('a reason does not name the variable while the variable is set',
+    compare(keyRefusal, DENY, SSH_KEY) || (keyRefusal.reason.includes(SECRETS_SWITCH) ? `reason: ${keyRefusal.reason}` : ''));
+
   report.section('messages and hook input');
   const write = await runHook(HOOK, bashInput(`echo "A=1" > ${ENV}`), env);
   report.check('the message for a write names the rule and tells to ask the user',
-    /^\[env-file\] The redirect `>` would write the secret file `\.env` .+ Safe form: ask the user to create or change the file.+ Do not retry with another spelling\.$/.test(write.reason)
+    /^\[env-file\] The redirect `>` would write the secret file `\.env` .+ Safe form: ask the user to create or change the file.+ Do not retry with another spelling\. Never change Claude Code settings or hook files to get past this refusal; ask the user\.$/.test(write.reason)
       ? '' : `message: ${write.reason}`);
   const fakeKey = 'AKIA' + 'ABCDEFGHIJKLMNOP';
   const content = await runHook(HOOK, { tool_name: 'Write', tool_input: { file_path: '/proj/src/config.js', content: `const k = "${fakeKey}";` } }, env);
