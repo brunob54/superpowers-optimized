@@ -832,7 +832,7 @@ git commit -m "feat(protect-secrets): a per-rule switch SUPERPOWERS_SECRETS_RULE
 - Verification: the new section in `tests/codex/test-protect-secrets.js` (ending of seven kinds of refusal; the three hidden-name cases; the variable set while a key is refused); the changed message regex of the same file; the hidden-name check that `tests/codex/safety-hook-helper.js` runs on every refusal of every case and fixture; the same check inside `tests/codex/test-pretool-bash-adapter.js`.
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/codex/test-protect-secrets.js`:
 
@@ -911,12 +911,12 @@ function test(label, payload, assertFn) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/codex/test-protect-secrets.js | grep -E "✗|passed" | head -20`
 Expected: FAIL — the seven `→ ends with the sentence` checks and the changed `the message for a write ...` check fail (the reasons do not end with the sentence yet); the hidden-name checks pass.
 
-- [ ] **Step 3: Add the sentence to every refusal of protect-secrets**
+- [x] **Step 3: Add the sentence to every refusal of protect-secrets**
 
 In `hooks/safety/protect-secrets.js`, directly after the constant `HARDCODED_PREFIX` (added in Task 3) add this comment:
 
@@ -968,12 +968,12 @@ function check(toolName, toolInput) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/codex/test-protect-secrets.js | tail -3 && node tests/codex/test-pretool-bash-adapter.js | tail -2 && node tests/codex/test-block-dangerous-commands.js | tail -2`
 Expected: PASS — every output ends with `0 failed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add hooks/safety/protect-secrets.js tests/codex/test-protect-secrets.js tests/codex/test-pretool-bash-adapter.js
