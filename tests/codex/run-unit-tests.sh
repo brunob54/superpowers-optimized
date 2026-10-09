@@ -54,6 +54,7 @@ run_test "session-start (update check only in a clone of the plugin)" "${SCRIPT_
 run_test "session-start (memory files of the folder in CLAUDE_PROJECT_DIR)" "${SCRIPT_DIR}/test-session-start-project-dir.sh" bash
 run_test "session-start (stale note for the hash of project-map.md)" "${SCRIPT_DIR}/test-session-start-map-hash.sh" bash
 run_test "check-no-superpowers-defaults-setting" "${SCRIPT_DIR}/test-check-no-superpowers-defaults-setting.sh" bash
+run_test "check-no-secrets-rules-managed-setting" "${SCRIPT_DIR}/test-check-no-secrets-rules-setting.sh" bash
 run_test "claude-code work folder" "${SCRIPT_DIR}/test-claude-code-workdir.sh" bash
 run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activator.js"
 run_test "block-dangerous-commands (PreToolUse Bash)" "${SCRIPT_DIR}/test-block-dangerous-commands.js"

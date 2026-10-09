@@ -18,6 +18,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../lib/timeout-shim.sh"
 source "$SCRIPT_DIR/test-helpers.sh"
 
+# protect-secrets has a per-rule switch: the variable SUPERPOWERS_SECRETS_RULES_OFF holds rule names that the hook
+# does not apply. Test 1 below expects the rule echo-secret-var to refuse a command. A user who switched that rule
+# off (in settings.json, in a shell, or in a managed settings file) would see no refusal, and this test would print
+# the false conclusion "Subagents bypass safety hooks". The test therefore:
+#   1. unsets the variable in its own shell (for a value exported there);
+#   2. passes an empty value with --settings in every claude run below. Claude Code reads the env block of its
+#      settings files itself, so the unset alone does not remove a value of settings.json. The settings page ranks
+#      command-line settings above local, project and user settings, and an empty value means every rule is on;
+#   3. stops when managed settings set the variable: only managed settings rank above the command line.
+unset SUPERPOWERS_SECRETS_RULES_OFF
+check_no_secrets_rules_managed_setting || exit 1
+SECRETS_RULES_SETTINGS='{"env":{"SUPERPOWERS_SECRETS_RULES_OFF":""}}'
+
 echo "========================================================"
 echo " Test: Subagent Hook Scope"
 echo " Do PreToolUse/PostToolUse hooks fire inside subagents?"
@@ -75,6 +88,7 @@ IMPORTANT: Do NOT run the command yourself. You MUST use the Agent tool to dispa
 
 run_claude_in_workdir "$CLAUDE_WORKDIR" 120 -p "$PROMPT_PRETOOL" \
     --permission-mode bypassPermissions \
+    --settings "$SECRETS_RULES_SETTINGS" \
     --add-dir "$TEST_PROJECT" \
     2>&1 | tee "$TRANSCRIPT_DIR/output-pretool.txt" || true
 
@@ -99,6 +113,7 @@ IMPORTANT: Do NOT create the file yourself. You MUST use the Agent tool to dispa
 
 run_claude_in_workdir "$CLAUDE_WORKDIR" 120 -p "$PROMPT_POSTTOOL" \
     --permission-mode bypassPermissions \
+    --settings "$SECRETS_RULES_SETTINGS" \
     --add-dir "$TEST_PROJECT" \
     2>&1 | tee "$TRANSCRIPT_DIR/output-posttool.txt" || true
 
