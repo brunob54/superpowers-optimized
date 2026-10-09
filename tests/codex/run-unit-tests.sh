@@ -44,6 +44,7 @@ run_test "pretool-bash-adapter" "${SCRIPT_DIR}/test-pretool-bash-adapter.js"
 run_test "posttool-bash-compress-adapter" "${SCRIPT_DIR}/test-posttool-bash-compress-adapter.js"
 run_test "stop-adapter"         "${SCRIPT_DIR}/test-stop-adapter.js"
 run_test "stop-reminders (Claude Stop shape)" "${SCRIPT_DIR}/test-stop-reminders.js"
+run_test "name-list (the parser of the name-list switches)" "${SCRIPT_DIR}/test-name-list.js"
 run_test "session-start-adapter" "${SCRIPT_DIR}/test-session-start-adapter.js"
 run_test "session-start (superpowers-defaults block)" "${SCRIPT_DIR}/test-session-start-defaults-block.sh" bash
 run_test "session-start (10,000-character budget)" "${SCRIPT_DIR}/test-session-start-budget.sh" bash

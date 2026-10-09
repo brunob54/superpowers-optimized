@@ -32,6 +32,7 @@ const {
   statsFile,
   writeTimeFile,
 } = require('./save-marker');
+const { parseNameList, unknownNames } = require('./name-list');
 
 // A user switches off individual reminders with a comma-separated list of their
 // names in this environment variable, for example "commit,tdd". Names are not
@@ -50,10 +51,7 @@ const REMINDER = Object.freeze({
 const KNOWN_REMINDER_NAMES = Object.values(REMINDER);
 
 function namesSwitchedOff() {
-  return (process.env[REMINDERS_OFF_VARIABLE] || '')
-    .split(',')
-    .map(entry => entry.trim().toLowerCase())
-    .filter(entry => entry.length > 0);
+  return parseNameList(process.env[REMINDERS_OFF_VARIABLE]);
 }
 
 function isReminderOn(name) {
@@ -68,10 +66,10 @@ function isReminderOn(name) {
  * makes anyway; an unknown name never makes the hook block on its own.
  */
 function unknownNameWarning() {
-  const unknownNames = namesSwitchedOff().filter(name => !KNOWN_REMINDER_NAMES.includes(name));
-  if (unknownNames.length === 0) return null;
+  const unknownEntries = unknownNames(namesSwitchedOff(), KNOWN_REMINDER_NAMES);
+  if (unknownEntries.length === 0) return null;
   return (
-    `Unknown name in ${REMINDERS_OFF_VARIABLE}: ${unknownNames.map(name => `"${name}"`).join(', ')}. ` +
+    `Unknown name in ${REMINDERS_OFF_VARIABLE}: ${unknownEntries.map(name => `"${name}"`).join(', ')}. ` +
     `Separate names with commas. Known names: ${KNOWN_REMINDER_NAMES.join(', ')}. ` +
     'Tell the user about this; do not change the setting yourself.'
   );
