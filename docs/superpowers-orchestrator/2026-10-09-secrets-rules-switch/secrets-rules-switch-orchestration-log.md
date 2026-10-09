@@ -7,3 +7,8 @@ plan: docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/plans/secret
 
 ## Phase 2 — Plan review — rounds 4 — converged — unresolved 0
 readiness owed: 2 undecidable conflicts (spec 9.1 file-reading code against "existing function does not change"; Global Constraints 3 "Codex is not tested" against the spec 9.1 Codex adapter test edits); 4 harness probes owed (round 1 M3; round 4 M1, M2, M3)
+
+## Phase 3 — Batch 1 (tasks 1–3) — COMPLETE — commits 3040091..71f0f6f
+- Task 1: complete — shared name-list helper (commits 3040091..d164c68)
+- Task 2: complete — hook output extras, test helper and pins (commits 3ca5019..12555fd)
+- Task 3: complete — protect-secrets switch (commits a51597a..71f0f6f)
