@@ -1174,7 +1174,7 @@ git commit -m "feat(protect-secrets): the log record names unknown names of the 
 - Verification: `bash tests/codex/test-check-no-secrets-rules-setting.sh`; `bash tests/codex/test-check-no-superpowers-defaults-setting.sh` (unchanged cases still pass); `bash tests/codex/test-claude-code-workdir.sh`; `grep -c -- '--settings "$SECRETS_RULES_SETTINGS"' tests/claude-code/test-subagent-hook-scope.sh` prints `2`; `bash -n` on both scripts.
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the failing unit test**
+- [x] **Step 1: Write the failing unit test**
 
 Create `tests/codex/test-check-no-secrets-rules-setting.sh`:
 
@@ -1248,12 +1248,12 @@ In `tests/codex/run-unit-tests.sh`, add after the line `run_test "check-no-super
 run_test "check-no-secrets-rules-managed-setting" "${SCRIPT_DIR}/test-check-no-secrets-rules-setting.sh" bash
 ```
 
-- [ ] **Step 2: Run the unit test to verify it fails**
+- [x] **Step 2: Run the unit test to verify it fails**
 
 Run: `bash tests/codex/test-check-no-secrets-rules-setting.sh`
 Expected: FAIL — `check_no_secrets_rules_managed_setting: command not found` (exit status 127 inside the function call, so every `expect_status` reports a wrong status).
 
-- [ ] **Step 3: Add the functions to the test helpers**
+- [x] **Step 3: Add the functions to the test helpers**
 
 In `tests/claude-code/test-helpers.sh`:
 
@@ -1293,12 +1293,12 @@ check_no_secrets_rules_managed_setting() {
 export -f check_no_secrets_rules_managed_setting
 ```
 
-- [ ] **Step 4: Run the unit tests to verify they pass**
+- [x] **Step 4: Run the unit tests to verify they pass**
 
 Run: `bash tests/codex/test-check-no-secrets-rules-setting.sh && bash tests/codex/test-check-no-superpowers-defaults-setting.sh | tail -3`
 Expected: PASS — the first prints `check_no_secrets_rules_managed_setting: 7 passed, 0 failed` and exits 0; the second prints no `FAIL` line.
 
-- [ ] **Step 5: Isolate the behavioural test**
+- [x] **Step 5: Isolate the behavioural test**
 
 In `tests/claude-code/test-subagent-hook-scope.sh`, directly after the line `source "$SCRIPT_DIR/test-helpers.sh"` add:
 
@@ -1320,12 +1320,12 @@ SECRETS_RULES_SETTINGS='{"env":{"SUPERPOWERS_SECRETS_RULES_OFF":""}}'
 
 In both `run_claude_in_workdir` calls (the ones that run `-p "$PROMPT_PRETOOL"` and `-p "$PROMPT_POSTTOOL"`), add the line `    --settings "$SECRETS_RULES_SETTINGS" \` directly after the line `    --permission-mode bypassPermissions \`.
 
-- [ ] **Step 6: Verify the behavioural test script and the static scan**
+- [x] **Step 6: Verify the behavioural test script and the static scan**
 
 Run: `bash -n tests/claude-code/test-subagent-hook-scope.sh && bash -n tests/claude-code/test-helpers.sh && grep -c -- '--settings "$SECRETS_RULES_SETTINGS"' tests/claude-code/test-subagent-hook-scope.sh && bash tests/codex/test-claude-code-workdir.sh | tail -3`
 Expected: no syntax error; the count prints `2`; the last command ends with a line that has no `FAIL` (all checks `ok`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tests/claude-code/test-helpers.sh tests/claude-code/test-subagent-hook-scope.sh tests/codex/test-check-no-secrets-rules-setting.sh tests/codex/run-unit-tests.sh
