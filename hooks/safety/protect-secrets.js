@@ -22,6 +22,11 @@
  * inside the Bash rules is refused in the same way. An error inside the check
  * of Read, Edit, Write or Grep is a pass (see hook-io.js for the reason).
  *
+ * Switch. The environment variable SUPERPOWERS_SECRETS_RULES_OFF holds a comma-separated list of rule names
+ * (KNOWN_RULE_NAMES). A rule in the list is not applied: the hook filters its rule tables, so a command that
+ * names a second secret file is still refused by the rule of that file. `unreadable-command` cannot be
+ * switched off.
+ *
  * Limits. The hook reads text; it cannot see these, and passes them:
  *   - a variable that holds the path (`F=.env; cat "$F"`), and an alias;
  *   - a script file that exists already, `make`, `npm run`;
@@ -49,6 +54,7 @@ const {
   splitArgs, hasLong, gitCall, expandBraces, toPosix, ASSIGNMENT, XARGS, TEXT_PROGRAMS, FIND_EXEC_OPTIONS,
 } = require('./shell-words');
 const { runHook, refusal, decideCommand, firstRefusal, ALLOWED, BASH_TOOL, NO_RETRY } = require('./hook-io');
+const { parseNameList } = require('../name-list');
 
 const HOOK_NAME = 'protect-secrets';
 const GREP_TOOL = 'Grep';
@@ -56,6 +62,15 @@ const FILE_TOOLS = ['Read', 'Edit', 'Write'];
 const WRITE_TOOLS = ['Edit', 'Write'];
 const ASK_USER = 'ask the user to create or change the file, or to give you the one value that the task needs; '
   + 'to create the file from a template without replacing it: `cp -n <template> <file>`';
+
+// The environment variable that switches rules off: a comma-separated list of rule names (KNOWN_RULE_NAMES).
+// A rule in the list is not applied. The name of a rule is the text that its refusal shows in square brackets.
+const RULES_OFF_VARIABLE = 'SUPERPOWERS_SECRETS_RULES_OFF';
+// The two Bash rules have no table row; their names are constants that the rule and KNOWN_RULE_NAMES share.
+const ENV_DUMP_RULE = 'env-dump';
+const ECHO_SECRET_VAR_RULE = 'echo-secret-var';
+// The refusal for hardcoded content shows this text before the `id` of the content pattern.
+const HARDCODED_PREFIX = 'hardcoded-';
 
 // Files explicitly safe to access (templates, examples)
 const ALLOWLIST = [
@@ -210,6 +225,16 @@ const HARDCODED_SECRET_PATTERNS = [
   { id: 'supabase-key',      regex: /sbp_[A-Za-z0-9]{40,}/,                                                                 name: 'Supabase service key',         envHint: 'SUPABASE_SERVICE_ROLE_KEY' },
 ];
 
+const contentRuleName = (pattern) => `${HARDCODED_PREFIX}${pattern.id}`;
+
+// Every name that the switch knows, derived from the tables above: 27 path rows, 14 content patterns, 2 Bash rules.
+const KNOWN_RULE_NAMES = [
+  ...SENSITIVE_FILES.map(row => row.id),
+  ...HARDCODED_SECRET_PATTERNS.map(contentRuleName),
+  ENV_DUMP_RULE,
+  ECHO_SECRET_VAR_RULE,
+];
+
 // Files in which a text that looks like a secret is expected and is not flagged
 const CONTENT_SCAN_ALLOWLIST = [
   /\.env(\..*)?$/i,           // template files such as .env.example hold placeholder values
@@ -222,6 +247,20 @@ const CONTENT_SCAN_ALLOWLIST = [
 // (the file systems of macOS and Windows do not tell `.ENV` from `.env`).
 const normalizePath = (p) => toPosix(String(p)).toLowerCase();
 
+// The names that the user switched off, as a set. The variable is read at each decision, not once when the
+// module loads, so that a test can set it after `require`. The last value is kept with its set, so a Bash
+// command with thousands of words parses the list once. The returned set is shared: a caller must not change it.
+let lastValue;
+let lastSet = new Set();
+function rulesOff() {
+  const value = process.env[RULES_OFF_VARIABLE];
+  if (value !== lastValue) {
+    lastValue = value;
+    lastSet = new Set(parseNameList(value));
+  }
+  return lastSet;
+}
+
 function isAllowlisted(filePath) {
   return Boolean(filePath) && ALLOWLIST.some(p => p.test(normalizePath(filePath)));
 }
@@ -231,7 +270,8 @@ function secretRow(filePath) {
   if (!filePath) return null;
   const p = normalizePath(filePath);
   if (PUBLIC_KEY.test(p) || ALLOWLIST.some(a => a.test(p))) return null;
-  return SENSITIVE_FILES.find(row => row.regex.test(p)) || null;
+  const off = rulesOff();
+  return SENSITIVE_FILES.find(row => row.regex.test(p) && !off.has(row.id)) || null;
 }
 
 // The parts of a file name pattern.
@@ -303,9 +343,11 @@ function secretRowOfPattern(pattern) {
     const name = p.slice(dir.length);
     if (!name.startsWith('.') && name.replace(/[*?[\]]/g, '').length < MIN_PATTERN_CHARACTERS) continue;
     const parts = patternParts(name);
-    const sample = HIDDEN_SAMPLE_NAMES.find(s => matchesPattern(parts, s));
-    const row = sample ? secretRow(dir + sample) : null;
-    if (row) return row;
+    // Every sample that the pattern matches is tried: the first one can have a row that is switched off.
+    for (const sample of HIDDEN_SAMPLE_NAMES) {
+      const row = matchesPattern(parts, sample) ? secretRow(dir + sample) : null;
+      if (row) return row;
+    }
   }
   return null;
 }
@@ -443,13 +485,14 @@ function checkOne(c, lastXargs) {
     const effect = r.op.includes('>') ? 'write' : 'read';
     if (row) return fileRefusal(row, `The redirect \`${r.op}\` would ${effect} the secret file \`${r.target.text}\``);
   }
-  if (dumpsEnvironment(c)) {
-    return refusal('env-dump', `\`${c.program}\` would print every variable of the environment, and some hold secrets.`,
+  const off = rulesOff();
+  if (!off.has(ENV_DUMP_RULE) && dumpsEnvironment(c)) {
+    return refusal(ENV_DUMP_RULE, `\`${c.program}\` would print every variable of the environment, and some hold secrets.`,
       '`printenv NAME` for one variable that is not a secret, or `echo "${NAME:+set}"` to see whether a variable is set');
   }
-  const secretVariable = printedSecretVariable(c);
+  const secretVariable = off.has(ECHO_SECRET_VAR_RULE) ? null : printedSecretVariable(c);
   if (secretVariable) {
-    return refusal('echo-secret-var', `\`${c.program}\` would print the value of the secret variable \`${secretVariable}\`.`,
+    return refusal(ECHO_SECRET_VAR_RULE,`\`${c.program}\` would print the value of the secret variable \`${secretVariable}\`.`,
       `\`echo "\${${secretVariable}:+set}"\` shows whether it is set and does not print the value`);
   }
   const feedsXargs = lastXargs.has(c.pipeline) && lastXargs.get(c.pipeline) > c.order;
@@ -486,12 +529,14 @@ function checkWriteContent(toolName, toolInput) {
   const content = toolName === 'Write' ? toolInput?.content : toolInput?.new_string;
   if (!content || typeof content !== 'string') return ALLOWED;
 
+  const off = rulesOff();
   for (const p of HARDCODED_SECRET_PATTERNS) {
-    if (p.regex.test(content)) {
+    const name = contentRuleName(p);
+    if (!off.has(name) && p.regex.test(content)) {
       return {
         blocked: true,
         pattern: {
-          id: `hardcoded-${p.id}`,
+          id: name,
           reason: `Hardcoded ${p.name} detected in content. Do not write the value into a file. Write code that reads it from the environment (process.env.${p.envHint}), and ask the user to store the value. ${NO_RETRY}`,
         },
       };
@@ -531,7 +576,7 @@ if (require.main === module) {
   runHook(HOOK_NAME, [...FILE_TOOLS, GREP_TOOL, BASH_TOOL], (data) => check(data.tool_name, data.tool_input));
 } else {
   module.exports = {
-    SENSITIVE_FILES, HARDCODED_SECRET_PATTERNS, CONTENT_SCAN_ALLOWLIST, ALLOWLIST,
+    SENSITIVE_FILES, HARDCODED_SECRET_PATTERNS, CONTENT_SCAN_ALLOWLIST, ALLOWLIST, KNOWN_RULE_NAMES, RULES_OFF_VARIABLE,
     check, checkFilePath, checkBashCommand, checkWriteContent, isAllowlisted, isContentScanAllowlisted,
   };
 }

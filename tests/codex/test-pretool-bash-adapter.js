@@ -13,6 +13,12 @@
 
 const assert = require('assert');
 
+const { SECRETS_SWITCH } = require('./safety-hook-helper');
+
+// A user who sets the switch of protect-secrets in settings.json passes it to every command that the assistant
+// runs, and so to this file. Every test below expects the default (every rule on).
+delete process.env[SECRETS_SWITCH];
+
 const { evaluatePayload } = require('../../hooks/codex/pretool-bash-adapter');
 
 let passed = 0;

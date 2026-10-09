@@ -14,8 +14,12 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, makeReport, compare, DENY, ALLOW,
+  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, makeReport, compare, DENY, ALLOW, SECRETS_SWITCH,
 } = require('./safety-hook-helper');
+
+// A user who sets the switch in settings.json passes it to every command that the assistant runs, and so to
+// this file. Every case below expects the default (every rule on) unless it sets the variable itself.
+delete process.env[SECRETS_SWITCH];
 
 const HOOK = hookPath('protect-secrets.js');
 // The tools for which the hook decides.
@@ -445,6 +449,77 @@ const UNREADABLE_CASES = [
   bash('here-document in a substitution with an apostrophe', "git commit -m \"$(cat <<'EOF'\nfix: don't stop (here\nEOF\n)\"", ALLOW),
 ];
 
+// The switch SUPERPOWERS_SECRETS_RULES_OFF. A case: the list in the variable, the input, the decision, the rule.
+const STRIPE_KEY = 'sk_' + 'live_' + 'a1B2c3'.repeat(5);
+// Matches `hardcoded-aws-secret-key` and `hardcoded-generic-api-key`, and no other content pattern.
+const AWS_SECRET_ASSIGNMENT = 'secret_key = "' + 'a1B2c3D4e5'.repeat(4) + '"';
+const SOURCE_FILE = '/proj/src/config.js';
+const switched = (label, list, input, shown, expect, rule) => ({ label, list, input, shown, expect, rule });
+const switchedBash = (label, list, command, expect, rule) => switched(label, list, bashInput(command), command, expect, rule);
+const switchedTool = (label, list, toolName, toolInput, expect, rule) =>
+  switched(label, list, { tool_name: toolName, tool_input: toolInput }, `${toolName} ${JSON.stringify(toolInput)}`, expect, rule);
+const writeOf = (content) => ({ file_path: SOURCE_FILE, content });
+
+const SWITCH_CASES = [
+  // One path row off: every tool passes, and the other rows still refuse.
+  switchedBash('cat of the file', ENV_FILE, `cat ${ENV}`, ALLOW),
+  switchedBash('grep of the file', ENV_FILE, `grep KEY ${ENV}`, ALLOW),
+  switchedBash('git add of the file', ENV_FILE, `git add ${ENV}`, ALLOW),
+  switchedBash('a redirect to the file', ENV_FILE, `echo A=1 > ${ENV}`, ALLOW),
+  switchedBash('rg with a glob for the file', ENV_FILE, `rg -g '*${ENV}' KEY`, ALLOW),
+  switchedTool('Read of the file', ENV_FILE, 'Read', { file_path: `/proj/${ENV}` }, ALLOW),
+  switchedTool('Edit of the file', ENV_FILE, 'Edit', { file_path: `/proj/${ENV}`, old_string: 'a', new_string: 'b' }, ALLOW),
+  switchedTool('Write of the file', ENV_FILE, 'Write', { file_path: `/proj/${ENV}`, content: 'A=1' }, ALLOW),
+  switchedTool('Grep with the file as its path', ENV_FILE, 'Grep', { pattern: 'KEY', path: `/proj/${ENV}` }, ALLOW),
+  switchedTool('Grep with a glob for the file', ENV_FILE, 'Grep', { pattern: 'KEY', glob: `*${ENV}` }, ALLOW),
+  switchedTool('Read of .env.local (the name covers every suffix)', ENV_FILE, 'Read', { file_path: `/proj/${ENV}.local` }, ALLOW),
+  switchedTool('Read of .env.production', ENV_FILE, 'Read', { file_path: `/proj/${ENV}.production` }, ALLOW),
+  switchedTool('Read of a private key is still refused', ENV_FILE, 'Read', { file_path: '/home/me/.ssh/id_rsa' }, DENY, SSH_KEY),
+  switchedBash('the file and a private key in one command: the key is refused', ENV_FILE, `cat ${ENV} ~/.ssh/id_rsa`, DENY, SSH_KEY),
+  // Overlapping rows: a path stays refused while one of its rows is on.
+  switchedTool('a private key with only ssh-private-key off', SSH_KEY, 'Read', { file_path: '/home/me/.ssh/id_rsa' }, DENY, 'ssh-private-key-2'),
+  switchedTool('a private key with both rows off', `${SSH_KEY},ssh-private-key-2`, 'Read', { file_path: '/home/me/.ssh/id_rsa' }, ALLOW),
+  switchedTool('credentials.json with credentials-json off alone (secrets-file still covers it)', 'credentials-json',
+    'Read', { file_path: '/proj/credentials.json' }, DENY, 'secrets-file'),
+  // File name patterns.
+  switchedBash('.* with env-file and envrc off: the .netrc sample still refuses', 'env-file,envrc', 'cat .*', DENY, 'netrc'),
+  switchedBash('*.env with env-file and envrc off passes', 'env-file,envrc', `cat *${ENV}`, ALLOW),
+  switchedBash('.env* with env-file off: the .envrc sample still refuses', ENV_FILE, `cat ${ENV}*`, DENY, 'envrc'),
+  switchedBash('documented limit: ~/.ssh/id_* passes with only ssh-private-key off', SSH_KEY, 'cat ~/.ssh/id_*', ALLOW),
+  // Content patterns. The two ALLOW cases with one pattern off are also the check that spec section 9.1 asks for:
+  // each value (the GitHub token, the Stripe key) matches exactly one pattern, because a second matching pattern
+  // would still refuse it.
+  switchedTool('a GitHub token with its pattern off', 'hardcoded-github-token', 'Write', writeOf(`const t = "${fakeToken}";`), ALLOW),
+  switchedTool('a Stripe key while only the GitHub pattern is off', 'hardcoded-github-token', 'Write', writeOf(`const k = "${STRIPE_KEY}";`),
+    DENY, 'hardcoded-stripe-key'),
+  switchedTool('a Stripe key with its pattern off', 'hardcoded-stripe-key', 'Write', writeOf(`const k = "${STRIPE_KEY}";`), ALLOW),
+  switchedTool('a value that two patterns match, one off', 'hardcoded-aws-secret-key', 'Write', writeOf(AWS_SECRET_ASSIGNMENT),
+    DENY, 'hardcoded-generic-api-key'),
+  switchedTool('a value that two patterns match, both off', 'hardcoded-aws-secret-key,hardcoded-generic-api-key', 'Write',
+    writeOf(AWS_SECRET_ASSIGNMENT), ALLOW),
+  // The two Bash rules.
+  switchedBash('env with env-dump off', ENV_DUMP, 'env', ALLOW),
+  switchedBash('echo of a secret variable with env-dump off is still refused', ENV_DUMP, 'echo $API_KEY', DENY, SECRET_VAR),
+  switchedBash('echo of a secret variable with echo-secret-var off', SECRET_VAR, 'echo $API_KEY', ALLOW),
+  switchedBash('env with echo-secret-var off is still refused', SECRET_VAR, 'env', DENY, ENV_DUMP),
+  // Parsing and unknown names.
+  switchedBash('spaces and letter case: the first name', ' Env-File , envrc ', `cat ${ENV}`, ALLOW),
+  switchedBash('spaces and letter case: the second name', ' Env-File , envrc ', `cat ${ENV}rc`, ALLOW),
+  switchedBash('a name with an underscore is unknown and switches nothing off', 'env_file', `cat ${ENV}`, DENY, ENV_FILE),
+  switchedBash('an empty value switches nothing off', '', `cat ${ENV}`, DENY, ENV_FILE),
+  switchedBash('unreadable-command cannot be switched off', UNREADABLE, `echo "abc; cat ${ENV}`, DENY, UNREADABLE),
+  switchedBash('a name from block-dangerous-commands switches nothing off', 'git-clean', `cat ${ENV}`, DENY, ENV_FILE),
+];
+
+async function runSwitched(report, title, cases) {
+  report.section(title);
+  const results = await runAll(cases, (c) => runHook(HOOK, c.input, hookEnv(home, { [SECRETS_SWITCH]: c.list }), { allowSystemMessage: true }));
+  cases.forEach((c, k) => {
+    const problem = compare(results[k], c.expect, c.rule);
+    report.check(`${c.label} [${JSON.stringify(c.list)}] → ${c.expect}`, problem && `${problem}\n    input: ${JSON.stringify(c.shown)}`);
+  });
+}
+
 async function runNamed(report, title, cases) {
   report.section(title);
   const results = await runAll(cases, (c) => runHook(HOOK, c.input, env));
@@ -469,6 +544,7 @@ async function main() {
   await runNamed(report, 'review of 2026-10-04: refused now, and inputs that no test held', REVIEW_REFUSED);
   await runNamed(report, 'review of 2026-10-04: passes now', REVIEW_PASSES);
   await runNamed(report, 'neighbours of the corrections, on both sides', NEIGHBOURS);
+  await runSwitched(report, 'the switch SUPERPOWERS_SECRETS_RULES_OFF', SWITCH_CASES);
 
   report.section('messages and hook input');
   const write = await runHook(HOOK, bashInput(`echo "A=1" > ${ENV}`), env);
