@@ -53,8 +53,8 @@
 const {
   splitArgs, hasLong, gitCall, expandBraces, toPosix, ASSIGNMENT, XARGS, TEXT_PROGRAMS, FIND_EXEC_OPTIONS,
 } = require('./shell-words');
-const { runHook, refusal, decideCommand, firstRefusal, ALLOWED, BASH_TOOL, NO_RETRY } = require('./hook-io');
-const { parseNameList } = require('../name-list');
+const { runHook, refusal, decideCommand, firstRefusal, ALLOWED, BASH_TOOL, UNREADABLE_RULE, NO_RETRY } = require('./hook-io');
+const { parseNameList, unknownNames } = require('../name-list');
 
 const HOOK_NAME = 'protect-secrets';
 const GREP_TOOL = 'Grep';
@@ -74,6 +74,14 @@ const HARDCODED_PREFIX = 'hardcoded-';
 // The last sentence of every refusal reason of this hook. It names no variable: a refusal reason goes to the
 // model, and a model that learns the name of the switch could set it to avoid its own refusal.
 const NO_SETTINGS_CHANGE = 'Never change Claude Code settings or hook files to get past this refusal; ask the user.';
+
+// A refusal that comes after an unknown name in the switch carries a report: the field UNKNOWN_NAMES_FIELD
+// of its log record (its name does not hold the name of the variable) and, when SYSTEM_MESSAGE_SHIPS, a
+// `systemMessage` for the user. The live probe 2 of the spec (section 9.2) decides whether the message
+// ships: it ships only when the model cannot read it and the user sees it. Until that is shown, only the
+// log record is written.
+const UNKNOWN_NAMES_FIELD = 'unknown_names';
+const SYSTEM_MESSAGE_SHIPS = false;
 
 // Files explicitly safe to access (templates, examples)
 const ALLOWLIST = [
@@ -506,10 +514,31 @@ function checkOne(c, lastXargs) {
   return null;
 }
 
-// Ends the reason of a refusal with NO_SETTINGS_CHANGE. A result that is not a refusal is returned as it is.
+// The report of the unknown names in the switch: the extras of a decision (see runHook in hook-io.js).
+// Each unknown name is listed once, in order of first appearance. An error while it is built gives no
+// report: the refusal itself is still written.
+function unknownNameReport() {
+  try {
+    const unknown = unknownNames([...rulesOff()], KNOWN_RULE_NAMES);
+    if (unknown.length === 0) return {};
+    const report = { logFields: { [UNKNOWN_NAMES_FIELD]: unknown } };
+    if (SYSTEM_MESSAGE_SHIPS) {
+      report.systemMessage = `Unknown name in ${RULES_OFF_VARIABLE}: ${unknown.map(name => `"${name}"`).join(', ')}. `
+        + `Separate names with commas. Known names: ${KNOWN_RULE_NAMES.join(', ')}.`;
+    }
+    return report;
+  } catch {
+    return {};
+  }
+}
+
+// Ends the reason of a refusal with NO_SETTINGS_CHANGE and adds the report of unknown names. A result that is
+// not a refusal is returned as it is. `unreadable-command` is produced before any rule runs and no switch
+// can change it, so it gets no report.
 function finishRefusal(result) {
   if (!result.blocked) return result;
-  return { ...result, pattern: { ...result.pattern, reason: `${result.pattern.reason} ${NO_SETTINGS_CHANGE}` } };
+  const refused = { ...result, pattern: { ...result.pattern, reason: `${result.pattern.reason} ${NO_SETTINGS_CHANGE}` } };
+  return result.pattern.id === UNREADABLE_RULE ? refused : { ...refused, ...unknownNameReport() };
 }
 
 function checkBashCommand(cmd) {
@@ -586,6 +615,7 @@ if (require.main === module) {
 } else {
   module.exports = {
     SENSITIVE_FILES, HARDCODED_SECRET_PATTERNS, CONTENT_SCAN_ALLOWLIST, ALLOWLIST, KNOWN_RULE_NAMES, RULES_OFF_VARIABLE,
+    SYSTEM_MESSAGE_SHIPS,
     check, checkFilePath, checkBashCommand, checkWriteContent, isAllowlisted, isContentScanAllowlisted,
   };
 }

@@ -14,12 +14,13 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, makeReport, compare, DENY, ALLOW, SECRETS_SWITCH,
+  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, readLog, makeReport, compare, DENY, ALLOW, SECRETS_SWITCH,
 } = require('./safety-hook-helper');
 
 // A user who sets the switch in settings.json passes it to every command that the assistant runs, and so to
 // this file. Every case below expects the default (every rule on) unless it sets the variable itself.
 delete process.env[SECRETS_SWITCH];
+const { KNOWN_RULE_NAMES, SYSTEM_MESSAGE_SHIPS } = require('../../hooks/safety/protect-secrets');
 
 const HOOK = hookPath('protect-secrets.js');
 // The tools for which the hook decides.
@@ -529,6 +530,26 @@ const HIDDEN_NAME = [
   bash('the form that shows only whether it is set', `echo "\${${SECRETS_SWITCH}:+set}"`, ALLOW),
 ];
 
+// The report of unknown names: a field of the log record, and, only when SYSTEM_MESSAGE_SHIPS, a message.
+const UNKNOWN_FIELD = 'unknown_names';
+
+// Runs one case with a home folder of its own, so that its log holds only its own records.
+async function runWithLog(input, list) {
+  const caseHome = makeHome();
+  try {
+    const result = await runHook(HOOK, input, hookEnv(caseHome, { [SECRETS_SWITCH]: list }), { allowSystemMessage: true });
+    return { result, records: readLog(caseHome) };
+  } finally {
+    fs.rmSync(caseHome, { recursive: true, force: true });
+  }
+}
+const reportedNames = (records) => (records[0] || {})[UNKNOWN_FIELD];
+// '' when the run carries no report: no field in the log and no message.
+const noReport = ({ result, records }) => (reportedNames(records) === undefined && result.systemMessage === undefined
+  ? '' : `records: ${JSON.stringify(records)}, message: ${result.systemMessage}`);
+const sameList = (actual, expected) => (JSON.stringify(actual) === JSON.stringify(expected)
+  ? '' : `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+
 async function runSwitched(report, title, cases) {
   report.section(title);
   const results = await runAll(cases, (c) => runHook(HOOK, c.input, hookEnv(home, { [SECRETS_SWITCH]: c.list }), { allowSystemMessage: true }));
@@ -579,6 +600,35 @@ async function main() {
   const keyRefusal = await runHook(HOOK, bashInput('cat ~/.ssh/id_rsa'), hookEnv(home, { [SECRETS_SWITCH]: ENV_FILE }));
   report.check('a reason does not name the variable while the variable is set',
     compare(keyRefusal, DENY, SSH_KEY) || (keyRefusal.reason.includes(SECRETS_SWITCH) ? `reason: ${keyRefusal.reason}` : ''));
+
+  report.section('the report of unknown names');
+  report.check('there are 43 known names, all different',
+    KNOWN_RULE_NAMES.length === 43 && new Set(KNOWN_RULE_NAMES).size === 43 ? '' : `names: ${KNOWN_RULE_NAMES.length}`);
+  const refusedCall = await runWithLog(bashInput(`cat ${ENV}`), 'foo,Foo , env_file,foo');
+  report.check('a refused call: the unknown names are in the log record, each once, in order',
+    compare(refusedCall.result, DENY, ENV_FILE) || sameList(reportedNames(refusedCall.records), ['foo', 'env_file']));
+  const message = refusedCall.result.systemMessage;
+  report.check(SYSTEM_MESSAGE_SHIPS ? 'the message names the variable, the unknown names and every known name' : 'no message is written (SYSTEM_MESSAGE_SHIPS is false)',
+    SYSTEM_MESSAGE_SHIPS
+      ? (typeof message === 'string' && message.includes(SECRETS_SWITCH) && message.includes('"foo", "env_file"')
+        && KNOWN_RULE_NAMES.every((name) => message.includes(name)) ? '' : `message: ${message}`)
+      : (message === undefined ? '' : `message: ${message}`));
+  const readRefused = await runWithLog({ tool_name: 'Read', tool_input: { file_path: `/proj/${ENV}` } }, 'foo');
+  report.check('a refused Read carries the same report',
+    compare(readRefused.result, DENY, ENV_FILE) || sameList(reportedNames(readRefused.records), ['foo']));
+  const otherHook = await runWithLog(bashInput(`cat ${ENV}`), 'git-clean');
+  report.check('a name from a block-dangerous-commands refusal is reported as unknown',
+    compare(otherHook.result, DENY, ENV_FILE) || sameList(reportedNames(otherHook.records), ['git-clean']));
+  const passing = await runWithLog(bashInput('cat README.md'), 'foo');
+  report.check('a call that passes has no message and no log record',
+    compare(passing.result, ALLOW) || (passing.records.length === 0 ? noReport(passing) : `records: ${JSON.stringify(passing.records)}`));
+  const passedBySwitch = await runWithLog(bashInput(`cat ${ENV}`), ENV_FILE);
+  report.check('a call that passes because of the switch is not logged',
+    compare(passedBySwitch.result, ALLOW) || (passedBySwitch.records.length === 0 ? '' : `records: ${JSON.stringify(passedBySwitch.records)}`));
+  const unreadable = await runWithLog(bashInput(`echo "abc; cat ${ENV}`), 'foo');
+  report.check('an unreadable-command refusal carries no report', compare(unreadable.result, DENY, UNREADABLE) || noReport(unreadable));
+  const knownOnly = await runWithLog(bashInput('cat ~/.ssh/id_rsa'), ENV_FILE);
+  report.check('known names only: no report', compare(knownOnly.result, DENY, SSH_KEY) || noReport(knownOnly));
 
   report.section('messages and hook input');
   const write = await runHook(HOOK, bashInput(`echo "A=1" > ${ENV}`), env);
