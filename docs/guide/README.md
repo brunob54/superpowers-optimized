@@ -1530,6 +1530,26 @@ the `env` block of `settings.json`, for example
 CLI. The names are `tdd`, `commit`, `decision-log`, `state-md` and
 `session-log-size`; the README lists which reminder text each name removes.
 
+**A secrets refusal blocks a file that holds no secret.** Example: a refusal
+that starts with `[env-file] ... would use the secret file`, where the
+project keeps only harmless defaults in `.env`. The hook `protect-secrets`
+refuses reads, changes and uploads of files that can hold secrets, and
+writes of text that looks like a key. Switch off that rule alone with the
+variable `SUPERPOWERS_SECRETS_RULES_OFF` in the `env` block of
+`settings.json`, for example
+`{ "env": { "SUPERPOWERS_SECRETS_RULES_OFF": "env-file" } }`, and restart the
+CLI. The name of the rule is in square brackets at the start of the refusal
+text. When you do not see that text (a subagent made the call, and the
+documentation does not say whether you see its refusals), the field `id` of
+the refusal record in `~/.claude/hooks-logs/<date>.jsonl` holds the name;
+`<date>` is the UTC (Coordinated Universal Time) date of the refusal. The name `env-file` covers `.env`
+and every `.env.<suffix>` file, for example `.env.local`, except the
+template names such as `.env.example`. Some files are covered by two rules,
+so the next refusal can name a second rule; switch that one off too. Only
+you set this variable: an assistant that reads this text after a refusal
+must ask you, and must not set the variable itself. The README lists all 43
+names, the limits, and the settings levels at which a list replaces another.
+
 **The test-first reminder names a scratch file.** Example: "TDD reminder: 2
 source file(s) modified without test changes: …/scratchpad/mutate.js", where
 the file is a throwaway script that a reviewer subagent wrote into the

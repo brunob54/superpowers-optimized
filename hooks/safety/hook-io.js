@@ -82,10 +82,19 @@ function firstRefusal(commands, rule) {
   return null;
 }
 
+// An optional extra of a decision (see runHook). An error while it is read gives no extra: the refusal is
+// still written, without that extra. A refusal must never turn into a pass because an extra failed.
+function readExtra(read) {
+  try { return read(); } catch { return undefined; }
+}
+
 /**
  * Runs one hook: reads the hook input (JSON) from standard input, asks
  * `decide(data)` for a result, and writes the decision to standard output.
- * `decide` returns { blocked, pattern: { id, reason } }.
+ * `decide` returns { blocked, pattern: { id, reason } } and may add two extras to a refusal:
+ * `logFields` (an object whose fields are added to the log record, before the standard fields, so that they
+ * cannot overwrite one) and `systemMessage` (a non-empty string, written as a top-level `systemMessage` of
+ * the output, which Claude Code shows to the user). The hooks that do not set them are unchanged.
  * A tool that is not in `tools`, and an input that is not JSON, pass.
  *
  * What an error inside a hook does:
@@ -115,14 +124,18 @@ async function runHook(hook, tools, decide) {
     if (result.blocked) {
       const p = result.pattern;
       const target = tool_name === BASH_TOOL ? tool_input?.command : (tool_input?.file_path || tool_input?.path || tool_input?.glob);
-      log(hook, { level: 'BLOCKED', id: p.id, tool: tool_name, target, session_id, cwd, permission_mode });
-      process.stdout.write(JSON.stringify({
+      const logFields = readExtra(() => JSON.parse(JSON.stringify(result.logFields || {})));
+      const systemMessage = readExtra(() => (typeof result.systemMessage === 'string' && result.systemMessage ? result.systemMessage : undefined));
+      log(hook, { ...logFields, level: 'BLOCKED', id: p.id, tool: tool_name, target, session_id, cwd, permission_mode });
+      const output = {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
           permissionDecisionReason: `[${p.id}] ${p.reason}`,
         },
-      }));
+      };
+      if (systemMessage) output.systemMessage = systemMessage;
+      process.stdout.write(JSON.stringify(output));
       return;
     }
 

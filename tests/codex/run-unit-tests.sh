@@ -44,6 +44,7 @@ run_test "pretool-bash-adapter" "${SCRIPT_DIR}/test-pretool-bash-adapter.js"
 run_test "posttool-bash-compress-adapter" "${SCRIPT_DIR}/test-posttool-bash-compress-adapter.js"
 run_test "stop-adapter"         "${SCRIPT_DIR}/test-stop-adapter.js"
 run_test "stop-reminders (Claude Stop shape)" "${SCRIPT_DIR}/test-stop-reminders.js"
+run_test "name-list (the parser of the name-list switches)" "${SCRIPT_DIR}/test-name-list.js"
 run_test "session-start-adapter" "${SCRIPT_DIR}/test-session-start-adapter.js"
 run_test "session-start (superpowers-defaults block)" "${SCRIPT_DIR}/test-session-start-defaults-block.sh" bash
 run_test "session-start (10,000-character budget)" "${SCRIPT_DIR}/test-session-start-budget.sh" bash
@@ -53,6 +54,8 @@ run_test "session-start (update check only in a clone of the plugin)" "${SCRIPT_
 run_test "session-start (memory files of the folder in CLAUDE_PROJECT_DIR)" "${SCRIPT_DIR}/test-session-start-project-dir.sh" bash
 run_test "session-start (stale note for the hash of project-map.md)" "${SCRIPT_DIR}/test-session-start-map-hash.sh" bash
 run_test "check-no-superpowers-defaults-setting" "${SCRIPT_DIR}/test-check-no-superpowers-defaults-setting.sh" bash
+run_test "check-no-secrets-rules-managed-setting" "${SCRIPT_DIR}/test-check-no-secrets-rules-setting.sh" bash
+run_test "probe-secrets-judge (the judge of the live probes)" "${SCRIPT_DIR}/test-probe-secrets-judge.js"
 run_test "claude-code work folder" "${SCRIPT_DIR}/test-claude-code-workdir.sh" bash
 run_test "skill-activator (UserPromptSubmit)" "${SCRIPT_DIR}/test-skill-activator.js"
 run_test "block-dangerous-commands (PreToolUse Bash)" "${SCRIPT_DIR}/test-block-dangerous-commands.js"

@@ -17,7 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, makeReport, compare, DENY, ALLOW, PLAIN_HOME,
+  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, readLog, makeReport, compare, DENY, ALLOW, PLAIN_HOME,
 } = require('./safety-hook-helper');
 
 const HOOK = hookPath('block-dangerous-commands.js');
@@ -29,6 +29,12 @@ const RESET = 'git-reset-hard';
 const FORCE_MAIN = 'git-force-main';
 const RM_HOME = 'rm-home';
 const RM_CWD = 'rm-cwd';
+// One complete refusal of this hook, pinned so that a change of the shared output code (hook-io.js) shows here.
+const RESET_REASON = '[git-reset-hard] `git reset --hard` would discard the uncommitted changes of the work tree. '
+  + 'Safe form: `git stash` first, or `git reset --soft`, `--mixed` or `--keep`; in a scratch repository below a temporary folder, '
+  + 'name the folder in the command: `git -C <full path> ...`. For text that only names a command, use the Write tool. '
+  + 'Do not retry with another spelling.';
+const RESET_LOG_KEYS = 'cwd,hook,id,level,permission_mode,session_id,target,tool,ts';
 
 const home = PLAIN_HOME;
 // The log test needs a home folder that exists.
@@ -527,6 +533,38 @@ async function main() {
     logged.includes('"hook":"block-dangerous-commands"') && logged.includes('"id":"git-reset-hard"') ? '' : 'no log line for the refusal');
   report.check('the error of a file tool check is written to the log',
     logged.includes('"hook":"hook-that-throws"') && logged.includes('"level":"ERROR"') ? '' : 'no log line for the error');
+  const pinHome = makeHome();
+  const pinned = await runHook(HOOK, { ...bashInput('git reset --hard'), permission_mode: 'default' }, hookEnv(pinHome, { TMPDIR: OWN_TMPDIR }));
+  const expectedOutput = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: RESET_REASON } };
+  report.check('pin: one refusal has exactly this output, with no other top-level key',
+    JSON.stringify(pinned.output) === JSON.stringify(expectedOutput) ? '' : `output: ${JSON.stringify(pinned.output)}`);
+  const pinnedKeys = Object.keys(readLog(pinHome)[0] || {}).sort().join();
+  report.check('pin: its log record has exactly the keys ts, hook, level, id, tool, target, session_id, cwd, permission_mode',
+    pinnedKeys === RESET_LOG_KEYS ? '' : `keys: ${pinnedKeys}`);
+  fs.rmSync(pinHome, { recursive: true, force: true });
+
+  report.section('extras of a decision (systemMessage, logFields)');
+  const extras = path.join(__dirname, 'fixtures', 'hook-with-extras.js');
+  const extrasHome = makeHome();
+  const extrasEnv = hookEnv(extrasHome);
+  const readInput = { tool_name: 'Read', tool_input: { file_path: '/proj/a.js' } };
+  for (const [label, input] of [['Bash', bashInput('ls')], ['Read', readInput]]) {
+    // The default shape check rejects a `systemMessage` key, so this also proves that no message was written.
+    const refused = await runHook(extras, input, extrasEnv);
+    report.check(`an extra that throws when it is read leaves the plain refusal (${label})`, compare(refused, DENY, 'fixture-rule'));
+  }
+  const good = await runHook(extras, bashInput('echo good'), extrasEnv, { allowSystemMessage: true });
+  report.check('an extra that works: the message is in the output',
+    compare(good, DENY, 'fixture-rule') || (good.systemMessage === 'fixture message' ? '' : `systemMessage: ${good.systemMessage}`));
+  const fixtureRecords = readLog(extrasHome).filter((r) => r.id === 'fixture-rule');
+  report.check('each of the three refusals is logged, and only the working extra adds its field',
+    fixtureRecords.length === 3 && fixtureRecords.filter((r) => r.fixture_field === 'x').length === 1
+      ? '' : `records: ${JSON.stringify(fixtureRecords)}`);
+  const leak = await runHook(extras, bashInput('echo leak'), extrasEnv).then(() => 'no error', (e) => e.message);
+  report.check('the helper rejects a refusal reason that names the switch variable when the input does not',
+    /names the switch variable/.test(leak) ? '' : `got: ${leak}`);
+  fs.rmSync(extrasHome, { recursive: true, force: true });
+  report.section('message, log and hook input');
   const otherTool = await runHook(HOOK, { tool_name: 'Read', tool_input: { file_path: '/x', command: 'git reset --hard' } }, env);
   report.check('a tool other than Bash passes', compare(otherTool, ALLOW));
   const notJson = await runHook(HOOK, 'this is not JSON', env);

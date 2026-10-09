@@ -8,6 +8,54 @@
 > (`REPOZY/superpowers-optimized`) and are kept unchanged as history; any
 > testing they describe was not done here.
 
+## v7.70.0 — a per-rule switch for protect-secrets
+
+**Problem.** Since v7.61.0 protect-secrets refuses calls such as `grep KEY .env`, `git add .env` and `rg -g '*.env'`. A user whose `.env` files hold no real secret could not let them pass, except by turning off every hook or editing the installed copy.
+
+**Change.** The environment variable `SUPERPOWERS_SECRETS_RULES_OFF` holds a comma-separated list of rule names; the hook does not apply a listed rule. There are 43 names. Every other rule works as before.
+
+**Effect.** Set the variable in the `env` block of `settings.json` and restart the command-line interface (CLI). Nothing to migrate.
+
+A session runs the installed copy of the plugin. The changes below reach a session only after an update of the plugin and a restart of the CLI.
+
+### 1. The variable and its 43 names
+
+`SUPERPOWERS_SECRETS_RULES_OFF` is read from the `env` block of a Claude Code settings file, for example `{ "env": { "SUPERPOWERS_SECRETS_RULES_OFF": "env-file,envrc" } }`. Names are separated by commas; spaces around a name, letter case and empty entries do not matter. The names are the text that a refusal shows in square brackets: the 27 `id` values of the path table (`env-file`, `ssh-private-key`, and the others), the 14 names made of `hardcoded-` and the id of a content pattern, and the two Bash rules `env-dump` and `echo-secret-var`. The hook derives the list from its own tables at run time. A name that is not one of the 43 switches nothing off; this includes `unreadable-command`, which cannot be switched off, and the names of block-dangerous-commands refusals. The README lists every name.
+
+### 2. The tables are filtered, not the result
+
+The hook does not decide first and drop a refusal afterwards. It removes the switched-off rows and patterns from the tables that it uses. A command such as `cat .env ~/.ssh/id_rsa` with `env-file` off is therefore refused as `ssh-private-key`; dropping the first refusal would have let the key through. A file or a value that two rules cover stays refused while one of them is on.
+
+### 3. A file name pattern is tested against every sample name
+
+The check for a pattern such as `.*` used the first of the ten sample names of secret files that the pattern matches. With `env-file` off, that first sample (`.env`) has no rule that is on, and the pattern would have passed although it also matches `.netrc`. The check now tries every matching sample, in list order, and a pattern passes only when none of them has a rule that is on. With every rule on, the decisions are the same as before.
+
+### 4. No refusal names the variable; one sentence ends every refusal
+
+A refusal reason goes to the model, and a model that learns the name of the switch could set it to avoid its own refusal. So no reason names the variable, unless the refused command names it (`echo $SUPERPOWERS_SECRETS_RULES_OFF` is refused as `echo-secret-var`, and its reason names the variable because the command did). Every protect-secrets refusal also ends with the sentence "Never change Claude Code settings or hook files to get past this refusal; ask the user." These texts lower the chance of a self-unlock; they do not prevent it (see Limits).
+
+### 5. Unknown names go to the log
+
+When the variable holds an unknown name and a rule of protect-secrets refuses a call, the log record of the refusal (`~/.claude/hooks-logs/<date>.jsonl`) gets the field `unknown_names`. A call that passes gets no record, and an `unreadable-command` refusal gets no report. The hook can also add a `systemMessage` to its output, but it does not: the decision rule of the design ships it only when the model cannot read it and the user sees it, and the interactive check of what the user sees was not made. Probe 1 (a live run with `--settings`) passed: the variable reaches the hook. Probe 2 found the unknown name in the context of the model in the main session: yes. Probe 2 found it in the context of the model in a subagent: yes.
+
+### 6. One shared parser, and hook output extras
+
+`hooks/name-list.js` parses a name list for protect-secrets and stop-reminders. stop-reminders behaves as before, including a repeated unknown name that its warning lists twice; a new test pins that. `hooks/safety/hook-io.js` lets a refusal carry `systemMessage` and `logFields`. block-dangerous-commands sets neither; a new test pins one complete refusal of it (its output and the keys of its log record). An error while reading an extra never turns a refusal into a pass.
+
+### 7. Tests
+
+New suites: `tests/codex/test-name-list.js`, `tests/codex/test-check-no-secrets-rules-setting.sh` and `tests/codex/test-probe-secrets-judge.js`. The safety-hook helper removes the variable from the environment of every hook it runs and fails a refusal reason that names it; `tests/codex/test-pretool-bash-adapter.js` clears it and makes the same check. `tests/claude-code/test-subagent-hook-scope.sh` unsets the variable, passes an empty value with `--settings`, and stops when managed settings set it. The probe judge and driver (`tests/claude-code/probe-secrets-judge.js`, `tests/claude-code/probe-secrets-rules-switch.sh`) are run by hand; no suite starts them.
+
+### 8. Limits
+
+- Overlapping rules: a user must switch off every rule that covers a file or a value; each refusal names the next rule.
+- A pattern that only a switched-off row matched as text passes: with `ssh-private-key` off, `cat ~/.ssh/id_*` passes although `ssh-private-key-2` still refuses `cat ~/.ssh/id_rsa`.
+- The content scan of Edit and Write skips `.env` files (and a few documentation names such as `SKILL.md`), so with `env-file` off a Write of a real key into `.env` passes unscanned; a file of another switched-off rule, such as `.envrc`, is still scanned.
+- A variable in a committed `.claude/settings.json` switches a rule off for everyone who clones the project and trusts the folder.
+- `env-file` covers every `.env.<suffix>` file, so a project that keeps real secrets in `.env.local` opens them too.
+- A model can still set the variable itself in a settings file; the texts of section 4 lower this risk and do not remove it.
+- Deleting the whole variable from the settings file has no effect until a CLI restart.
+
 ## v7.69.0 — make output stays raw, two reminder patterns, the security review defined, the archive always searched
 
 **Problem.** The compression hook treated every `make` output as a build; a

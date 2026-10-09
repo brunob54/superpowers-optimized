@@ -13,6 +13,12 @@
 
 const assert = require('assert');
 
+const { SECRETS_SWITCH } = require('./safety-hook-helper');
+
+// A user who sets the switch of protect-secrets in settings.json passes it to every command that the assistant
+// runs, and so to this file. Every test below expects the default (every rule on).
+delete process.env[SECRETS_SWITCH];
+
 const { evaluatePayload } = require('../../hooks/codex/pretool-bash-adapter');
 
 let passed = 0;
@@ -22,10 +28,18 @@ function run(label, payload) {
   return evaluatePayload(payload);
 }
 
+// No refusal reason names the switch variable of protect-secrets, unless the refused command names it.
+function assertSwitchNotNamed(result, payload) {
+  const reason = result.hookSpecificOutput?.permissionDecisionReason || '';
+  assert.ok(!reason.includes(SECRETS_SWITCH) || JSON.stringify(payload).includes(SECRETS_SWITCH),
+    `The reason names the switch variable: ${reason}`);
+}
+
 function test(label, payload, assertFn) {
   try {
     const result = run(label, payload);
     assertFn(result);
+    assertSwitchNotNamed(result, payload);
     console.log(`  ✓ ${label}`);
     passed++;
   } catch (err) {

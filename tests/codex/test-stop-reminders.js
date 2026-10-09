@@ -739,6 +739,12 @@ test('Known names only: the block has no unknown-name warning', () => {
   assert.ok(!result.reason.includes(UNKNOWN_NAME_WARNING), `Expected no warning, got: ${result.reason}`);
 });
 
+test('A repeated unknown name is listed twice in the warning (the parser keeps duplicates)', () => {
+  const result = withRemindersOff('foo,foo', () => evaluateStop(TDD_SCENARIO.arrange));
+  const reason = result.reason || '';
+  assert.ok(reason.includes('"foo", "foo"'), `Expected the name twice, got: ${reason}`);
+});
+
 test('An unknown name alone never makes the hook block', () => {
   const result = withRemindersOff('unknown', () => evaluateStop(() => {}));
   assert.deepStrictEqual(result, {}, `Expected no block, got: ${JSON.stringify(result)}`);

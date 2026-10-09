@@ -369,6 +369,31 @@ check_no_superpowers_defaults_setting() {
     return 0
 }
 
+# The per-rule switch of protect-secrets (README, "Environment variables") is the variable
+# SUPERPOWERS_SECRETS_RULES_OFF. A test that expects a protect-secrets rule to refuse a command passes an empty
+# value of it with `--settings`, which ranks above user, project and local settings. Only managed settings rank
+# above `--settings`, so this function stops the test when a managed settings file sets the variable, with any
+# value. Plain grep, no jq dependency, like check_no_superpowers_defaults_setting. Without arguments it checks the
+# two managed settings files; with arguments it checks those files.
+# Usage: check_no_secrets_rules_managed_setting [file...]
+check_no_secrets_rules_managed_setting() {
+    local var=SUPERPOWERS_SECRETS_RULES_OFF
+    local files=("$@")
+    local f
+    if [ "${#files[@]}" -eq 0 ]; then
+        files=("/Library/Application Support/ClaudeCode/managed-settings.json" "/etc/claude-code/managed-settings.json")
+    fi
+    for f in "${files[@]}"; do
+        if [ -f "$f" ] && grep -qE "\"$var\"[[:space:]]*:" "$f"; then
+            echo "ABORT: $var is set in the env block of $f."
+            echo "Managed settings rank above the --settings flag of this test, so the test cannot clear the variable."
+            echo "This test expects the protect-secrets rule echo-secret-var to refuse a command; with that rule switched off it would report a false conclusion. Remove the variable from $f before running this test."
+            return 1
+        fi
+    done
+    return 0
+}
+
 # Export functions for use in tests
 export -f run_claude
 export -f run_claude_in_workdir
@@ -386,6 +411,7 @@ export -f create_transcript_dir
 export -f finish_transcript_dir
 export -f create_test_plan
 export -f check_no_superpowers_defaults_setting
+export -f check_no_secrets_rules_managed_setting
 
 # assert_round_reviewers <log> <round> <m> <findings>
 # <m> must be a single digit, 1-9: the function builds character classes like
