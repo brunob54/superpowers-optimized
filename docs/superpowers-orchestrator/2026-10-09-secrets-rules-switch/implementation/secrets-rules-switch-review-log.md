@@ -21,3 +21,13 @@ _Invocation 1 — 2026-10-09 — N=4 M=1 — BASE..HEAD c3bef80..a665da5 — bra
 - [carried 13] carried — task 9 review guide line 85 unwrapped; doc check gaps (ship-as-is)
 - [carried 14] carried — task 10 review RELEASE-NOTES section 5 reason wording (carried; same as M2)
 
+## Round 2 — Adversarial red-team — session model (claude-sonnet-5-5, inherited)
+**Reviewer verdict:** 0 Critical, 0 Important, 3 Minor
+**Converged:** yes
+### Dispositions
+- [M1] carried — settings level that sets SUPERPOWERS_SECRETS_RULES_OFF is trusted (cloned repository settings or a model edit of a settings file); documented, accepted limit; optional refusal of settings-file edits naming the variable
+- [M2] carried — check_no_secrets_rules_managed_setting covers only two managed-settings paths; header could say so (low impact on macOS)
+- [M3] carried — systemMessage text is tested only when SYSTEM_MESSAGE_SHIPS is true; a later flip needs the suite run in that state first
+
+_Completed — 2026-10-09 — converged — HEAD 
+Secrets found: none
