@@ -696,6 +696,17 @@ async function main() {
     console.log(`  ${cases.length} cases run`);
   }
 
+  report.section('documentation');
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const guide = fs.readFileSync(path.join(root, 'docs', 'guide', 'README.md'), 'utf8');
+  const switchLine = readme.split('\n').find((line) => line.startsWith(`- \`${SECRETS_SWITCH}\``)) || '';
+  const undocumented = KNOWN_RULE_NAMES.filter((name) => !switchLine.includes(`\`${name}\``));
+  report.check('the README bullet of the switch names every one of the 43 rules',
+    switchLine && undocumented.length === 0 ? '' : `missing in the bullet: ${undocumented.join(', ') || 'the whole bullet'}`);
+  report.check('the README bullet says that unreadable-command cannot be switched off',
+    switchLine.includes(`\`${UNREADABLE}\``) ? '' : 'the bullet does not name unreadable-command');
+  report.check('the troubleshooting guide names the variable', guide.includes(SECRETS_SWITCH) ? '' : 'the guide does not name the variable');
+
   fs.rmSync(home, { recursive: true, force: true });
   report.finish();
 }
