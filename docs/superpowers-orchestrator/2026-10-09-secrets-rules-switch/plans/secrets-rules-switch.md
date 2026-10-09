@@ -82,7 +82,7 @@ A note for every executor: the safety hook of your own session refuses a Bash co
 - Verification: `node tests/codex/test-name-list.js` and `node tests/codex/test-stop-reminders.js` both end with `0 failed`; the pin test passes before and after the change of stop-reminders.
 - Interface not externally pinned — the names and signatures above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the pin test for stop-reminders (it must pass on the present code)**
+- [x] **Step 1: Write the pin test for stop-reminders (it must pass on the present code)**
 
 In `tests/codex/test-stop-reminders.js`, insert directly after the test `'Known names only: the block has no unknown-name warning'` (the test that ends with `assert.ok(!result.reason.includes(UNKNOWN_NAME_WARNING), ...)`):
 
@@ -94,12 +94,12 @@ test('A repeated unknown name is listed twice in the warning (the parser keeps d
 });
 ```
 
-- [ ] **Step 2: Run the pin test on the present code**
+- [x] **Step 2: Run the pin test on the present code**
 
 Run: `node tests/codex/test-stop-reminders.js`
 Expected: PASS — the output ends with `0 failed` and the new test line shows a check mark. (This is a pin of today's behaviour, so it passes before the change.)
 
-- [ ] **Step 3: Write the unit test of the helper**
+- [x] **Step 3: Write the unit test of the helper**
 
 Create `tests/codex/test-name-list.js`:
 
@@ -156,12 +156,12 @@ console.log(`\nname-list: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
 ```
 
-- [ ] **Step 4: Run the unit test to verify it fails**
+- [x] **Step 4: Run the unit test to verify it fails**
 
 Run: `node tests/codex/test-name-list.js`
 Expected: FAIL with `Cannot find module '../../hooks/name-list'` (exit status 1).
 
-- [ ] **Step 5: Create the helper**
+- [x] **Step 5: Create the helper**
 
 Create `hooks/name-list.js`:
 
@@ -199,7 +199,7 @@ function unknownNames(names, knownNames) {
 module.exports = { parseNameList, unknownNames };
 ```
 
-- [ ] **Step 6: Use the helper in stop-reminders**
+- [x] **Step 6: Use the helper in stop-reminders**
 
 In `hooks/stop-reminders.js`, add this line after the `require('./save-marker')` block (after the line `} = require('./save-marker');`):
 
@@ -224,7 +224,7 @@ In `unknownNameWarning`, replace the first two lines of the body (`const unknown
 
 and in the returned template replace `unknownNames.map(name => ...)` with `unknownEntries.map(name => ...)` (the rest of the message stays byte for byte).
 
-- [ ] **Step 7: Register the suite**
+- [x] **Step 7: Register the suite**
 
 In `tests/codex/run-unit-tests.sh`, add directly after the `stop-reminders (Claude Stop shape)` line:
 
@@ -232,12 +232,12 @@ In `tests/codex/run-unit-tests.sh`, add directly after the `stop-reminders (Clau
 run_test "name-list (the parser of the name-list switches)" "${SCRIPT_DIR}/test-name-list.js"
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 Run: `node tests/codex/test-name-list.js && node tests/codex/test-stop-reminders.js | tail -3`
 Expected: PASS — both outputs end with `0 failed`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add hooks/name-list.js hooks/stop-reminders.js tests/codex/test-name-list.js tests/codex/test-stop-reminders.js tests/codex/run-unit-tests.sh
