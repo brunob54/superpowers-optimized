@@ -1357,7 +1357,7 @@ git commit -m "test: the subagent hook-scope test clears the secrets switch" --t
 - Verification: `node tests/codex/test-probe-secrets-judge.js` (each rule above, each row of the table); `bash -n` on the driver; the usage exit status 64 (Step 6); the behaviour of the driver is verified by the live runs of Task 8.
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the failing unit test**
+- [x] **Step 1: Write the failing unit test**
 
 Create `tests/codex/test-probe-secrets-judge.js`:
 
@@ -1530,12 +1530,12 @@ In `tests/codex/run-unit-tests.sh`, add after the `check-no-secrets-rules-manage
 run_test "probe-secrets-judge (the judge of the live probes)" "${SCRIPT_DIR}/test-probe-secrets-judge.js"
 ```
 
-- [ ] **Step 2: Run the unit test to verify it fails**
+- [x] **Step 2: Run the unit test to verify it fails**
 
 Run: `node tests/codex/test-probe-secrets-judge.js`
 Expected: FAIL with `Cannot find module '../claude-code/probe-secrets-judge'` (exit status 1).
 
-- [ ] **Step 3: Write the judge**
+- [x] **Step 3: Write the judge**
 
 Create `tests/claude-code/probe-secrets-judge.js`:
 
@@ -1729,12 +1729,12 @@ if (require.main === module) {
 }
 ```
 
-- [ ] **Step 4: Run the unit test to verify it passes**
+- [x] **Step 4: Run the unit test to verify it passes**
 
 Run: `node tests/codex/test-probe-secrets-judge.js`
 Expected: PASS — ends with `probe-secrets-judge: 23 passed, 0 failed` (the line must end with `0 failed`; the count follows the tests above).
 
-- [ ] **Step 5: Write the driver**
+- [x] **Step 5: Write the driver**
 
 Create `tests/claude-code/probe-secrets-rules-switch.sh`:
 
@@ -1841,7 +1841,7 @@ IMPORTANT: Do NOT run the command yourself. After the subagent returns, report w
 "$mode"
 ```
 
-- [ ] **Step 6: Verify the driver without running it**
+- [x] **Step 6: Verify the driver without running it**
 
 Run: `bash -n tests/claude-code/probe-secrets-rules-switch.sh && bash tests/claude-code/probe-secrets-rules-switch.sh nothing; echo "exit status: $?"`
 Expected: no syntax error; the second command prints the usage line and `exit status: 64`.
@@ -1849,12 +1849,12 @@ Expected: no syntax error; the second command prints the usage line and `exit st
 Run: `bash tests/codex/test-claude-code-workdir.sh | tail -3`
 Expected: no `FAIL` line (the static scan finds no direct `claude` call in the driver).
 
-- [ ] **Step 7: Run the unit test registry entry**
+- [x] **Step 7: Run the unit test registry entry**
 
 Run: `bash tests/codex/run-unit-tests.sh 2>&1 | tail -6`
 Expected: `All unit tests passed.`
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add tests/claude-code/probe-secrets-judge.js tests/claude-code/probe-secrets-rules-switch.sh tests/codex/test-probe-secrets-judge.js tests/codex/run-unit-tests.sh
