@@ -17,3 +17,8 @@ readiness owed: 2 undecidable conflicts (spec 9.1 file-reading code against "exi
 - Task 4: complete — closing sentence and hidden name (commits 63cc36c..d102690)
 - Task 5: complete — report of unknown names (commits 778627b..96eef3d)
 - Task 6: complete — behavioural test isolated from the switch (commits 4a33eae..082ae82)
+
+## Phase 3 — Batch 3 (tasks 7–9) — COMPLETE — commits 379644c..750ec1b
+- Task 7: complete — judge and driver of the live probes (commits 379644c..337c9d4)
+- Task 8: complete — live probes run; SYSTEM_MESSAGE_SHIPS stays false (commits 8c7dddb..7cbb11f)
+- Task 9: complete — README, guide and drift test (commits a1ab17e..bd78043)
