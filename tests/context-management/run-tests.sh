@@ -701,8 +701,8 @@ while IFS="$(printf '\t')" read -r label text rule; do
 done <<'RULES'
 the frontmatter description	FRONTMATTER	"create project map", "archive the session log", cross-session handoff needed
 the route table	STEP0	| "archive the session log" | [session-log.md Format and Maintenance](#session-logmd-format-and-maintenance) section |
-step 3 of the start-of-task search	STEP3	- **0 hits on all keywords** → when `session-log-archive.md` exists, run the same `grep` commands on it. With 0 hits there too, fall back to `project-map.md` Critical Constraints.
-step 6 of the save procedure	STEP6	With 0 hits there, grep `session-log-archive.md` too when it exists.
+step 3 of the start-of-task search	STEP3	- **Any hit count** → when `session-log-archive.md` exists, run the same `grep` commands on it too (an archive moved the older entries there); the hit counts below add up the two files. - **0 hits on all keywords** → fall back to `project-map.md` Critical Constraints.
+step 6 of the save procedure	STEP6	then grep `session-log.md` for relevant history, and `session-log-archive.md` too when it exists.
 RULES
 
 KEYWORD_RULE='The option `-a` makes `grep` read the file as text: without it, the `grep` of the Claude Code Bash tool prints nothing for a file that holds a byte that is not valid UTF-8 (Unicode Transformation Format, 8-bit). One case remains: the `grep` of macOS misses a keyword that stands after such a byte on the same line.'
@@ -717,6 +717,9 @@ bold "Skill text: the keyword search commands"
 # after such a byte on the same line, also with -a (measured).
 new_case keyword-search
 printf '# Session Log\n\n## 2026-01-01 10:00 [saved]\nGoal: caf\303\251 \377 note\nDecisions: hook auth bad\n\n## 2026-01-02 10:00 [saved]\nGoal: Hook deploy\nOpen: HOOK bad\n' > "$CASE_DIR/$LOG_NAME"
+# The archive holds one entry with both keywords, so the archive half of the
+# two-file command of step 3 is run and counted.
+printf '# Session Log Archive\n\n## 2025-12-01 10:00 [saved]\nOld: hook bad thing\n' > "$CASE_DIR/$ARCHIVE_NAME"
 # skill_command <placeholder>: the one command of the skill that holds the
 # placeholder, from a code block line or from an inline code span.
 skill_command() {
@@ -730,7 +733,9 @@ while IFS="$(printf '\t')" read -r placeholder swaps expected; do
   COMMAND="$(skill_command "$placeholder")"
   [ "$(printf '%s\n' "$COMMAND" | grep -c '')" = 1 ] || problem "not exactly one command holds $placeholder: $COMMAND"
   for swap in $(printf '%s' "$swaps" | tr ',' ' '); do COMMAND="${COMMAND//${swap%%=*}/${swap#*=}}"; done
-  (cd "$CASE_DIR" && LC_ALL=C.UTF-8 bash -c "$COMMAND") > "$OUTF" 2>/dev/null
+  (cd "$CASE_DIR" && LC_ALL=C.UTF-8 bash -c "$COMMAND") > "$OUTF" 2> "$ERRF"
+  # A missing file makes grep print a message on standard error.
+  [ ! -s "$ERRF" ] || problem "$COMMAND wrote to standard error: $(cat "$ERRF")"
   LINES="$(grep -c '' "$OUTF")"
   [ "$LINES" = "$expected" ] || problem "$COMMAND printed $LINES lines, expected $expected"
   # Every printed line holds the last keyword (a "binary file matches"
@@ -741,7 +746,7 @@ while IFS="$(printf '\t')" read -r placeholder swaps expected; do
 done <<'COMMANDS'
 <keyword1>	<keyword1>=hook	3
 <keyword2>	<keyword2>=bad	2
-<kw1>	<kw1>=hook,<kw2>=bad	2
+<kw1>	<kw1>=hook,<kw2>=bad	3
 <keyword>	<keyword>=hook	3
 COMMANDS
 PROBLEMS=''
@@ -792,7 +797,7 @@ while IFS="$(printf '\t')" read -r doc sentence; do
   check "${doc#"$ROOT"/} holds: $sentence" "$PROBLEMS"
 done <<EOF
 $ARCH_DOC	For older history — decisions from earlier in a project's lifetime — Claude can grep \`$LOG_NAME\`, then \`$ARCHIVE_NAME\`, for keywords relevant to the current task.
-$README_DOC	Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; entries that an archive moved to \`$ARCHIVE_NAME\` are not surfaced.
+$README_DOC	Only the most recent entries are injected at session start, and only while they fit the session-start hook's 10,000-character output budget — older entries are lookup-only, surfaced via keyword grep when a task touches the same area; the hooks never inject entries that an archive moved to \`$ARCHIVE_NAME\`; the keyword search of the context-management skill reads that file too.
 $GUIDE_DOC	The archive step also hides \`$ARCHIVE_NAME\` from \`git status\` with an exclude entry, unless git tracks \`$LOG_NAME\`; then commit the archive together with the log.
 $ARCH_DOC	The next session reads \`state.md\` first to restore context. Then it greps \`$LOG_NAME\` for relevant history, and then \`$ARCHIVE_NAME\`, which holds the older entries after an archive.
 EOF

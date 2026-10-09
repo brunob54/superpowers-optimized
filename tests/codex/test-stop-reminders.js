@@ -100,6 +100,13 @@ function writeRecentEdit(logDir, filePath) {
   writeRecentEdits(logDir, [filePath]);
 }
 
+/** Create `hooks/hooks.json` under `cwdDir`: the folder is then a plugin's hook folder. */
+function writePluginHookRegistry(cwdDir) {
+  const hooksDir = path.join(cwdDir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  fs.writeFileSync(path.join(hooksDir, 'hooks.json'), '{}\n', 'utf8');
+}
+
 console.log('\nStop reminders output contract (Claude)');
 
 test('Test-file detection recognizes tests/codex/test-*.js naming', () => {
@@ -239,7 +246,11 @@ test('Detects SKILL.md edits', () => {
 test('Detects hooks/*.js edits', () => {
   const { homeDir, cwdDir, logDir } = makeTempDirs();
   try {
-    writeRecentEdit(logDir, '/project/hooks/context-engine.js');
+    // A plugin's hook folder holds the registry file hooks.json; a folder
+    // named hooks without it (for example a React project's src/hooks/) is
+    // not one.
+    writePluginHookRegistry(cwdDir);
+    writeRecentEdit(logDir, path.join(cwdDir, 'hooks', 'context-engine.js'));
     const { evaluatePayload } = loadHookWithHome(homeDir);
     const result = evaluatePayload({ cwd: cwdDir, session_id: TEST_SESSION_ID });
     const reason = result.reason || '';
@@ -764,6 +775,68 @@ test('The TDD reminder names at most five files and counts the rest', () => {
   assert.ok(reason.includes('7 source file(s)') && reason.includes('a.js, b.js, c.js, d.js, e.js and 2 more.'),
     `Expected five names and "and 2 more", got: ${reason}`);
   assert.ok(!reason.includes('f.js'), `Expected no sixth name, got: ${reason}`);
+});
+
+// ── File patterns of the reminders ───────────────────────────────────────────
+// Reported in a design review: the Python test pattern `test_[^/]+\.py$`
+// matched any file name that holds "test_" (latest_report.py, contest_utils.py),
+// so one such edit silenced the TDD reminder for every source file; and the
+// hook pattern `hooks/<name>.js` matched any project's folder named hooks (a
+// React project's src/hooks/useAuth.js), which asked for a decision-log
+// entry that had nothing to record.
+
+console.log('\nFile patterns of the reminders');
+
+const PYTHON_TEST_FILE_CASES = [
+  ['/p/src/latest_report.py', false],
+  ['/p/contest_utils.py', false],
+  ['test_x.py', true],
+  // The tests/ folder pattern decides this case, not the test_ file pattern.
+  ['/r/tests/test_x.py', true],
+  ['/r/src/test_x.py', true],
+  ['C:\\r\\test_x.py', true],
+];
+
+for (const [filePath, expected] of PYTHON_TEST_FILE_CASES) {
+  test(`isTestFile(${JSON.stringify(filePath)}) is ${expected}`, () => {
+    const { homeDir } = makeTempDirs();
+    try {
+      const { isTestFile } = loadHookWithHome(homeDir);
+      assert.strictEqual(isTestFile(filePath), expected);
+    } finally {
+      cleanup(homeDir);
+    }
+  });
+}
+
+test('A source edit next to a latest_report.py edit still gets the TDD reminder', () => {
+  const result = evaluateStop(({ logDir, cwdDir }) =>
+    writeRecentEdits(logDir, ['src/app.py', 'src/latest_report.py'].map(file => path.join(cwdDir, file))));
+  assert.ok((result.reason || '').includes(TDD_SCENARIO.text),
+    `Expected the TDD reminder, got: ${JSON.stringify(result)}`);
+});
+
+test('A React hook file (src/hooks/useAuth.js) does not ask for a decision-log entry', () => {
+  const result = evaluateStop(({ logDir, cwdDir }) => writeRecentEdit(logDir, path.join(cwdDir, 'src', 'hooks', 'useAuth.js')));
+  assert.ok(!(result.reason || '').includes(DECISION_LOG),
+    `Expected no decision-log reminder, got: ${JSON.stringify(result)}`);
+  assert.ok((result.reason || '').includes(TDD_SCENARIO.text),
+    `Expected the stop to produce a reminder for the source file, got: ${JSON.stringify(result)}`);
+});
+
+test('A hooks/*.js file beside a hooks.json asks for a decision-log entry', () => {
+  const result = evaluateStop(({ logDir, cwdDir }) => {
+    writePluginHookRegistry(cwdDir);
+    writeRecentEdit(logDir, path.join(cwdDir, 'hooks', 'x.js'));
+  });
+  assert.ok((result.reason || '').includes(DECISION_LOG),
+    `Expected the decision-log reminder, got: ${JSON.stringify(result)}`);
+});
+
+test('A .claude/hooks/*.js file asks for a decision-log entry', () => {
+  const result = evaluateStop(({ logDir }) => writeRecentEdit(logDir, '/project/.claude/hooks/x.js'));
+  assert.ok((result.reason || '').includes(DECISION_LOG),
+    `Expected the decision-log reminder, got: ${JSON.stringify(result)}`);
 });
 
 // ── TDD reminder leaves out a file that is back at its committed state ───────

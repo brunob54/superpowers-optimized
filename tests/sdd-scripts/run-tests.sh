@@ -1607,6 +1607,40 @@ assert_contains "wave rules control: git says it is unable to create index.lock 
 assert_folded_contains "wave rules: on a held index.lock, wait about ten seconds and run the same command again for at most two minutes, then report BLOCKED; never delete the lock" "$WAVE_COMMIT_SECTION" "$WAVE_RULE_LOCK"
 cd "$REPO"
 
+# ── The security review of Core Flow step 3 ──────────────────────────────
+# The plan template's flag line "**Security flag:** `security`" promised a
+# security review before the implementer is dispatched, and no skill defined
+# it. Core Flow step 3 of the SDD skill now defines it: the pins below hold
+# its trigger (a brief line that STARTS with the flag line, so that a quoted
+# sentence elsewhere in the task does not count), its place between the
+# task-brief step and the implementer dispatch, its report file, its
+# plan-conflict rule, and the Parallel Waves sentence.
+bold ""
+bold "SDD SKILL.md: the security review of Core Flow step 3"
+STEP3_TEXT="$WAVE_DIR/core-flow-step-3.txt"
+awk '/^4\. Run the final whole-branch review loop\./ { exit } /^3\. For each task:$/ { f = 1 } f && NF' "$SDD_SKILL_MD" > "$STEP3_TEXT"
+SECURITY_FLAG_LINE='**Security flag:** `security`'
+assert_folded_contains "SKILL.md step 3: the trigger is a brief line that STARTS with the flag line, and the reviewer runs before the implementer" "$STEP3_TEXT" \
+  "- Security review, when a line of the brief STARTS with \`\`$SECURITY_FLAG_LINE \`\` (the flag line of the plan template; a quoted sentence elsewhere in the task does not count): before the implementer, dispatch one reviewer that changes no file"
+assert_folded_contains "SKILL.md step 3: the reviewer runs no writing command" "$STEP3_TEXT" \
+  'changes no file and runs no command that writes to the checkout, the index, HEAD or branch state, with the brief path'
+assert_folded_contains "SKILL.md step 3: the dispatch names Critical, Important and Minor with the calibration of task-reviewer-prompt.md" "$STEP3_TEXT" \
+  'The dispatch names the three severities Critical, Important and Minor, with the calibration of `./task-reviewer-prompt.md` (its severity definitions).'
+assert_folded_contains "SKILL.md step 3: the review stands after the task-brief step" "$STEP3_TEXT" \
+  '- Run `scripts/task-brief PLAN_FILE N`. - Security review, when'
+assert_folded_contains "SKILL.md step 3: the implementer dispatch stands after the review" "$STEP3_TEXT" \
+  'You never lower its severity. - Then dispatch the implementer (`./implementer-prompt.md`) with the brief path'
+assert_folded_contains "SKILL.md step 3: the report file is task-N-security-review.md beside the brief, written again at every implementer dispatch, a retry included" "$STEP3_TEXT" \
+  'It writes its report to `task-N-security-review.md` beside the brief (written again at every implementer dispatch of the task, a retry included; a fix dispatch runs no review)'
+assert_folded_contains "SKILL.md step 3: a plan-bound finding follows the plan-conflict rule of Constructing Reviewer Prompts and keeps its severity" "$STEP3_TEXT" \
+  'follows the plan-conflict rule of Constructing Reviewer Prompts (interactive: ask the user which governs; Batched Autonomous Mode: journal it and end the batch). You never lower its severity.'
+assert_folded_contains "SKILL.md Parallel Waves: a flagged task gets the review before the wave's implementers are dispatched" "$SDD_SKILL_MD" \
+  'A task of the wave that carries the security flag gets the security review of Core Flow step 3 before the wave'"'"'s implementers are dispatched; your resolutions of its findings go into that implementer'"'"'s dispatch, as in the sequential flow.'
+assert_folded_contains "SKILL.md Batched Autonomous Mode: the review gate points to the security review of Core Flow step 3" "$SDD_SKILL_MD" \
+  'and the security review of Core Flow step 3 for `security`-flagged tasks'
+assert_folded_contains "SKILL.md File Handoffs: item (4) of the implementer dispatch carries the resolution of each Critical and Important finding of the security review" "$SDD_SKILL_MD" \
+  'and of each Critical and Important finding of the task'"'"'s security review; (5) the report-file path'
+
 bold ""
 bold "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

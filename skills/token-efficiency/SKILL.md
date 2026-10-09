@@ -116,7 +116,8 @@ The plugin automatically compresses noisy Bash output before it enters your cont
 - Commands with user-applied pipes (`| grep`, `| awk`, `| sed`)
 - Commands with `--verbose` or `--debug` flags
 - `curl`/`wget` responses — API output should not be truncated
-- Lint output (eslint, pylint, ruff and others, called by their own name) — no rule can state the counts of the lint tool; a lint tool that `make` starts still goes through the build rule
+- Lint output (eslint, pylint, ruff and others, called by their own name) — no rule can state the counts of the lint tool
+- `make` output — a target can run any program, so no rule can read its output
 - Dry runs (an option that starts with `--dry`, and `git add -n`) — the command changes nothing
 - **Any command that fails** (non-zero exit code) — error output is passed through raw
 - Output shorter than 200 characters — not worth compressing

@@ -123,7 +123,8 @@ const TEST_PATTERNS = [
   /\.test\.[jt]sx?$/,
   /\.spec\.[jt]sx?$/,
   /_test\.(go|py|rb)$/,
-  /test_[^/]+\.py$/,
+  // The file name itself starts with "test_": latest_report.py is no test file.
+  /(?:^|[/\\])test_[^/\\]+\.py$/,
   /Tests?\.[^/]+$/,
   /\.test$/,
   /__tests__\//,
@@ -574,6 +575,23 @@ function generateReminders(edits, cwd, sessionId, backgroundTasks) {
 }
 
 
+// The file that registers the hooks of a plugin. A folder named `hooks` is a
+// plugin's hook folder only when it holds this file; any other folder named
+// `hooks` (for example `src/hooks/` of a React project) is not one.
+const PLUGIN_HOOK_REGISTRY = 'hooks.json';
+const HOOK_FOLDER_SCRIPT = /[/\\]hooks[/\\][^/\\]+\.js$/;
+
+/**
+ * True for a `.js` file directly in a plugin's hook folder: a folder named
+ * `hooks` that holds hooks.json. The check reads the project tree, never the
+ * installed copy of this plugin (CLAUDE_PLUGIN_ROOT and __dirname name that
+ * copy, not the project).
+ */
+function isPluginHookScript(filePath) {
+  return HOOK_FOLDER_SCRIPT.test(filePath)
+    && fs.existsSync(path.join(path.dirname(filePath), PLUGIN_HOOK_REGISTRY));
+}
+
 /**
  * Detect sessions where significant architectural decisions were made.
  * These are sessions that modified skill files, hooks, or plugin config —
@@ -582,7 +600,7 @@ function generateReminders(edits, cwd, sessionId, backgroundTasks) {
 function isSignificantSession(edits) {
   const sigPatterns = [
     /SKILL\.md$/i,
-    /[/\\]hooks[/\\][^/\\]+\.js$/,
+    /[/\\]\.claude[/\\]hooks[/\\][^/\\]+\.js$/,
     /[/\\]hooks[/\\]session-start$/,
     /skill-rules\.json$/,
     /CLAUDE\.md$/i,
@@ -591,7 +609,7 @@ function isSignificantSession(edits) {
     /[/\\]plans[/\\][^/\\]+\.md$/i,
     /plugin\.universal\.yaml$/,
   ];
-  return edits.some(e => sigPatterns.some(p => p.test(e.filePath)));
+  return edits.some(e => sigPatterns.some(p => p.test(e.filePath)) || isPluginHookScript(e.filePath));
 }
 
 /**

@@ -58,8 +58,8 @@ after the run ends.
 | # | Part | Status | Since | Commit | Note |
 |---|------|--------|-------|--------|------|
 | 1 | Design step for A1 to A13 | done | 2026-10-08 | a061765 | record `tmp/docs/2026-10-08-design-section-a.md` |
-| 2 | Release 1: memory files | in progress | 2026-10-08 | | A4, A5, A10, A11, A12, A13 |
-| 3 | Release 2: hook patterns and security review | not started | | | A1, A2, A3 (D10) |
+| 2 | Release 1: memory files | done | 2026-10-08 | 7aea188 | A4, A5, A10, A11, A12, A13; v7.68.0, merge 2a42184 |
+| 3 | Release 2: hook patterns and security review | in progress | 2026-10-08 | | A1, A2, A3 (D10); archive search rule (decision of 2026-10-08) |
 | 4 | Release 3: review prompts | dropped | 2026-10-08 | | A3 moved to part 3 (D10) |
 
 Status is one of: `not started`, `in progress`, `done`, `dropped`. A part that
@@ -84,7 +84,8 @@ merge or a rebase it no longer exists, and nobody has to correct it.
 - (part 1) The place of the A3 step inside SDD Core Flow step 3 is still
   open: the review runs between `task-brief` and the implementer dispatch,
   which `skills/subagent-driven-development/SKILL.md:68` holds together;
-  batch-template item 5 keeps its opening "5. A task with".
+  batch-template item 5 keeps its opening "5. A task with". Decided on
+  2026-10-08 at the start of part 3 (see `## Decisions`).
 
 ## Open items
 
@@ -121,6 +122,10 @@ blocks: a part number, or `whole work`.
 - 2026-10-08 item A11: without git, Hot Files has no data source — no source exists; the section may stay empty
 - 2026-10-08 item A11: the without-git rule at using-superpowers/SKILL.md:150 can never run, because it sits under the <project-map-stale> tag, which the hook emits only with git — measured by C and R; recorded as a finding outside group A
 - 2026-10-08 item A13: a project-map.md larger than the room left in the session-start output (about 1,900 to 2,600 characters for all memory sections) is never injected, and the skill's size rule counts lines, not characters — by design (v7.31.0 order); README.md:258 documents it; the <not-injected> line names the file and entry step 6 reads it
+- 2026-10-08 item A1: a plugin whose hooks are registered inline in .claude-plugin/plugin.json keeps hooks/*.js with no hooks.json beside them, so the decision-log reminder no longer fires for its hook scripts — whole-branch review of release 2; outside decision D4 (the registry is hooks.json); advisory reminder only
+- 2026-10-08 item A1: the test for a hooks/*.js file beside hooks.json repeats the updated "Detects hooks/*.js edits" case, and a top-level hooks/x.js without hooks.json has no negative case — whole-branch review of release 2; the pattern is proven by the .claude/hooks and src/hooks cases; advisory reminder only
+- 2026-10-08 item A3: a flag line at the start of a line inside a fenced block of the brief triggers the security review, and a flag written as a sub-bullet or indented never triggers it — whole-branch review of release 2; cost one reviewer dispatch, no lost work
+- 2026-10-08 item A3: the Parallel Waves pin searches the whole SDD skill file, not the section, and no executable case runs task-brief on a plan with the flag line to assert that the brief holds it at the start of a line — whole-branch review of release 2; task-brief prints task lines verbatim; the sentence names "A task of the wave"
 
 ## Decisions
 
@@ -147,3 +152,17 @@ blocks: a part number, or `whole work`.
 - 2026-10-08 (part 1): After release 1, prune this repository's untracked
   `project-map.md` to the skill's own size rules (D9 b: 41 Key Files
   against "10-20"). This is not a release.
+- 2026-10-08 (part 2): The whole-branch review of release 1 found that the
+  new recall notes say "grep session-log.md, then session-log-archive.md",
+  while `skills/context-management/SKILL.md:59` and `:147` grep the archive
+  only when the log gives 0 hits. The user chose: always search the archive
+  too. The two skill sentences change; the notes stay as decided in D2. The
+  change goes into part 3.
+- 2026-10-08 (part 3): The A3 security-review step goes between the
+  task-brief script and the implementer dispatch of SDD Core Flow step 3.
+  The bullet at `skills/subagent-driven-development/SKILL.md:68` is split
+  into two bullets ("Run `scripts/task-brief …`" and "Dispatch the
+  implementer …"), and the new bullet stands between them. The user chose
+  this over the three lens positions (before the bullet; after it, twice):
+  it is the only place that reads in run order, and the only pin on that
+  line is a folded one (`tests/reviewer-templates/run-tests.sh:827`).
