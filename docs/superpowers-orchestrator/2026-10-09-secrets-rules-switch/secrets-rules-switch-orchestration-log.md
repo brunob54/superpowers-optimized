@@ -12,3 +12,8 @@ readiness owed: 2 undecidable conflicts (spec 9.1 file-reading code against "exi
 - Task 1: complete — shared name-list helper (commits 3040091..d164c68)
 - Task 2: complete — hook output extras, test helper and pins (commits 3ca5019..12555fd)
 - Task 3: complete — protect-secrets switch (commits a51597a..71f0f6f)
+
+## Phase 3 — Batch 2 (tasks 4–6) — COMPLETE — commits 63cc36c..0332b6c
+- Task 4: complete — closing sentence and hidden name (commits 63cc36c..d102690)
+- Task 5: complete — report of unknown names (commits 778627b..96eef3d)
+- Task 6: complete — behavioural test isolated from the switch (commits 4a33eae..082ae82)
