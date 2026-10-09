@@ -999,7 +999,7 @@ git commit -m "feat(protect-secrets): every refusal tells an assistant to ask th
 - Verification: the section `the report of unknown names` in `tests/codex/test-protect-secrets.js` (refused Bash call; refused Read; known names only; pass; `unreadable-command`; a block-dangerous-commands name), and the name count check (43 distinct names).
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/codex/test-protect-secrets.js`:
 
@@ -1066,12 +1066,12 @@ const sameList = (actual, expected) => (JSON.stringify(actual) === JSON.stringif
   report.check('known names only: no report', compare(knownOnly.result, DENY, SSH_KEY) || noReport(knownOnly));
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/codex/test-protect-secrets.js | grep -E "✗|passed" | head`
 Expected: FAIL — the checks `a refused call: the unknown names are in the log record, each once, in order`, `a refused Read carries the same report` and `a name from a block-dangerous-commands refusal is reported as unknown` fail (the log record has no `unknown_names` field yet). `SYSTEM_MESSAGE_SHIPS` is not exported yet, so it reads as `undefined`, which counts as false.
 
-- [ ] **Step 3: Build the report in protect-secrets**
+- [x] **Step 3: Build the report in protect-secrets**
 
 In `hooks/safety/protect-secrets.js`:
 
@@ -1137,17 +1137,17 @@ function finishRefusal(result) {
   };
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/codex/test-protect-secrets.js | tail -3 && node tests/codex/test-pretool-bash-adapter.js | tail -2 && node tests/codex/test-block-dangerous-commands.js | tail -2`
 Expected: PASS — every output ends with `0 failed`.
 
-- [ ] **Step 5: Check the live shape of one refusal with an unknown name**
+- [x] **Step 5: Check the live shape of one refusal with an unknown name**
 
 Run: `H=$(mktemp -d) && echo '{"tool_name":"Read","tool_input":{"file_path":"/p/'$(printf '.%s' env)'"},"session_id":"s1"}' | HOME=$H SUPERPOWERS_SECRETS_RULES_OFF=foo node hooks/safety/protect-secrets.js && echo && cat $H/.claude/hooks-logs/*.jsonl && rm -rf $H`
 Expected: the first line is a refusal with `[env-file]` and no top-level `systemMessage` key; the log line holds `"unknown_names":["foo"]` before `"level":"BLOCKED"`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/safety/protect-secrets.js tests/codex/test-protect-secrets.js
