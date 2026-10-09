@@ -264,7 +264,7 @@ git commit -m "refactor(hooks): share the name-list parser of the switches" --tr
 - Verification: the new checks in `tests/codex/test-block-dangerous-commands.js` (pin of one complete refusal; throwing extras; working extras; leak rejected); the existing checks of that file and of `tests/codex/test-protect-secrets.js` keep passing.
 - Interface not externally pinned — signatures above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Change the test helper (test infrastructure, no hook behaviour yet)**
+- [x] **Step 1: Change the test helper (test infrastructure, no hook behaviour yet)**
 
 In `tests/codex/safety-hook-helper.js`:
 
@@ -365,12 +365,12 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Run the two safety suites to see that the helper change broke nothing**
+- [x] **Step 2: Run the two safety suites to see that the helper change broke nothing**
 
 Run: `node tests/codex/test-block-dangerous-commands.js | tail -2 && node tests/codex/test-protect-secrets.js | tail -2`
 Expected: PASS — both end with `0 failed`.
 
-- [ ] **Step 3: Write the fixture hook**
+- [x] **Step 3: Write the fixture hook**
 
 Create `tests/codex/fixtures/hook-with-extras.js`:
 
@@ -409,7 +409,7 @@ runHook('hook-with-extras', ['Bash', 'Read'], (data) => {
 });
 ```
 
-- [ ] **Step 4: Write the pin and the extras tests**
+- [x] **Step 4: Write the pin and the extras tests**
 
 In `tests/codex/test-block-dangerous-commands.js`:
 
@@ -463,12 +463,12 @@ const RESET_LOG_KEYS = 'cwd,hook,id,level,permission_mode,session_id,target,tool
   report.section('message, log and hook input');
 ```
 
-- [ ] **Step 5: Run the tests to verify the new checks fail**
+- [x] **Step 5: Run the tests to verify the new checks fail**
 
 Run: `node tests/codex/test-block-dangerous-commands.js | grep -E "✗|passed"`
 Expected: FAIL — the checks `an extra that works: the message is in the output` and `each of the three refusals is logged, and only the working extra adds its field` fail (hook-io.js does not write extras yet); the two `pin:` checks pass; the leak check passes (the helper change of Step 1 already does it).
 
-- [ ] **Step 6: Change the shared output code**
+- [x] **Step 6: Change the shared output code**
 
 In `hooks/safety/hook-io.js`, add this function directly before the comment block of `runHook` (after `firstRefusal`):
 
@@ -511,12 +511,12 @@ Replace the body of `if (result.blocked) { ... }` with:
     }
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `node tests/codex/test-block-dangerous-commands.js | tail -2 && node tests/codex/test-protect-secrets.js | tail -2 && node tests/codex/test-pretool-bash-adapter.js | tail -2`
 Expected: PASS — every output ends with `0 failed`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add hooks/safety/hook-io.js tests/codex/safety-hook-helper.js tests/codex/fixtures/hook-with-extras.js tests/codex/test-block-dangerous-commands.js
