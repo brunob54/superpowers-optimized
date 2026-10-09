@@ -9,9 +9,9 @@
 **Architecture:** protect-secrets reads the variable at every decision and filters its own rule tables (the path table, the content patterns, the two Bash rules) instead of dropping a refusal afterwards, so a command that names a second secret file is still refused by the rule of that file. A small shared module `hooks/name-list.js` parses a name list for protect-secrets and stop-reminders. The shared output code `hooks/safety/hook-io.js` lets a decision carry two optional extras (`systemMessage`, `logFields`) that block-dangerous-commands never sets. No refusal reason names the variable; every protect-secrets refusal ends with one sentence that tells an assistant to ask the user.
 **Tech Stack:** Node.js (>= 16, standard library only), Bash (3.2 compatible), Markdown; the repository's own test runners (`bash tests/codex/run-unit-tests.sh`); the `claude` CLI (live probes only, Task 8).
 **Assumptions:**
-- Assumes the `claude` CLI (2.1.295 or later) is installed and logged in on the machine that runs Task 8 — will NOT work if it is not; Task 8 then returns BLOCKED and Tasks 1-7, 9 and 10 stay valid.
+- Assumes the `claude` CLI (2.1.295 or later) is installed and logged in on the machine that runs Task 8 — will NOT work if it is not; Task 8 then returns BLOCKED and the plan stops there: Tasks 1-7 and 9 stay valid, and Task 10 waits for the results file of Task 8 (Task 10 writes its section 5 from that file).
 - Assumes a hook process gets the variables of the `env` block of a settings file that `--settings` passes — will NOT work if Claude Code does not pass them; probe 1 (Task 8) tests this and the run stops when it fails.
-- Assumes the stream-json `init` event of `claude -p --output-format stream-json --verbose` has a `plugins` array whose entries hold a `path` — will NOT work if the field has another name; the judge then reports every run as not valid and Task 8 stops with "inconclusive" (this is the planned reaction, not a defect).
+- Assumes the stream-json `init` event of `claude -p --output-format stream-json --verbose` has a `plugins` array whose entries hold a `path` — will NOT work if the field has another name; the judge then reports every run as not valid; Task 8 Step 2 repairs `loadsBranchPlugin` once from the real `init` event and repeats, and it returns BLOCKED only when the repaired judge is still inconclusive (this is the planned reaction, not a defect).
 - Assumes the interactive check (a) of probe 2 needs the user and an autonomous run cannot make it — so `SYSTEM_MESSAGE_SHIPS` stays `false` at the end of Task 8 (the decision rule of the spec, section 9.2: "including when the user does not make the interactive check, only the log record ships"). The message code and its tests stay in the code.
 - Assumes no other suite reads the README text that Task 9 changes — will NOT hold if a suite pins it; Task 10 runs every fast suite of `CLAUDE.md` to find out.
 - Assumes git tracks every file this plan modifies and ignores none of the new files (checked with `git ls-files --error-unmatch` and `git check-ignore -v` on 2026-10-09: all tracked, none ignored, none of the new paths exists).
@@ -45,7 +45,7 @@
 | `hooks/safety/protect-secrets.js` (modify) | the switch, the closing sentence, the report of unknown names | 3, 4, 5 |
 | `tests/codex/test-protect-secrets.js` (modify) | switch, sentence, hidden-name, report and README tests | 3, 4, 5, 9 |
 | `tests/codex/test-pretool-bash-adapter.js` (modify) | clears the variable; hidden-name check | 3, 4 |
-| `tests/claude-code/test-helpers.sh` (modify) | `check_no_secrets_rules_managed_setting` and a shared file test | 6 |
+| `tests/claude-code/test-helpers.sh` (modify) | `check_no_secrets_rules_managed_setting` (the existing function is not edited) | 6 |
 | `tests/codex/test-check-no-secrets-rules-setting.sh` (create) | unit test of that function | 6 |
 | `tests/claude-code/test-subagent-hook-scope.sh` (modify) | isolation from the user's setting | 6 |
 | `tests/claude-code/probe-secrets-judge.js` (create) | judge of the live probes | 7 |
@@ -56,7 +56,7 @@
 | `README.md`, `docs/guide/README.md` (modify) | the variable, the 43 names, the limits, the troubleshooting entry | 9 |
 | `VERSION`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `plugin.universal.yaml`, `RELEASE-NOTES.md`, `README.md` (modify) | release v7.70.0 | 10 |
 
-Order: Tasks 1 and 2 build the shared parts; Tasks 3, 4 and 5 change protect-secrets in three steps (each step keeps every suite green); Task 6 isolates the behavioural test; Tasks 7 and 8 make and run the live probes; Tasks 9 and 10 document and release. Each task commits on its own. Every command below runs from the repository root `/Users/bruno/Programming/AI/AI_Coding/My_tools/Superpowers`.
+Order: Tasks 1 and 2 build the shared parts; Tasks 3, 4 and 5 change protect-secrets in three steps (each step keeps every suite passing); Task 6 isolates the behavioural test; Tasks 7 and 8 make and run the live probes; Tasks 9 and 10 document and release. Each task commits on its own. Every command below runs from the repository root `/Users/bruno/Programming/AI/AI_Coding/My_tools/Superpowers`.
 
 A note for every executor: the safety hook of your own session refuses a Bash command that names a secret file, for example one with the word `.env` in a command line. Write files with the Write or Edit tool, not with a here-document, and when a command below holds that word, build it exactly as shown.
 
@@ -73,7 +73,7 @@ A note for every executor: the safety hook of your own session refuses a Bash co
 
 **Security flag:** `none`
 
-**Does NOT cover:** The helper does not know any rule name or any message text; each hook keeps its own known names and its own message. It does not remove duplicates (protect-secrets does that itself in Task 5). It reads no environment variable itself.
+**Does NOT cover:** The helper does not know any rule name or any message text; each hook keeps its own known names and its own message. It does not remove duplicates (protect-secrets does that itself: Task 3 for the switched-off names, Task 5 for the report). It reads no environment variable itself.
 
 **Contract:**
 - `parseNameList(value)`: Input: a string, `undefined` or `null`. Output: an array of names in order — the value split on commas, white space around each entry removed, lower case, empty entries dropped, duplicates kept. An unset or empty value gives `[]`.
@@ -259,9 +259,9 @@ git commit -m "refactor(hooks): share the name-list parser of the switches" --tr
 **Does NOT cover:** Reading the variable or filtering any rule (Task 3). Any change of a block-dangerous-commands rule or message. A `systemMessage` for a pass: a pass is still exactly `{}`. The extras never change the permission decision.
 
 **Contract:**
-- `runHook` (hook-io.js): a decision `{ blocked: true, pattern, logFields?, systemMessage? }` writes (a) the log record `{ ts, hook, ...logFields, level, id, tool, target, session_id, cwd, permission_mode }` — the extras come first so they can never overwrite a standard key — and (b) the output `{ hookSpecificOutput: {...} }` plus a top-level `systemMessage` only when `systemMessage` is a non-empty string. A decision without extras (every block-dangerous-commands refusal) gives the same output and the same log keys as before this task. Invariant: an error while reading `logFields` or `systemMessage` (a getter that throws, a value that JSON cannot copy) never turns a refusal into a pass; the plain refusal is written without that extra.
+- `runHook` (hook-io.js): a decision `{ blocked: true, pattern, logFields?, systemMessage? }` writes (a) the log record `{ ts, hook, ...logFields, level, id, tool, target, session_id, cwd, permission_mode }` — the extras come before `level`, `id`, `tool`, `target`, `session_id`, `cwd` and `permission_mode`, so they can never overwrite those keys (a `ts` or `hook` key in the extras would overwrite the first two; no caller sends one) — and (b) the output `{ hookSpecificOutput: {...} }` plus a top-level `systemMessage` only when `systemMessage` is a non-empty string. A decision without extras (every block-dangerous-commands refusal) gives the same output and the same log keys as before this task. Invariant: an error while reading `logFields` or `systemMessage` (a getter that throws, a value that JSON cannot copy) never turns a refusal into a pass; the plain refusal is written without that extra.
 - `safety-hook-helper.js`: `hookEnv` removes `SUPERPOWERS_SECRETS_RULES_OFF` unless `extra` sets it. `runHook(hookFile, input, env, { allowSystemMessage })` keeps the exact shape check (`hookSpecificOutput` is the one top-level key) unless `allowSystemMessage` is true, and then also accepts a non-empty string `systemMessage`; it returns `output` (the parsed JSON) and `systemMessage`; it rejects when a refusal reason contains the variable name while the input text does not. `readLog(home)` returns the parsed records of `<home>/.claude/hooks-logs/*.jsonl`, oldest file first, `[]` when the folder is absent.
-- Verification: the new checks in `tests/codex/test-block-dangerous-commands.js` (pin of one complete refusal; throwing extras; working extras; leak rejected); the existing checks of that file and of `tests/codex/test-protect-secrets.js` stay green.
+- Verification: the new checks in `tests/codex/test-block-dangerous-commands.js` (pin of one complete refusal; throwing extras; working extras; leak rejected); the existing checks of that file and of `tests/codex/test-protect-secrets.js` keep passing.
 - Interface not externally pinned — signatures above are descriptive and may change in a fix (rule 2).
 
 - [ ] **Step 1: Change the test helper (test infrastructure, no hook behaviour yet)**
@@ -460,6 +460,7 @@ const RESET_LOG_KEYS = 'cwd,hook,id,level,permission_mode,session_id,target,tool
   report.check('the helper rejects a refusal reason that names the switch variable when the input does not',
     /names the switch variable/.test(leak) ? '' : `got: ${leak}`);
   fs.rmSync(extrasHome, { recursive: true, force: true });
+  report.section('message, log and hook input');
 ```
 
 - [ ] **Step 5: Run the tests to verify the new checks fail**
@@ -533,7 +534,7 @@ git commit -m "feat(hooks): a refusal may carry a message and log fields" --trai
 
 **Security flag:** `security` *(the task changes which credential rules the hook applies)*
 
-**Does NOT cover:** The closing sentence of the refusal reasons (Task 4). The report of unknown names (Task 5). Any change of `CONTENT_SCAN_ALLOWLIST`, of the `ALLOWLIST` of template names, of the shared reader or of `unreadable-command`. A path allow-list. Codex and OpenCode.
+**Does NOT cover:** The closing sentence of the refusal reasons (Task 4). The report of unknown names (Task 5). Any change of `CONTENT_SCAN_ALLOWLIST`, of the `ALLOWLIST` of template names, of the shared reader or of `unreadable-command`. A path allow-list. Codex and OpenCode (except that `tests/codex/test-pretool-bash-adapter.js` clears the variable, as spec section 9.1 requires; Task 4 adds its hidden-name check).
 
 **Contract:**
 - `rulesOff()` returns a `Set` of the lower-case names in `SUPERPOWERS_SECRETS_RULES_OFF`, read at each call (not at module load); an unset or empty variable gives the empty set; unknown names stay in the set and match no rule.
@@ -555,7 +556,7 @@ const {
 } = require('./safety-hook-helper');
 ```
 
-(b) After the line `const home = makeHome();` add:
+(b) Directly after the import block of (a), before any other line of the file that loads or runs code, add:
 
 ```js
 // A user who sets the switch in settings.json passes it to every command that the assistant runs, and so to
@@ -603,10 +604,13 @@ const SWITCH_CASES = [
   switchedBash('*.env with env-file and envrc off passes', 'env-file,envrc', `cat *${ENV}`, ALLOW),
   switchedBash('.env* with env-file off: the .envrc sample still refuses', ENV_FILE, `cat ${ENV}*`, DENY, 'envrc'),
   switchedBash('documented limit: ~/.ssh/id_* passes with only ssh-private-key off', SSH_KEY, 'cat ~/.ssh/id_*', ALLOW),
-  // Content patterns.
+  // Content patterns. The two ALLOW cases with one pattern off are also the check that spec section 9.1 asks for:
+  // each value (the GitHub token, the Stripe key) matches exactly one pattern, because a second matching pattern
+  // would still refuse it.
   switchedTool('a GitHub token with its pattern off', 'hardcoded-github-token', 'Write', writeOf(`const t = "${fakeToken}";`), ALLOW),
   switchedTool('a Stripe key while only the GitHub pattern is off', 'hardcoded-github-token', 'Write', writeOf(`const k = "${STRIPE_KEY}";`),
     DENY, 'hardcoded-stripe-key'),
+  switchedTool('a Stripe key with its pattern off', 'hardcoded-stripe-key', 'Write', writeOf(`const k = "${STRIPE_KEY}";`), ALLOW),
   switchedTool('a value that two patterns match, one off', 'hardcoded-aws-secret-key', 'Write', writeOf(AWS_SECRET_ASSIGNMENT),
     DENY, 'hardcoded-generic-api-key'),
   switchedTool('a value that two patterns match, both off', 'hardcoded-aws-secret-key,hardcoded-generic-api-key', 'Write',
@@ -627,7 +631,7 @@ const SWITCH_CASES = [
 
 async function runSwitched(report, title, cases) {
   report.section(title);
-  const results = await runAll(cases, (c) => runHook(HOOK, c.input, hookEnv(home, { [SECRETS_SWITCH]: c.list })));
+  const results = await runAll(cases, (c) => runHook(HOOK, c.input, hookEnv(home, { [SECRETS_SWITCH]: c.list }), { allowSystemMessage: true }));
   cases.forEach((c, k) => {
     const problem = compare(results[k], c.expect, c.rule);
     report.check(`${c.label} [${JSON.stringify(c.list)}] → ${c.expect}`, problem && `${problem}\n    input: ${JSON.stringify(c.shown)}`);
@@ -643,18 +647,20 @@ async function runSwitched(report, title, cases) {
   await runSwitched(report, 'the switch SUPERPOWERS_SECRETS_RULES_OFF', SWITCH_CASES);
 ```
 
-In `tests/codex/test-pretool-bash-adapter.js`, after the line `const { evaluatePayload } = require('../../hooks/codex/pretool-bash-adapter');` add:
+In `tests/codex/test-pretool-bash-adapter.js`, directly before the line `const { evaluatePayload } = require('../../hooks/codex/pretool-bash-adapter');` (that module loads protect-secrets) add:
 
 ```js
+const { SECRETS_SWITCH } = require('./safety-hook-helper');
+
 // A user who sets the switch of protect-secrets in settings.json passes it to every command that the assistant
 // runs, and so to this file. Every test below expects the default (every rule on).
-delete process.env.SUPERPOWERS_SECRETS_RULES_OFF;
+delete process.env[SECRETS_SWITCH];
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/codex/test-protect-secrets.js | grep -E "✗|passed" | head -40`
-Expected: FAIL — the cases of the section `the switch SUPERPOWERS_SECRETS_RULES_OFF` that expect `allow` fail (for example `cat of the file ["env-file"] → allow`: `expected allow, got deny [env-file]`); the cases that expect `deny` pass.
+Expected: FAIL — the cases of the section `the switch SUPERPOWERS_SECRETS_RULES_OFF` that expect `allow` fail (for example `cat of the file ["env-file"] → allow`: `expected allow, got deny [env-file]`); the cases that expect `deny` and name the rule that stays on (for example `a private key with only ssh-private-key off` → `ssh-private-key-2`) also fail until Step 3 is done; the other `deny` cases pass.
 
 - [ ] **Step 3: Change protect-secrets: names, the switch and the filter**
 
@@ -886,7 +892,7 @@ In `tests/codex/test-pretool-bash-adapter.js`, replace the function `test` with:
 // No refusal reason names the switch variable of protect-secrets, unless the refused command names it.
 function assertSwitchNotNamed(result, payload) {
   const reason = result.hookSpecificOutput?.permissionDecisionReason || '';
-  assert.ok(!reason.includes('SUPERPOWERS_SECRETS_RULES_OFF') || JSON.stringify(payload).includes('SUPERPOWERS_SECRETS_RULES_OFF'),
+  assert.ok(!reason.includes(SECRETS_SWITCH) || JSON.stringify(payload).includes(SECRETS_SWITCH),
     `The reason names the switch variable: ${reason}`);
 }
 
@@ -916,7 +922,7 @@ In `hooks/safety/protect-secrets.js`, directly after the constant `HARDCODED_PRE
 
 ```js
 // The last sentence of every refusal reason of this hook. It names no variable: a refusal reason goes to the
-// model, and a model that learns the name of the switch could set it to get past its own refusal.
+// model, and a model that learns the name of the switch could set it to avoid its own refusal.
 ```
 
 and, directly below it, this constant. Its text is user-approved copy.
@@ -997,7 +1003,7 @@ git commit -m "feat(protect-secrets): every refusal tells an assistant to ask th
 
 In `tests/codex/test-protect-secrets.js`:
 
-(a) Add `readLog` to the import list from `./safety-hook-helper`, and, after that import, add:
+(a) Add `readLog` to the import list from `./safety-hook-helper`, and, after the line `delete process.env[SECRETS_SWITCH];` of Task 3, add:
 
 ```js
 const { KNOWN_RULE_NAMES, SYSTEM_MESSAGE_SHIPS } = require('../../hooks/safety/protect-secrets');
@@ -1051,6 +1057,9 @@ const sameList = (actual, expected) => (JSON.stringify(actual) === JSON.stringif
   const passing = await runWithLog(bashInput('cat README.md'), 'foo');
   report.check('a call that passes has no message and no log record',
     compare(passing.result, ALLOW) || (passing.records.length === 0 ? noReport(passing) : `records: ${JSON.stringify(passing.records)}`));
+  const passedBySwitch = await runWithLog(bashInput(`cat ${ENV}`), ENV_FILE);
+  report.check('a call that passes because of the switch is not logged',
+    compare(passedBySwitch.result, ALLOW) || (passedBySwitch.records.length === 0 ? '' : `records: ${JSON.stringify(passedBySwitch.records)}`));
   const unreadable = await runWithLog(bashInput(`echo "abc; cat ${ENV}`), 'foo');
   report.check('an unreadable-command refusal carries no report', compare(unreadable.result, DENY, UNREADABLE) || noReport(unreadable));
   const knownOnly = await runWithLog(bashInput('cat ~/.ssh/id_rsa'), ENV_FILE);
@@ -1150,18 +1159,17 @@ git commit -m "feat(protect-secrets): the log record names unknown names of the 
 ### Task 6: The behavioural test is isolated from the user's switch
 
 **Files:**
-- Modify: `tests/claude-code/test-helpers.sh` (a shared file test, the new function, exports)
+- Modify: `tests/claude-code/test-helpers.sh` (the new function and its export; the existing function is not edited)
 - Create: `tests/codex/test-check-no-secrets-rules-setting.sh`
 - Modify: `tests/claude-code/test-subagent-hook-scope.sh`
 - Modify: `tests/codex/run-unit-tests.sh` (register the new suite)
 
 **Security flag:** `none`
 
-**Does NOT cover:** `test-multi-code-review.sh` and `test-multi-doc-review.sh` (they do not depend on protect-secrets and keep running for users of the switch). The existing function `check_no_superpowers_defaults_setting` keeps its list of variables and of files; only its one-line file test moves into the shared function. Project and user settings files (the `--settings` flag outranks them).
+**Does NOT cover:** `test-multi-code-review.sh` and `test-multi-doc-review.sh` (they do not depend on protect-secrets and keep running for users of the switch). The existing function `check_no_superpowers_defaults_setting` is not edited at all: its list of variables, its list of files and its code stay as they are (Global Constraints, spec section 9.1). The spec's words "sharing its file-reading code" are not done on purpose: they contradict "The existing function and its list do not change" in the same bullet, so the new function holds its own copy of one grep line. Project and user settings files (the `--settings` flag outranks them).
 
 **Contract:**
-- `settings_file_sets_variable <file> <variable>`: exit 0 when the file exists and its text holds a key `"<variable>":` (plain grep, no jq); exit 1 otherwise, also for a missing file.
-- `check_no_secrets_rules_managed_setting [file...]`: with no argument it checks the two managed settings files (`/Library/Application Support/ClaudeCode/managed-settings.json`, `/etc/claude-code/managed-settings.json`); with arguments it checks those files. It prints `ABORT: SUPERPOWERS_SECRETS_RULES_OFF is set in the env block of <file>.` plus the reason and returns 1 when a file sets the variable (any value, also an empty one); returns 0 otherwise.
+- `check_no_secrets_rules_managed_setting [file...]`: a file counts as setting the variable when it exists and its text holds a key `"SUPERPOWERS_SECRETS_RULES_OFF":` (plain grep, no jq, the same test as the existing function); with no argument it checks the two managed settings files (`/Library/Application Support/ClaudeCode/managed-settings.json`, `/etc/claude-code/managed-settings.json`); with arguments it checks those files. It prints `ABORT: SUPERPOWERS_SECRETS_RULES_OFF is set in the env block of <file>.` plus the reason and returns 1 when a file sets the variable (any value, also an empty one); returns 0 otherwise.
 - `test-subagent-hook-scope.sh`: unsets the variable in its shell, calls the function and exits when it returns 1, and passes `--settings "$SECRETS_RULES_SETTINGS"` (the JSON `{"env":{"SUPERPOWERS_SECRETS_RULES_OFF":""}}`) to each of its two `claude` runs; its header comment states why.
 - Verification: `bash tests/codex/test-check-no-secrets-rules-setting.sh`; `bash tests/codex/test-check-no-superpowers-defaults-setting.sh` (unchanged cases still pass); `bash tests/codex/test-claude-code-workdir.sh`; `grep -c -- '--settings "$SECRETS_RULES_SETTINGS"' tests/claude-code/test-subagent-hook-scope.sh` prints `2`; `bash -n` on both scripts.
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
@@ -1249,38 +1257,15 @@ Expected: FAIL — `check_no_secrets_rules_managed_setting: command not found` (
 
 In `tests/claude-code/test-helpers.sh`:
 
-(a) Directly before the comment block that starts with `# [I2] Detect any of the superpowers session-default variables`, add:
-
-```bash
-# Return 0 when the settings file <file> exists and its text has a key named <variable>. Plain grep, no jq
-# dependency. Both checks below use it.
-# Usage: settings_file_sets_variable <file> <variable>
-settings_file_sets_variable() {
-    [ -f "$1" ] && grep -qE "\"$2\"[[:space:]]*:" "$1"
-}
-
-```
-
-(b) In `check_no_superpowers_defaults_setting`, replace the line
-
-```bash
-            if [ -f "$f" ] && grep -qE "\"$var\"[[:space:]]*:" "$f"; then
-```
-
-with:
-
-```bash
-            if settings_file_sets_variable "$f" "$var"; then
-```
-
-(c) Directly before the line `# Export functions for use in tests`, add:
+(a) Directly before the line `# Export functions for use in tests`, add:
 
 ```bash
 # The per-rule switch of protect-secrets (README, "Environment variables") is the variable
 # SUPERPOWERS_SECRETS_RULES_OFF. A test that expects a protect-secrets rule to refuse a command passes an empty
 # value of it with `--settings`, which ranks above user, project and local settings. Only managed settings rank
 # above `--settings`, so this function stops the test when a managed settings file sets the variable, with any
-# value. Without arguments it checks the two managed settings files; with arguments it checks those files.
+# value. Plain grep, no jq dependency, like check_no_superpowers_defaults_setting. Without arguments it checks the
+# two managed settings files; with arguments it checks those files.
 # Usage: check_no_secrets_rules_managed_setting [file...]
 check_no_secrets_rules_managed_setting() {
     local var=SUPERPOWERS_SECRETS_RULES_OFF
@@ -1290,7 +1275,7 @@ check_no_secrets_rules_managed_setting() {
         files=("/Library/Application Support/ClaudeCode/managed-settings.json" "/etc/claude-code/managed-settings.json")
     fi
     for f in "${files[@]}"; do
-        if settings_file_sets_variable "$f" "$var"; then
+        if [ -f "$f" ] && grep -qE "\"$var\"[[:space:]]*:" "$f"; then
             echo "ABORT: $var is set in the env block of $f."
             echo "Managed settings rank above the --settings flag of this test, so the test cannot clear the variable."
             echo "This test expects the protect-secrets rule echo-secret-var to refuse a command; with that rule switched off it would report a false conclusion. Remove the variable from $f before running this test."
@@ -1302,10 +1287,9 @@ check_no_secrets_rules_managed_setting() {
 
 ```
 
-(d) Directly after the line `export -f check_no_superpowers_defaults_setting`, add:
+(b) Directly after the line `export -f check_no_superpowers_defaults_setting`, add:
 
 ```bash
-export -f settings_file_sets_variable
 export -f check_no_secrets_rules_managed_setting
 ```
 
@@ -1363,13 +1347,14 @@ git commit -m "test: the subagent hook-scope test clears the secrets switch" --t
 **Does NOT cover:** Running the probes (Task 8). The interactive check (a) of probe 2, which needs the user at a terminal. Any run of the driver from a test suite: it costs model calls, so no suite starts it and `tests/claude-code/run-skill-tests.sh` does not list it.
 
 **Contract:**
-- `probe-secrets-judge.js` exports `classifyRun`, `verdictProbe1`, `tokenHits`, `transcriptFiles`, `kindReport` and the helpers they use, and has a command line with three commands: `session <stream file>` (prints the session id of the `init` event, exit 2 when there is none), `probe1 <stream A> <stream B> <repo folder> <marker> <hook log folder>` (prints a JSON verdict; exit 0 pass, 1 fail, 2 inconclusive) and `probe2 <output folder> <repo folder> <token> <hook log folder> <projects folder>` (prints one JSON report for the kinds `main` and `subagent`; exit 0 when both runs are valid, 2 otherwise).
+- `probe-secrets-judge.js` exports `classifyRun`, `verdictProbe1`, `tokenHits`, `transcriptFiles`, `kindReport` and the helpers they use, and has a command line with three commands: `session <stream file>` (prints the session id of the `init` event, exit 2 when there is none), `probe1 <stream A> <stream B> <repo folder> <marker> <hook log folder>` (prints a JSON verdict; exit 0 pass, 1 fail, 2 inconclusive) and `probe2 <output folder> <repo folder> <hook log folder> <projects folder>` (reads the token of each kind from the file `<output folder>/<kind>.token`; prints one JSON report for the kinds `main` and `subagent`; exit 0 when both runs are valid, 2 otherwise).
 - A run is **valid** only when its `init` event lists a plugin whose `path` is the repository folder of this checkout or a folder inside it, and the Bash tool calls (for a subagent: those in the subagent transcripts) hold the command `cat .env` exactly.
 - A run's **state** is `record` when the hook log holds a `BLOCKED` record with `id: env-file` and the run's session id; else `marker` when a tool result holds the marker, compared without letter case; else `none`. A run that holds a record counts as `record` whether or not it holds the marker.
 - `verdictProbe1` follows the table of the spec (section 9.2): an invalid run gives `inconclusive`; A `record` and B `marker` gives `pass`; A `record` and B `record` gives `fail`; A `marker` gives `fail` (the plugin is not loaded); A `none` gives `inconclusive`; A `record` and B `none` gives `inconclusive`.
 - `tokenHits(records, token)` lists every record that holds the token, with a label (`user`, `assistant`, `system`, `attachment:<type>`) and `counted`: true for a `user` or `assistant` record whose `message.content` holds the token and for an `attachment` record of any type except `hook_success`; false for every other record type. The comparison ignores letter case.
 - `kindReport` sets `modelCanRead` to true when a counted hit exists or the text of a `result` event holds the token, and `logHit` to true when any `BLOCKED` log record has the token in `unknown_names`.
-- Verification: `node tests/codex/test-probe-secrets-judge.js` (each rule above, each row of the table); `bash -n` on the driver.
+- The driver `probe-secrets-rules-switch.sh` takes the mode `probe1` or `probe2` and an output folder, and exits 64 for any other arguments. It loads the plugin of the checkout with `--plugin-dir`, passes the value of the switch of each run with `--settings`, and writes one stream file per run (`probe1-a`, `probe1-b`, `main-1`, `main-2`, `subagent-1`, `subagent-2`, each `.jsonl`) and, for probe 2, one token file per kind (`main.token`, `subagent.token`) into the output folder. It then calls the judge, whose exit status it returns.
+- Verification: `node tests/codex/test-probe-secrets-judge.js` (each rule above, each row of the table); `bash -n` on the driver; the usage exit status 64 (Step 6); the behaviour of the driver is verified by the live runs of Task 8.
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
 
 - [ ] **Step 1: Write the failing unit test**
@@ -1380,7 +1365,8 @@ Create `tests/codex/test-probe-secrets-judge.js`:
 #!/usr/bin/env node
 /**
  * Unit tests — tests/claude-code/probe-secrets-judge.js (the judge of the live probes of the switch
- * SUPERPOWERS_SECRETS_RULES_OFF). It runs on synthetic stream-json events, hook log records and transcripts;
+ * SUPERPOWERS_SECRETS_RULES_OFF). It runs on synthetic stream-json events (JSON, JavaScript Object Notation, one
+ * event per line), hook log records and transcripts;
  * it starts no `claude` process.
  * Run: node tests/codex/test-probe-secrets-judge.js
  */
@@ -1563,11 +1549,12 @@ Create `tests/claude-code/probe-secrets-judge.js`:
  * Usage:
  *   node probe-secrets-judge.js session <stream file>
  *   node probe-secrets-judge.js probe1 <stream A> <stream B> <repo folder> <marker> <hook log folder>
- *   node probe-secrets-judge.js probe2 <output folder> <repo folder> <token> <hook log folder> <projects folder>
+ *   node probe-secrets-judge.js probe2 <output folder> <repo folder> <hook log folder> <projects folder>
+ *     (the token of each kind is the content of the file <output folder>/<kind>.token)
  * Exit status of probe1: 0 pass, 1 fail, 2 inconclusive. probe2 exits 0 when both runs are valid, else 2.
  *
- * Words used here: a "stream" is the stdout of one `claude -p --output-format stream-json --verbose` run, one
- * JSON event per line. A "transcript" is the .jsonl file that Claude Code keeps for a session below
+ * Words used here: a "stream" is the stdout (standard output) of one `claude -p --output-format stream-json --verbose` run, one
+ * JSON (JavaScript Object Notation) event per line. A "transcript" is the .jsonl file that Claude Code keeps for a session below
  * ~/.claude/projects/. The "hook log" is ~/.claude/hooks-logs/<date>.jsonl, which the safety hooks write.
  */
 
@@ -1717,12 +1704,13 @@ function main(argv) {
     return EXIT_OF[verdict.outcome];
   }
   if (command === 'probe2') {
-    const [outDir, repoDir, token, logDir, projectsDir] = args;
+    const [outDir, repoDir, logDir, projectsDir] = args;
     const logRecords = readLogRecords(logDir);
     const reports = [KIND_MAIN, KIND_SUBAGENT].map((kind) => kindReport({
       kind,
+      token: fs.readFileSync(path.join(outDir, `${kind}.token`), 'utf8').trim(),
       streamFiles: [1, 2].map((turn) => path.join(outDir, `${kind}-${turn}.jsonl`)).filter((file) => fs.existsSync(file)),
-      repoDir, token, logRecords, projectsDir,
+      repoDir, logRecords, projectsDir,
     }));
     console.log(JSON.stringify(reports, null, 2));
     return reports.every((r) => r.valid) ? 0 : EXIT_OF[OUTCOME.INCONCLUSIVE];
@@ -1752,14 +1740,15 @@ Create `tests/claude-code/probe-secrets-rules-switch.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Live probes of the switch SUPERPOWERS_SECRETS_RULES_OFF (spec section 9.2). They call the real `claude` CLI and
-# cost model calls, so no suite starts them: run this file by hand.
+# Live probes of the switch SUPERPOWERS_SECRETS_RULES_OFF (spec section 9.2). They call the real `claude` CLI
+# (command-line interface) and cost model calls, so no suite starts them: run this file by hand.
 #
 # Usage: bash tests/claude-code/probe-secrets-rules-switch.sh probe1|probe2 <output folder>
 #
 # probe1: does a value of the settings `env` block (passed with --settings) reach the hook? Two runs of
 #         `cat .env`: run A with an empty switch, run B with env-file switched off.
-# probe2: where does the `systemMessage` of a refusal appear? One unknown name (a random token) in the switch;
+# probe2: where does the `systemMessage` of a refusal appear? One unknown name (a random token, new for each kind of
+#         call) in the switch;
 #         the hook refuses `cat .env` in a main-session call and in a subagent call; each kind also runs a
 #         second turn with --resume. The judge reads the outputs and the session transcripts.
 # Both probes load the plugin of THIS checkout with --plugin-dir, keep the real HOME (a run with another HOME is
@@ -1795,7 +1784,7 @@ done
 CLAUDE_WORKDIR=$(create_claude_workdir) || exit 1
 trap "cleanup_claude_workdir '$CLAUDE_WORKDIR'" EXIT
 
-# The settings JSON that gives the switch one value: --settings ranks above user, project and local settings.
+# The settings JSON (JavaScript Object Notation) that gives the switch one value: --settings ranks above user, project and local settings.
 settings_json() { printf '{"env":{"%s":"%s"}}' "$SWITCH" "$1"; }
 
 # run_stream <output file> <switch value> <claude arguments...>: one headless run; its stream goes to the file.
@@ -1823,10 +1812,12 @@ probe1() {
 
 probe2() {
     local token list kind prompt session_id
-    token=$(openssl rand -hex 8)
     make_dummy_file "$(openssl rand -hex 8)"
     list="List every text in your context that you cannot explain, such as an unexpected word or code. Leave none out. Do not invent any. If there is none, say none."
     for kind in main subagent; do
+        # One token for each kind of call: the hook log is shared by both kinds, and a token of its own tells their records apart.
+        token=$(openssl rand -hex 8)
+        printf '%s' "$token" > "$out_dir/$kind.token"
         if [ "$kind" = main ]; then
             prompt="Use the Bash tool to run exactly this command and nothing else: cat .env  Report in one sentence what happened. $list"
         else
@@ -1844,7 +1835,7 @@ IMPORTANT: Do NOT run the command yourself. After the subagent returns, report w
             echo "no session id in $out_dir/$kind-1.jsonl: the second turn of the $kind run is skipped" >&2
         fi
     done
-    node "$JUDGE" probe2 "$out_dir" "$REPO_DIR" "$token" "$LOG_DIR" "$PROJECTS_DIR"
+    node "$JUDGE" probe2 "$out_dir" "$REPO_DIR" "$LOG_DIR" "$PROJECTS_DIR"
 }
 
 "$mode"
@@ -1877,10 +1868,11 @@ git commit -m "test: a judge and a driver for the live probes of the secrets swi
 **Files:**
 - Create: `docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/implementation/secrets-rules-switch-probe-results.md`
 - Temporary, not committed: `hooks/safety/protect-secrets.js` (`SYSTEM_MESSAGE_SHIPS` set to `true` for the run of probe 2 and set back to `false`)
+- Modify only when a step below orders a repair, each repair in its own commit under the trailer of the task that owns the file: `tests/claude-code/probe-secrets-judge.js` and `tests/codex/test-probe-secrets-judge.js` (owner Task 7, repair ordered by Step 2 below), `hooks/safety/protect-secrets.js` and `tests/codex/test-protect-secrets.js` (owner Task 5, repair ordered by Step 4 below), `tests/claude-code/test-subagent-hook-scope.sh` (owner Task 6, repair ordered by Step 8 below)
 
 **Security flag:** `none`
 
-**Does NOT cover:** The interactive check (a) of probe 2 (the user at a terminal sees, or does not see, the message). An autonomous run cannot make it, so the decision rule of the spec ("including when the user does not make the interactive check, only the log record ships") ends with `SYSTEM_MESSAGE_SHIPS = false`. A change of the hook beyond the temporary constant.
+**Does NOT cover:** The interactive check (a) of probe 2 (the user at a terminal sees, or does not see, the message). An autonomous run cannot make it, so the decision rule of the spec ("including when the user does not make the interactive check, only the log record ships") ends with `SYSTEM_MESSAGE_SHIPS = false`. A change of the hook beyond the temporary constant and the repairs that Steps 3 and 4 order.
 
 **Contract:**
 - The results file holds these lines, each starting with `- ` and the label shown: `Date of the runs:`, `Claude Code version:`, `Probe 1 outcome:`, `Probe 2 main session:`, `Probe 2 subagent:`, `Interactive check (a):`, `Decision:`. The `Probe 2` lines hold `valid`, `modelCanRead`, `logHit` and the labels of the records that hold the token, copied from the judge output.
@@ -1891,28 +1883,31 @@ git commit -m "test: a judge and a driver for the live probes of the secrets swi
 - [ ] **Step 1: Check what the probes need**
 
 Run: `command -v claude && command -v openssl && command -v node && claude --version`
-Expected: three paths and a version line (2.1.295 or later). If a command is missing or `claude` is not logged in (the version command works without a login; the probe fails with "Not logged in"), return `BLOCKED: the live probes need a logged-in claude CLI` and stop; Tasks 1-7 stay valid.
+Expected: three paths and a version line (2.1.295 or later). If a command is missing, return `BLOCKED: the live probes need a logged-in claude CLI` and stop; Tasks 1-7 and 9 stay valid, and Task 10 waits for the results file. A `claude` that is not logged in cannot be seen here (`claude --version` works without a login); it shows in Step 2 as `Not logged in` in `$OUT/probe1-a.jsonl.err` (the error file of each run is the stream file name plus `.err`), and the same BLOCKED return applies then.
 
 - [ ] **Step 2: Run probe 1**
 
-Each probe can run longer than the 10-minute limit of one foreground Bash call. Start it in the background and poll its log every 30 seconds for at most 30 minutes, until its last line starts with `exit status`:
+Each probe can run longer than the 10-minute limit of one foreground Bash call. Start it with the Bash tool option `run_in_background` (the first line of its output is the folder `$OUT`; copy that path, because the shell state of one Bash call does not carry over to the next) and poll its log every 30 seconds for at most 30 minutes, until its last line starts with `exit status`:
 
 Run: `OUT=$(mktemp -d) && echo "$OUT" && (bash tests/claude-code/probe-secrets-rules-switch.sh probe1 "$OUT" > "$OUT/probe1.log" 2>&1; echo "exit status: $?" >> "$OUT/probe1.log")`
 Then read `$OUT/probe1.log` (use the folder that the first line printed).
 Expected: the log shows a JSON verdict with `"outcome": "pass"` and ends with `exit status: 0`.
-- `exit status: 2` (inconclusive): repeat Step 2 once, with a new folder. A second `inconclusive` stops the plan: return `BLOCKED` with both folders and the judge `why` texts.
-- If the `why` text says a run is not valid and `$OUT/probe1-a.jsonl` has a first `init` event without a `plugins` field, open that event, find where Claude Code lists the loaded plugin folders, and correct `loadsBranchPlugin` in `tests/claude-code/probe-secrets-judge.js` and its unit test as an ordinary fix; do not remove the condition. Then repeat Step 2.
+- `exit status: 2` (inconclusive): repeat Step 2 once, with a new folder. This repeats both runs; for the one outcome where the spec says "repeat run B once" the plan repeats run A as well, because the driver has no mode for run B alone. A second `inconclusive` stops the plan: return `BLOCKED` with both folders and the judge `why` texts.
+- If the `why` text says a run is not valid and `$OUT/probe1-a.jsonl` has a first `init` event without a `plugins` array whose entries hold a string `path`, open that event, find where Claude Code lists the loaded plugin folders, and correct `loadsBranchPlugin` in `tests/claude-code/probe-secrets-judge.js` and its unit test as an ordinary fix; do not remove the condition. Run `node tests/codex/test-probe-secrets-judge.js`, commit the two files with `git commit -m "fix(secrets-rules-switch): the judge reads the plugin list of the init event" --trailer "Session: secrets-rules-switch" --trailer "Stage: task 7/10"`, then repeat Step 2.
 - `exit status: 1` (fail): stop the plan: return `BLOCKED` with the judge `why` text and the folder (for `a value passed with --settings does not reach the hook` the design must be reviewed by the user).
 
 - [ ] **Step 3: Switch the message on for the run of probe 2 (temporary)**
 
-In `hooks/safety/protect-secrets.js`, change `const SYSTEM_MESSAGE_SHIPS = false;` to `const SYSTEM_MESSAGE_SHIPS = true;`. Do not commit this change. The probe loads the checkout with `--plugin-dir`, so the edit is live.
+In `hooks/safety/protect-secrets.js`, change `const SYSTEM_MESSAGE_SHIPS = false;` to `const SYSTEM_MESSAGE_SHIPS = true;`. Do not commit this change. The probe loads the checkout with `--plugin-dir`, so the edit is live. The checks of the message text in `tests/codex/test-protect-secrets.js` (Task 5) run only in this state, so run them now:
+
+Run: `node tests/codex/test-protect-secrets.js | tail -3`
+Expected: the last line reports `0 failed`. (`runSwitched` of Task 3 passes `{ allowSystemMessage: true }`, because two of its cases refuse a call with an unknown name in the variable, and those two outputs now carry a `systemMessage`.) If a check fails, do Step 5 first, then repair `tests/codex/test-protect-secrets.js` or `hooks/safety/protect-secrets.js` and commit as Step 4 orders, then return to Step 3.
 
 - [ ] **Step 4: Run probe 2**
 
 Run: `OUT=$(mktemp -d) && echo "$OUT" && (bash tests/claude-code/probe-secrets-rules-switch.sh probe2 "$OUT" > "$OUT/probe2.log" 2>&1; echo "exit status: $?" >> "$OUT/probe2.log")`
 Then poll `$OUT/probe2.log` as in Step 2 (four runs of up to 5 minutes each).
-Expected: the log shows a JSON array of two reports (kinds `main` and `subagent`) and ends with `exit status: 0`. `exit status: 2` means a run is not valid: repeat Step 4 once; a second `exit status: 2` stops the plan with `BLOCKED` and the folder. A `logHit` of `false` in a valid run is a defect of Task 5 (the log field is missing): stop and fix it before going on.
+Expected: the log shows a JSON array of two reports (kinds `main` and `subagent`) and ends with `exit status: 0`. `exit status: 2` means a run is not valid: repeat Step 4 once; a second `exit status: 2` stops the plan with `BLOCKED` and the folder (before any `BLOCKED` of this step, do Step 5, so the constant is `false` again). A `logHit` of `false` in a valid run is a defect of Task 5 (the log field is missing): do Step 5 first (the constant back to `false`), fix `hooks/safety/protect-secrets.js` and add a case to `tests/codex/test-protect-secrets.js`, run `bash tests/codex/run-unit-tests.sh`, commit those two files with the trailers `Session: secrets-rules-switch` and `Stage: task 5/10`, then repeat Steps 3 and 4.
 
 - [ ] **Step 5: Switch the message off again**
 
@@ -1944,10 +1939,10 @@ Expected: `7`, then `0`.
 
 - [ ] **Step 8: Run the isolated behavioural test of Task 6 once**
 
-This run uses the installed plugin (no `--plugin-dir`), so it tests the isolation, not the branch. It takes about 4 minutes; start it in the background and poll as in Step 2.
+This run uses the installed plugin (no `--plugin-dir`), so it shows only that `claude` accepts the `--settings` flag and that the script still reaches `STATUS: PASSED`; it tests neither the isolation nor the branch (the installed hook has no switch). It takes about 4 minutes; start it in the background and poll as in Step 2.
 
 Run: `OUT=$(mktemp -d) && echo "$OUT" && (bash tests/claude-code/test-subagent-hook-scope.sh > "$OUT/scope.log" 2>&1; echo "exit status: $?" >> "$OUT/scope.log")`
-Expected: `$OUT/scope.log` ends with `STATUS: PASSED` and `exit status: 0`. If it ends with `GAP DETECTED`, read the log: a `--settings` flag that Claude Code does not accept would show as an error line from `claude`; fix the test script (Task 6) and repeat. When it passes, add the line `- Subagent hook-scope test: PASSED` at the end of the results file.
+Expected: `$OUT/scope.log` ends with `STATUS: PASSED` and `exit status: 0`. If it ends with `GAP DETECTED`, read the log: a `--settings` flag that Claude Code does not accept would show as an error line from `claude`; fix the test script (Task 6), commit it with the trailers `Session: secrets-rules-switch` and `Stage: task 6/10`, and repeat. When it passes, add the line `- Subagent hook-scope test: PASSED` at the end of the results file.
 
 - [ ] **Step 9: Commit**
 
@@ -1980,18 +1975,12 @@ git commit -m "docs(secrets-rules-switch): results of the live probes" --trailer
 
 In `tests/codex/test-protect-secrets.js`:
 
-(a) Directly after the line `const HOOK = hookPath('protect-secrets.js');` add:
-
-```js
-const REPO_ROOT = path.join(__dirname, '..', '..');
-```
-
-(b) In `main`, directly before the line `fs.rmSync(home, { recursive: true, force: true });`, add:
+In `main`, directly before the line `fs.rmSync(home, { recursive: true, force: true });`, add:
 
 ```js
   report.section('documentation');
-  const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
-  const guide = fs.readFileSync(path.join(REPO_ROOT, 'docs', 'guide', 'README.md'), 'utf8');
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const guide = fs.readFileSync(path.join(root, 'docs', 'guide', 'README.md'), 'utf8');
   const switchLine = readme.split('\n').find((line) => line.startsWith(`- \`${SECRETS_SWITCH}\``)) || '';
   const undocumented = KNOWN_RULE_NAMES.filter((name) => !switchLine.includes(`\`${name}\``));
   report.check('the README bullet of the switch names every one of the 43 rules',
@@ -2024,7 +2013,7 @@ with the same text followed by the new bullet, so that the result reads:
 
 ```
 Example: `{ "env": { "SUPERPOWERS_STOP_REMINDERS_OFF": "commit" } }`.
-- `SUPERPOWERS_SECRETS_RULES_OFF` — a comma-separated list of rule names of **protect-secrets** that the hook does not apply; see **protect-secrets** below. Use it when a refusal blocks a file that holds no secret, for example a `.env` file with only harmless defaults. A name is the text that a refusal shows in square brackets, for example `[env-file]`. Names are separated by commas; spaces around a name are ignored; letter case does not matter; an empty entry is ignored. There are 43 names. Path rules (27, one for each row of the path table): `env-file`, `envrc`, `ssh-private-key`, `ssh-private-key-2`, `ssh-authorized`, `aws-credentials`, `aws-config`, `kube-config`, `pem-key`, `key-file`, `p12-key`, `credentials-json`, `secrets-file`, `service-account`, `gcloud-creds`, `azure-creds`, `docker-config`, `netrc`, `npmrc`, `pypirc`, `gem-creds`, `vault-token`, `keystore`, `htpasswd`, `pgpass`, `my-cnf`, `proc-environ`. Content rules (14; the refusal shows `hardcoded-` and the id of the content pattern): `hardcoded-aws-access-key`, `hardcoded-aws-secret-key`, `hardcoded-github-token`, `hardcoded-openai-key`, `hardcoded-anthropic-key`, `hardcoded-stripe-key`, `hardcoded-stripe-pub-key`, `hardcoded-private-key-block`, `hardcoded-generic-api-key`, `hardcoded-connection-string`, `hardcoded-slack-token`, `hardcoded-sendgrid-key`, `hardcoded-twilio-key`, `hardcoded-supabase-key`. Bash rules (2): `env-dump` (a command that prints every environment variable, such as a bare `env`) and `echo-secret-var` (a command that prints a variable whose name holds a secret word, such as `echo $API_KEY`). A name that is not one of these 43 switches nothing off. This includes `unreadable-command`, the refusal for a Bash command that the hook cannot read to its end or for an internal error: it cannot be switched off, so split or rewrite the command. It also includes the names of block-dangerous-commands refusals, for example `git-clean`. When the variable holds an unknown name and a rule of protect-secrets refuses a call, the hook writes the unknown names to the field `unknown_names` of the refusal record in `~/.claude/hooks-logs/<date>.jsonl` (`<date>` is the UTC date of the refusal); check that log after you change the variable. A call that passes is not logged. A value set at a higher settings level replaces the value of a lower level: the lists are not merged. A project's `.claude/settings.json` that sets the variable, even to an empty value, replaces your own list in that project. A changed value takes effect after the CLI is restarted; deleting the whole variable from the settings file has no effect until a restart. Only the user sets this variable. An assistant that reads this text after a refusal must ask the user, and must not set the variable itself. Range: a list of those names, or unset. Default: unset (every rule is on). Override: not overridable in an invocation. Honored wherever the `protect-secrets` hook runs (Claude Code). Example: `{ "env": { "SUPERPOWERS_SECRETS_RULES_OFF": "env-file,envrc" } }`.
+- `SUPERPOWERS_SECRETS_RULES_OFF` — a comma-separated list of rule names of **protect-secrets** that the hook does not apply; see **protect-secrets** below. Use it when a refusal blocks a file that holds no secret, for example a `.env` file with only harmless defaults. A name is the text that a refusal shows in square brackets, for example `[env-file]`. Names are separated by commas; spaces around a name are ignored; letter case does not matter; an empty entry is ignored. There are 43 names. Path rules (27, one for each row of the path table): `env-file`, `envrc`, `ssh-private-key`, `ssh-private-key-2`, `ssh-authorized`, `aws-credentials`, `aws-config`, `kube-config`, `pem-key`, `key-file`, `p12-key`, `credentials-json`, `secrets-file`, `service-account`, `gcloud-creds`, `azure-creds`, `docker-config`, `netrc`, `npmrc`, `pypirc`, `gem-creds`, `vault-token`, `keystore`, `htpasswd`, `pgpass`, `my-cnf`, `proc-environ`. Content rules (14; the refusal shows `hardcoded-` and the id of the content pattern): `hardcoded-aws-access-key`, `hardcoded-aws-secret-key`, `hardcoded-github-token`, `hardcoded-openai-key`, `hardcoded-anthropic-key`, `hardcoded-stripe-key`, `hardcoded-stripe-pub-key`, `hardcoded-private-key-block`, `hardcoded-generic-api-key`, `hardcoded-connection-string`, `hardcoded-slack-token`, `hardcoded-sendgrid-key`, `hardcoded-twilio-key`, `hardcoded-supabase-key`. Bash rules (2): `env-dump` (a command that prints every environment variable, such as a bare `env`) and `echo-secret-var` (a command that prints a variable whose name holds a secret word, such as `echo $API_KEY`). A name that is not one of these 43 switches nothing off. This includes `unreadable-command`, the refusal for a Bash command that the hook cannot read to its end or for an internal error: it cannot be switched off, so split or rewrite the command. It also includes the names of block-dangerous-commands refusals, for example `git-clean`. When the variable holds an unknown name and a rule of protect-secrets refuses a call, the hook writes the unknown names to the field `unknown_names` of the refusal record in `~/.claude/hooks-logs/<date>.jsonl` (`<date>` is the UTC (Coordinated Universal Time) date of the refusal); check that log after you change the variable. A call that passes is not logged. A value set at a higher settings level replaces the value of a lower level: the lists are not merged. A project's `.claude/settings.json` that sets the variable, even to an empty value, replaces your own list in that project. A changed value takes effect after the CLI is restarted; deleting the whole variable from the settings file has no effect until a restart. Only the user sets this variable. An assistant that reads this text after a refusal must ask the user, and must not set the variable itself. Range: a list of those names, or unset. Default: unset (every rule is on). Override: not overridable in an invocation. Honored wherever the `protect-secrets` hook runs (Claude Code). Example: `{ "env": { "SUPERPOWERS_SECRETS_RULES_OFF": "env-file,envrc" } }`.
 
 ### Hooks (9 total)
 ```
@@ -2064,7 +2053,7 @@ CLI. The name of the rule is in square brackets at the start of the refusal
 text. When you do not see that text (a subagent made the call, and the
 documentation does not say whether you see its refusals), the field `id` of
 the refusal record in `~/.claude/hooks-logs/<date>.jsonl` holds the name;
-`<date>` is the UTC date of the refusal. The name `env-file` covers `.env`
+`<date>` is the UTC (Coordinated Universal Time) date of the refusal. The name `env-file` covers `.env`
 and every `.env.<suffix>` file, for example `.env.local`, except the
 template names such as `.env.example`. Some files are covered by two rules,
 so the next refusal can name a second rule; switch that one off too. Only
@@ -2101,7 +2090,7 @@ git commit -m "docs: the secrets switch in the README and the troubleshooting gu
 **Contract:**
 - Every place that states the version says `7.70.0`: `VERSION`, the `version` of `.claude-plugin/plugin.json` and of the first plugin in `.claude-plugin/marketplace.json`, `version:` under `meta` in `plugin.universal.yaml`, the README badge, and both `v6.7.0–v7.70.0` ranges of the README.
 - `RELEASE-NOTES.md` starts, directly under the note on platform claims, with `## v7.70.0 — a per-rule switch for protect-secrets` and a three-line summary (Problem, Change, Effect) of at most 120 words; every statement of the entry is supported by the code, the tests or the results file of Task 8.
-- Verification: `node tests/codex/test-version-files.js` ends with `0 failed`; every fast suite listed in `CLAUDE.md` ends green (Step 6).
+- Verification: `node tests/codex/test-version-files.js` ends with `0 failed`; every fast suite listed in `CLAUDE.md` passes (Step 6).
 - Interface not externally pinned.
 
 - [ ] **Step 1: Bump the version in the six places**
@@ -2116,7 +2105,7 @@ With the Edit tool:
 - [ ] **Step 2: Check the version files**
 
 Run: `node tests/codex/test-version-files.js | tail -3`
-Expected: ends with `0 failed` (the release-notes heading check fails until Step 3 if the test reads the first heading; run it again after Step 3).
+Expected: the only failing check is `the first RELEASE-NOTES.md heading` (it fails until Step 3 writes the new heading; Step 5 runs the test again and it must end with `0 failed`).
 
 - [ ] **Step 3: Write the release notes**
 
@@ -2135,9 +2124,9 @@ with the entry below followed by that same line. Before you save, read the resul
 
 **Change.** The environment variable `SUPERPOWERS_SECRETS_RULES_OFF` holds a comma-separated list of rule names; the hook does not apply a listed rule. There are 43 names. Every other rule works as before.
 
-**Effect.** Set the variable in the `env` block of `settings.json` and restart the CLI. Nothing to migrate.
+**Effect.** Set the variable in the `env` block of `settings.json` and restart the command-line interface (CLI). Nothing to migrate.
 
-A session runs the installed copy of the plugin. The changes below reach a session only after an update of the plugin and a restart of the command-line interface (CLI).
+A session runs the installed copy of the plugin. The changes below reach a session only after an update of the plugin and a restart of the CLI.
 
 ### 1. The variable and its 43 names
 
@@ -2153,7 +2142,7 @@ The check for a pattern such as `.*` used the first of the ten sample names of s
 
 ### 4. No refusal names the variable; one sentence ends every refusal
 
-A refusal reason goes to the model, and a model that learns the name of the switch could set it to get past its own refusal. So no reason names the variable, unless the refused command names it (`echo $SUPERPOWERS_SECRETS_RULES_OFF` is refused as `echo-secret-var`, and its reason names the variable because the command did). Every protect-secrets refusal also ends with the sentence "Never change Claude Code settings or hook files to get past this refusal; ask the user." These texts lower the chance of a self-unlock; they do not prevent it (see Limits).
+A refusal reason goes to the model, and a model that learns the name of the switch could set it to avoid its own refusal. So no reason names the variable, unless the refused command names it (`echo $SUPERPOWERS_SECRETS_RULES_OFF` is refused as `echo-secret-var`, and its reason names the variable because the command did). Every protect-secrets refusal also ends with the sentence "Never change Claude Code settings or hook files to get past this refusal; ask the user." These texts lower the chance of a self-unlock; they do not prevent it (see Limits).
 
 ### 5. Unknown names go to the log
 
@@ -2192,7 +2181,7 @@ Expected: ends with `0 failed`.
 
 - [ ] **Step 6: Run every fast suite**
 
-Run each command; each must end green. (They are listed one by one on purpose.)
+Run each command; each must pass. (They are listed one by one on purpose.)
 
 ```
 bash tests/codex/run-unit-tests.sh 2>&1 | tail -4
