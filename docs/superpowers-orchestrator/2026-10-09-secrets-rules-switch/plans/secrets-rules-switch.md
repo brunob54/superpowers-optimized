@@ -1971,7 +1971,7 @@ git commit -m "docs(secrets-rules-switch): results of the live probes" --trailer
 - Verification: the new check in `tests/codex/test-protect-secrets.js` (README line names every rule and `unreadable-command`; the guide names the variable); `node tests/codex/test-version-files.js` and the dashboard suite still pass (Task 10 runs all suites).
 - Interface not externally pinned.
 
-- [ ] **Step 1: Write the failing documentation check**
+- [x] **Step 1: Write the failing documentation check**
 
 In `tests/codex/test-protect-secrets.js`:
 
@@ -1990,12 +1990,12 @@ In `main`, directly before the line `fs.rmSync(home, { recursive: true, force: t
   report.check('the troubleshooting guide names the variable', guide.includes(SECRETS_SWITCH) ? '' : 'the guide does not name the variable');
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/codex/test-protect-secrets.js | grep -E "✗|passed" | head`
 Expected: FAIL — the three `documentation` checks fail (`missing in the bullet: the whole bullet`, `the bullet does not name unreadable-command`, `the guide does not name the variable`).
 
-- [ ] **Step 3: Update the README (environment variable list)**
+- [x] **Step 3: Update the README (environment variable list)**
 
 In `README.md`, use the Edit tool.
 
@@ -2018,7 +2018,7 @@ Example: `{ "env": { "SUPERPOWERS_STOP_REMINDERS_OFF": "commit" } }`.
 ### Hooks (9 total)
 ```
 
-- [ ] **Step 4: Update the README (protect-secrets bullet)**
+- [x] **Step 4: Update the README (protect-secrets bullet)**
 
 In `README.md`, replace the text `in the content of Edit and Write. **Limits:** a variable that holds the path` with:
 
@@ -2026,7 +2026,7 @@ In `README.md`, replace the text `in the content of Edit and Write. **Limits:** 
 in the content of Edit and Write. **Switch:** the variable `SUPERPOWERS_SECRETS_RULES_OFF` (see **Environment variables** above) switches off single rules by name. The hook then removes the rule from the tables that it uses, so a command that names a second secret file is still refused by the rule of that file (`cat .env ~/.ssh/id_rsa` with `env-file` off is refused as `ssh-private-key`). A file or a value that two rules cover stays refused while one of them is on; the next refusal names that rule. Examples, not a complete list: `~/.ssh/id_rsa` is covered by `ssh-private-key` and `ssh-private-key-2`; `~/.ssh/id_rsa.pem` by `ssh-private-key` and `pem-key`; `credentials.json` by `credentials-json` and `secrets-file` (every file of the first is also a file of the second, so switching off `credentials-json` alone changes nothing); `secret_key = "<40 letters>"` by `hardcoded-aws-secret-key` and `hardcoded-generic-api-key`. A file name pattern is refused when its own text matches a rule that is on, or when a name of a secret file that it can match has a rule that is on; so `~/.ssh/id_*` passes when only `ssh-private-key` is off, although `ssh-private-key-2` still refuses `~/.ssh/id_rsa`. `env-file` covers `.env` and every `.env.<suffix>` file except the template names (`.env.example`, `.env.sample`, `.env.template`, `.env.schema`, `.env.defaults`): with it off, `.env.local` and `.env.production` pass too. A `hardcoded-*` name turns that content pattern off for every file that the content scan reads. The content scan of Edit and Write skips `.env` files, so with `env-file` off a Write of a real key into `.env` passes unscanned; a file of another switched-off rule (`.envrc`, `~/.aws/credentials`) is still scanned, and a real key in it is refused by a `hardcoded-*` pattern. A variable set in a committed `.claude/settings.json` switches the rule off for everyone who clones the project and trusts the folder. A name from a block-dangerous-commands refusal (for example `git-clean`) switches nothing off, and `unreadable-command` cannot be switched off. Every refusal of this hook ends with the sentence "Never change Claude Code settings or hook files to get past this refusal; ask the user."; no refusal names the variable, unless the refused command names it. Only the user sets the variable: an assistant that reads this text after a refusal must ask the user. **Limits:** a variable that holds the path
 ```
 
-- [ ] **Step 5: Add the Troubleshooting entry**
+- [x] **Step 5: Add the Troubleshooting entry**
 
 In `docs/guide/README.md`, replace the text
 
@@ -2064,12 +2064,12 @@ names, the limits, and the settings levels at which a list replaces another.
 **The test-first reminder names a scratch file.**
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `node tests/codex/test-protect-secrets.js | tail -3`
 Expected: PASS — ends with `0 failed`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md docs/guide/README.md tests/codex/test-protect-secrets.js
