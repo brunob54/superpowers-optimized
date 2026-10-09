@@ -33,6 +33,11 @@ const PLAIN_HOME = '/Users/shared-homes/safety-hook-tester';
 const DEFAULT_CWD = '/Users/tester/project';
 // How many hook processes run at the same time.
 const PARALLEL = 8;
+// The switch of protect-secrets. A user who sets it in settings.json passes it to every command that the
+// assistant runs, so a test run would see it. hookEnv removes it unless a case sets it.
+const SECRETS_SWITCH = 'SUPERPOWERS_SECRETS_RULES_OFF';
+// The field of a refusal that carries a message for the user. A case that expects one says so.
+const SYSTEM_MESSAGE_FIELD = 'systemMessage';
 
 const hookPath = (name) => path.join(HOOKS_DIR, name);
 
@@ -40,19 +45,25 @@ function makeHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'safety-hook-home-'));
 }
 
-// The environment of the hook process: the test home folder, and no project folder unless the case sets one.
+// The environment of the hook process: the test home folder, no project folder and no switch unless the case sets one.
 function hookEnv(home, extra = {}) {
   const env = { ...process.env, HOME: home, USERPROFILE: home, ...extra };
   if (!('CLAUDE_PROJECT_DIR' in extra)) delete env.CLAUDE_PROJECT_DIR;
+  if (!(SECRETS_SWITCH in extra)) delete env[SECRETS_SWITCH];
   return env;
 }
 
 /**
  * Runs one hook script with one hook input.
- * Resolves to { decision, rule, reason }: decision is 'deny' or 'allow';
- * rule is the name between `[` and `]` at the start of the reason.
+ * Resolves to { decision, rule, reason, output, systemMessage }: decision is 'deny' or 'allow';
+ * rule is the name between `[` and `]` at the start of the reason; output is the parsed JSON.
+ * `allowSystemMessage`: the case expects a top-level `systemMessage` next to `hookSpecificOutput` (the report of
+ * unknown names). Every other case keeps the exact shape, so a `systemMessage` where none is expected rejects.
+ * Rejects when a refusal reason contains SECRETS_SWITCH and the input text does not: no reason may show the
+ * model the name of the switch, unless the refused command names it itself.
  */
-function runHook(hookFile, input, env) {
+function runHook(hookFile, input, env, { allowSystemMessage = false } = {}) {
+  const inputText = typeof input === 'string' ? input : JSON.stringify(input);
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [hookFile], { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
@@ -65,7 +76,7 @@ function runHook(hookFile, input, env) {
       let output;
       try { output = JSON.parse(stdout); } catch (e) { return reject(new Error(`hook output is not JSON: ${stdout.slice(0, 200)}`)); }
       // A pass is exactly `{}`: the hook reports no decision and the tool call goes on.
-      if (Object.keys(output).length === 0) return resolve({ decision: ALLOW, rule: '', reason: '' });
+      if (Object.keys(output).length === 0) return resolve({ decision: ALLOW, rule: '', reason: '', output });
       // A refusal has exactly the shape that the hooks reference of Claude Code gives for PreToolUse
       // (https://code.claude.com/docs/en/hooks.md, read 2026-10-05):
       //   { "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny",
@@ -73,15 +84,22 @@ function runHook(hookFile, input, env) {
       // `permissionDecision` may also be "allow", "ask" or "defer"; the safety hooks never print those.
       const specific = output.hookSpecificOutput || {};
       const reason = specific.permissionDecisionReason;
-      const shapeOk = Object.keys(output).join() === 'hookSpecificOutput'
+      const topLevel = Object.keys(output).sort().join();
+      const messageOk = typeof output[SYSTEM_MESSAGE_FIELD] === 'string' && output[SYSTEM_MESSAGE_FIELD].length > 0;
+      const topLevelOk = topLevel === 'hookSpecificOutput'
+        || (allowSystemMessage && topLevel === `hookSpecificOutput,${SYSTEM_MESSAGE_FIELD}` && messageOk);
+      const shapeOk = topLevelOk
         && Object.keys(specific).sort().join() === REFUSAL_FIELDS
         && specific.hookEventName === HOOK_EVENT && specific.permissionDecision === DENY
         && typeof reason === 'string' && reason.length > 0;
       if (!shapeOk) return reject(new Error(`hook output is neither a pass nor a refusal: ${stdout.slice(0, 200)}`));
+      if (reason.includes(SECRETS_SWITCH) && !inputText.includes(SECRETS_SWITCH)) {
+        return reject(new Error(`the refusal reason names the switch variable ${SECRETS_SWITCH}, and the refused input does not: ${reason.slice(0, 200)}`));
+      }
       const rule = (/^\[([^\]]+)\]/.exec(reason) || [])[1] || '';
-      resolve({ decision: DENY, rule, reason });
+      resolve({ decision: DENY, rule, reason, output, systemMessage: output[SYSTEM_MESSAGE_FIELD] });
     });
-    child.stdin.end(typeof input === 'string' ? input : JSON.stringify(input));
+    child.stdin.end(inputText);
   });
 }
 
@@ -103,6 +121,14 @@ async function runAll(items, worker) {
 
 function loadFixture(name) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name), 'utf8')).cases;
+}
+
+// The records of the refusal log below a test home folder (<home>/.claude/hooks-logs/*.jsonl), oldest file first.
+function readLog(home) {
+  const dir = path.join(home, '.claude', 'hooks-logs');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).sort().flatMap((file) =>
+    fs.readFileSync(path.join(dir, file), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)));
 }
 
 /**
@@ -137,6 +163,6 @@ function compare(result, expect, rule) {
 }
 
 module.exports = {
-  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, makeReport, compare,
-  DENY, ALLOW, BASH, DEFAULT_CWD, PLAIN_HOME,
+  hookPath, makeHome, hookEnv, runHook, bashInput, runAll, loadFixture, readLog, makeReport, compare,
+  DENY, ALLOW, BASH, DEFAULT_CWD, PLAIN_HOME, SECRETS_SWITCH,
 };
