@@ -1880,12 +1880,12 @@ git commit -m "test: a judge and a driver for the live probes of the secrets swi
 - Verification: `grep -cE "^- (Date of the runs|Claude Code version|Probe 1 outcome|Probe 2 main session|Probe 2 subagent|Interactive check \(a\)|Decision):" <results file>` prints `7`; `grep -n "const SYSTEM_MESSAGE_SHIPS" hooks/safety/protect-secrets.js` shows `false`; `git diff --stat hooks/` is empty before the commit.
 - Interface not externally pinned.
 
-- [ ] **Step 1: Check what the probes need**
+- [x] **Step 1: Check what the probes need**
 
 Run: `command -v claude && command -v openssl && command -v node && claude --version`
 Expected: three paths and a version line (2.1.295 or later). If a command is missing, return `BLOCKED: the live probes need a logged-in claude CLI` and stop; Tasks 1-7 and 9 stay valid, and Task 10 waits for the results file. A `claude` that is not logged in cannot be seen here (`claude --version` works without a login); it shows in Step 2 as `Not logged in` in `$OUT/probe1-a.jsonl.err` (the error file of each run is the stream file name plus `.err`), and the same BLOCKED return applies then.
 
-- [ ] **Step 2: Run probe 1**
+- [x] **Step 2: Run probe 1**
 
 Each probe can run longer than the 10-minute limit of one foreground Bash call. Start it with the Bash tool option `run_in_background` (the first line of its output is the folder `$OUT`; copy that path, because the shell state of one Bash call does not carry over to the next) and poll its log every 30 seconds for at most 30 minutes, until its last line starts with `exit status`:
 
@@ -1896,27 +1896,27 @@ Expected: the log shows a JSON verdict with `"outcome": "pass"` and ends with `e
 - If the `why` text says a run is not valid and `$OUT/probe1-a.jsonl` has a first `init` event without a `plugins` array whose entries hold a string `path`, open that event, find where Claude Code lists the loaded plugin folders, and correct `loadsBranchPlugin` in `tests/claude-code/probe-secrets-judge.js` and its unit test as an ordinary fix; do not remove the condition. Run `node tests/codex/test-probe-secrets-judge.js`, commit the two files with `git commit -m "fix(secrets-rules-switch): the judge reads the plugin list of the init event" --trailer "Session: secrets-rules-switch" --trailer "Stage: task 7/10"`, then repeat Step 2.
 - `exit status: 1` (fail): stop the plan: return `BLOCKED` with the judge `why` text and the folder (for `a value passed with --settings does not reach the hook` the design must be reviewed by the user).
 
-- [ ] **Step 3: Switch the message on for the run of probe 2 (temporary)**
+- [x] **Step 3: Switch the message on for the run of probe 2 (temporary)**
 
 In `hooks/safety/protect-secrets.js`, change `const SYSTEM_MESSAGE_SHIPS = false;` to `const SYSTEM_MESSAGE_SHIPS = true;`. Do not commit this change. The probe loads the checkout with `--plugin-dir`, so the edit is live. The checks of the message text in `tests/codex/test-protect-secrets.js` (Task 5) run only in this state, so run them now:
 
 Run: `node tests/codex/test-protect-secrets.js | tail -3`
 Expected: the last line reports `0 failed`. (`runSwitched` of Task 3 passes `{ allowSystemMessage: true }`, because two of its cases refuse a call with an unknown name in the variable, and those two outputs now carry a `systemMessage`.) If a check fails, do Step 5 first, then repair `tests/codex/test-protect-secrets.js` or `hooks/safety/protect-secrets.js` and commit as Step 4 orders, then return to Step 3.
 
-- [ ] **Step 4: Run probe 2**
+- [x] **Step 4: Run probe 2**
 
 Run: `OUT=$(mktemp -d) && echo "$OUT" && (bash tests/claude-code/probe-secrets-rules-switch.sh probe2 "$OUT" > "$OUT/probe2.log" 2>&1; echo "exit status: $?" >> "$OUT/probe2.log")`
 Then poll `$OUT/probe2.log` as in Step 2 (four runs of up to 5 minutes each).
 Expected: the log shows a JSON array of two reports (kinds `main` and `subagent`) and ends with `exit status: 0`. `exit status: 2` means a run is not valid: repeat Step 4 once; a second `exit status: 2` stops the plan with `BLOCKED` and the folder (before any `BLOCKED` of this step, do Step 5, so the constant is `false` again). A `logHit` of `false` in a valid run is a defect of Task 5 (the log field is missing): do Step 5 first (the constant back to `false`), fix `hooks/safety/protect-secrets.js` and add a case to `tests/codex/test-protect-secrets.js`, run `bash tests/codex/run-unit-tests.sh`, commit those two files with the trailers `Session: secrets-rules-switch` and `Stage: task 5/10`, then repeat Steps 3 and 4.
 
-- [ ] **Step 5: Switch the message off again**
+- [x] **Step 5: Switch the message off again**
 
 In `hooks/safety/protect-secrets.js`, change `const SYSTEM_MESSAGE_SHIPS = true;` back to `const SYSTEM_MESSAGE_SHIPS = false;`.
 
 Run: `grep -n "const SYSTEM_MESSAGE_SHIPS" hooks/safety/protect-secrets.js && git diff --stat hooks/`
 Expected: the grep shows `= false;` and `git diff --stat hooks/` prints nothing.
 
-- [ ] **Step 6: Write the results file**
+- [x] **Step 6: Write the results file**
 
 Create `docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/implementation/secrets-rules-switch-probe-results.md` with the Write tool. Content: the heading `# Probe results — secrets-rules-switch`, one sentence that says the probes ran on the branch `feature/secrets-rules-switch` with `--plugin-dir`, then exactly these seven lines, each filled from the runs:
 
@@ -1932,19 +1932,19 @@ Create `docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/implementa
 
 (Each `<...>` in those lines is a value that you copy from the judge output; no line may keep angle brackets.)
 
-- [ ] **Step 7: Check the file**
+- [x] **Step 7: Check the file**
 
 Run: `grep -cE "^- (Date of the runs|Claude Code version|Probe 1 outcome|Probe 2 main session|Probe 2 subagent|Interactive check \(a\)|Decision):" docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/implementation/secrets-rules-switch-probe-results.md; grep -c "[<>]" docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/implementation/secrets-rules-switch-probe-results.md`
 Expected: `7`, then `0`.
 
-- [ ] **Step 8: Run the isolated behavioural test of Task 6 once**
+- [x] **Step 8: Run the isolated behavioural test of Task 6 once**
 
 This run uses the installed plugin (no `--plugin-dir`), so it shows only that `claude` accepts the `--settings` flag and that the script still reaches `STATUS: PASSED`; it tests neither the isolation nor the branch (the installed hook has no switch). It takes about 4 minutes; start it in the background and poll as in Step 2.
 
 Run: `OUT=$(mktemp -d) && echo "$OUT" && (bash tests/claude-code/test-subagent-hook-scope.sh > "$OUT/scope.log" 2>&1; echo "exit status: $?" >> "$OUT/scope.log")`
 Expected: `$OUT/scope.log` ends with `STATUS: PASSED` and `exit status: 0`. If it ends with `GAP DETECTED`, read the log: a `--settings` flag that Claude Code does not accept would show as an error line from `claude`; fix the test script (Task 6), commit it with the trailers `Session: secrets-rules-switch` and `Stage: task 6/10`, and repeat. When it passes, add the line `- Subagent hook-scope test: PASSED` at the end of the results file.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add docs/superpowers-orchestrator/2026-10-09-secrets-rules-switch/implementation/secrets-rules-switch-probe-results.md
