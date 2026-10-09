@@ -1,4 +1,4 @@
-<!-- Work log: status=active slug=group-a-fixes created=2026-10-08 -->
+<!-- Work log: status=closed slug=group-a-fixes created=2026-10-08 closed=2026-10-09 -->
 
 # Work log: Group A plugin fixes (open items of 2026-10-08)
 
@@ -59,7 +59,7 @@ after the run ends.
 |---|------|--------|-------|--------|------|
 | 1 | Design step for A1 to A13 | done | 2026-10-08 | a061765 | record `tmp/docs/2026-10-08-design-section-a.md` |
 | 2 | Release 1: memory files | done | 2026-10-08 | 7aea188 | A4, A5, A10, A11, A12, A13; v7.68.0, merge 2a42184 |
-| 3 | Release 2: hook patterns and security review | in progress | 2026-10-08 | | A1, A2, A3 (D10); archive search rule (decision of 2026-10-08) |
+| 3 | Release 2: hook patterns and security review | done | 2026-10-09 | 7eb582a | A1, A2, A3 (D10); archive search rule (decision of 2026-10-08); v7.69.0, merge e37ac07 |
 | 4 | Release 3: review prompts | dropped | 2026-10-08 | | A3 moved to part 3 (D10) |
 
 Status is one of: `not started`, `in progress`, `done`, `dropped`. A part that
