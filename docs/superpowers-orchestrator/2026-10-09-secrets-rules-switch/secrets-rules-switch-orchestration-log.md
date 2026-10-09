@@ -22,3 +22,6 @@ readiness owed: 2 undecidable conflicts (spec 9.1 file-reading code against "exi
 - Task 7: complete — judge and driver of the live probes (commits 379644c..337c9d4)
 - Task 8: complete — live probes run; SYSTEM_MESSAGE_SHIPS stays false (commits 8c7dddb..7cbb11f)
 - Task 9: complete — README, guide and drift test (commits a1ab17e..bd78043)
+
+## Phase 3 — Batch 4 (tasks 10–10) — COMPLETE — commits 06a3fa1..2bff996
+- Task 10: complete — release v7.70.0 (commits 06a3fa1..4960547)
