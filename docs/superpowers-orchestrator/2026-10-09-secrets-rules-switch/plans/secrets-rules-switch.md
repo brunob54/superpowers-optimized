@@ -544,7 +544,7 @@ git commit -m "feat(hooks): a refusal may carry a message and log fields" --trai
 - Verification: the new section `the switch` in `tests/codex/test-protect-secrets.js` (each documented example of the spec's section 9.1) and all existing cases.
 - Interface not externally pinned — names above are descriptive and may change in a fix (rule 2).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/codex/test-protect-secrets.js`:
 
@@ -657,12 +657,12 @@ const { SECRETS_SWITCH } = require('./safety-hook-helper');
 delete process.env[SECRETS_SWITCH];
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/codex/test-protect-secrets.js | grep -E "✗|passed" | head -40`
 Expected: FAIL — the cases of the section `the switch SUPERPOWERS_SECRETS_RULES_OFF` that expect `allow` fail (for example `cat of the file ["env-file"] → allow`: `expected allow, got deny [env-file]`); the cases that expect `deny` and name the rule that stays on (for example `a private key with only ssh-private-key off` → `ssh-private-key-2`) also fail until Step 3 is done; the other `deny` cases pass.
 
-- [ ] **Step 3: Change protect-secrets: names, the switch and the filter**
+- [x] **Step 3: Change protect-secrets: names, the switch and the filter**
 
 In `hooks/safety/protect-secrets.js`:
 
@@ -796,17 +796,17 @@ with:
  *
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/codex/test-protect-secrets.js | tail -3 && node tests/codex/test-pretool-bash-adapter.js | tail -2 && node tests/codex/test-block-dangerous-commands.js | tail -2`
 Expected: PASS — every output ends with `0 failed`.
 
-- [ ] **Step 5: Check the count of known names**
+- [x] **Step 5: Check the count of known names**
 
 Run: `node -e "console.log(require('./hooks/safety/protect-secrets.js').KNOWN_RULE_NAMES.length)"`
 Expected: `43`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/safety/protect-secrets.js tests/codex/test-protect-secrets.js tests/codex/test-pretool-bash-adapter.js
