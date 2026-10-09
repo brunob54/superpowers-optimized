@@ -2093,7 +2093,7 @@ git commit -m "docs: the secrets switch in the README and the troubleshooting gu
 - Verification: `node tests/codex/test-version-files.js` ends with `0 failed`; every fast suite listed in `CLAUDE.md` passes (Step 6).
 - Interface not externally pinned.
 
-- [ ] **Step 1: Bump the version in the six places**
+- [x] **Step 1: Bump the version in the six places**
 
 With the Edit tool:
 - `VERSION`: replace the whole content with `7.70.0` and one line end (use the Write tool: the file holds one line).
@@ -2102,12 +2102,12 @@ With the Edit tool:
 - `plugin.universal.yaml`: replace `  version: "7.69.0"` with `  version: "7.70.0"`.
 - `README.md`: replace `version-7.69.0-white` with `version-7.70.0-white`, and replace both occurrences of `v6.7.0–v7.69.0` with `v6.7.0–v7.70.0` (use `replace_all` for the range).
 
-- [ ] **Step 2: Check the version files**
+- [x] **Step 2: Check the version files**
 
 Run: `node tests/codex/test-version-files.js | tail -3`
 Expected: the only failing check is `the first RELEASE-NOTES.md heading` (it fails until Step 3 writes the new heading; Step 5 runs the test again and it must end with `0 failed`).
 
-- [ ] **Step 3: Write the release notes**
+- [x] **Step 3: Write the release notes**
 
 In `RELEASE-NOTES.md`, replace the line
 
@@ -2170,16 +2170,16 @@ New suites: `tests/codex/test-name-list.js`, `tests/codex/test-check-no-secrets-
 
 Directly after the last sentence of section 5, add two sentences that the results file supports. Copy the value of `modelCanRead` from its two `Probe 2` lines: `Probe 2 found the unknown name in the context of the model in the main session: yes.` (or `no.`) and `Probe 2 found it in the context of the model in a subagent: yes.` (or `no.`).
 
-- [ ] **Step 4: Check every statement of the entry**
+- [x] **Step 4: Check every statement of the entry**
 
 For each numbered section of the entry, find the code line, the test or the results-file line that supports it, and remove or correct a statement that has no support. In particular check: the count `43` (`node -e "console.log(require('./hooks/safety/protect-secrets.js').KNOWN_RULE_NAMES.length)"` prints `43`), the field name `unknown_names`, the sentence of section 4 (equal to `NO_SETTINGS_CHANGE`), and the two section-5 sentences against the `Probe 2` lines of the results file. Count the words of the three-line summary: at most 120.
 
-- [ ] **Step 5: Run the version test again**
+- [x] **Step 5: Run the version test again**
 
 Run: `node tests/codex/test-version-files.js | tail -3`
 Expected: ends with `0 failed`.
 
-- [ ] **Step 6: Run every fast suite**
+- [x] **Step 6: Run every fast suite**
 
 Run each command; each must pass. (They are listed one by one on purpose.)
 
@@ -2203,7 +2203,7 @@ bash tests/dashboard/run-tests.sh 2>&1 | tail -3
 
 Expected: `All unit tests passed.` for the first; the others end with their pass line and no `FAIL`. A suite that fails on a README or RELEASE-NOTES text points to a pinned sentence that Task 9 or this task changed: correct the document text, not the suite, unless the pin is wrong.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add VERSION .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin.universal.yaml README.md RELEASE-NOTES.md
